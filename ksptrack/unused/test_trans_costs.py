@@ -1,27 +1,25 @@
 from sklearn.metrics import (f1_score,roc_curve,auc,precision_recall_curve)
 import glob
 import warnings, itertools, _pickle, progressbar, sys, os, datetime, yaml, hashlib, json
-import cfg
+from ksptrack.cfgs import cfg
+from ksptrack.utils import learning_dataset
+from ksptrack.utils import superpixel_utils as spix
+from ksptrack import sp_manager as spm
+from ksptrack.utils import csv_utils as csv
+from ksptrack.utils import my_utils as utls
+from ksptrack.utils.data_manager import DataManager 
+
 import pandas as pd
 import pickle as pk
 import numpy as np
-import gazeCsv as gaze
 import matplotlib.pyplot as plt
-import superPixels as spix
 import scipy.io
 from scipy import ndimage
 from skimage import (color, io, segmentation, draw)
-import graphtracking as gtrack
-import my_utils as utls
-import dataset as ds
-import selective_search as ss
 import shutil as sh
-import learning_dataset
 import logging
 from skimage import filters
-import superpixelmanager as spm
 import scipy as sp
-import superPixels as spix
 
 
 def main(arg_cfg):
@@ -31,7 +29,7 @@ def main(arg_cfg):
     cfg_dict = cfg.cfg()
     arg_cfg['seq_type'] = cfg.datasetdir_to_type(arg_cfg['dataSetDir'])
     cfg_dict.update(arg_cfg)
-    conf = cfg.Bunch(cfg_dict)
+    conf = cfg.dict_to_munch(cfg_dict)
 
     #Write config to result dir
     conf.dataOutDir = utls.getDataOutDir(conf.dataOutRoot, conf.dataSetDir, conf.resultDir,
@@ -63,11 +61,8 @@ def main(arg_cfg):
         conf.dataInRoot, conf.dataSetDir, conf.frameExtension)
 
 
-    #conf.myGaze_fg = utls.readCsv(conf.csvName_fg)
     conf.myGaze_fg = utls.readCsv(os.path.join(conf.dataInRoot,conf.dataSetDir,conf.gazeDir,conf.csvFileName_fg))
 
-    #conf.myGaze_bg = utls.readCsv(conf.csvName_bg)
-    gt_positives = utls.getPositives(gtFileNames)
 
     if (conf.labelMatPath != ''):
         conf.labelMatPath = os.path.join(conf.dataOutRoot, conf.dataSetDir, conf.frameDir,
@@ -77,8 +72,7 @@ def main(arg_cfg):
                                     conf.feats_files_dir)
 
     # ---------- Descriptors/superpixel costs
-    my_dataset = ds.Dataset(conf)
-    #my_dataset.flows_mat_to_np()
+    my_dataset = DataManager(conf)
     if(conf.calc_superpix): my_dataset.calc_superpix(save=True)
 
     my_dataset.load_superpix_from_file()
@@ -106,13 +100,13 @@ def main(arg_cfg):
     sps_man_back.make_dicts()
 
     my_dataset.load_pm_fg_from_file()
-    #my_dataset.calc_pm(conf.myGaze_fg,
-    #                   save=True,
-    #                   marked_feats=None,
-    #                   all_feats_df=my_dataset.get_sp_desc_from_file(),
-    #                   in_type='csv_normalized',
-    #                   mode='foreground',
-    #                   feat_fields=['desc'])
+    my_dataset.calc_pm(conf.myGaze_fg,
+                       save=True,
+                       marked_feats=None,
+                       all_feats_df=my_dataset.get_sp_desc_from_file(),
+                       in_type='csv_normalized',
+                       mode='foreground',
+                       feat_fields=['desc'])
 
     conf.myGaze_fg = utls.readCsv(os.path.join(conf.dataInRoot,
                                                conf.dataSetDir,
@@ -122,7 +116,7 @@ def main(arg_cfg):
     my_thresh = 0.8
     lfda_n_samps = 1000
 
-    frame_1 = 95
+    frame_1 = 1
 
     gaze_1 = conf.myGaze_fg[frame_1,3:5]
     g1_i, g1_j = utls.norm_to_pix(gaze_1[0],
@@ -131,7 +125,7 @@ def main(arg_cfg):
                                   labels[...,0].shape[0])
     label_1 = labels[g1_i, g1_j, frame_1]
 
-    frame_2 = 94
+    frame_2 = 2
 
     pm_scores_fg = my_dataset.get_pm_array(mode='foreground', frames=[frame_2])
 
@@ -145,9 +139,9 @@ def main(arg_cfg):
     #y = (pm.loc[(pm['frame'] == frame_2),'proba'] > thresh_aux).as_matrix().astype(int)
     y = (pm['proba'] > my_thresh).as_matrix().astype(int)
 
-    lfda = LFDA(dim=5, k=7)
+    lfda = LFDA(dim=45, k=23)
 
-    n_comps_pca = 7
+    n_comps_pca = 3
 
     from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
     from sklearn.decomposition import PCA
@@ -165,22 +159,22 @@ def main(arg_cfg):
     rand_descs = np.concatenate((rand_descs_pos,rand_descs_neg),axis=0)
     rand_y = np.concatenate((rand_y_pos,rand_y_neg),axis=0)
 
-    lfda.fit(rand_descs, rand_y)
+    #lfda.fit(rand_descs, rand_y)
     #lda.fit(rand_descs, rand_y)
-    #pca.fit(descs_cat)
+    pca.fit(descs_cat)
 
-    f1 = lfda.transform(feat_1)
-    f2 = lfda.transform(descs_2)
+    #f1 = lfda.transform(feat_1)
+    #f2 = lfda.transform(descs_2)
     #f1 = lda.transform(feat_1.reshape(1,-1))
     #f2 = lda.transform(descs_2)
-    #f1 = pca.transform(feat_1.reshape(1,-1))
-    #f2 = pca.transform(descs_2)
+    f1 = pca.transform(feat_1.reshape(1,-1))
+    f2 = pca.transform(descs_2)
     diff_norm = np.linalg.norm(f2-np.tile(f1, (f2.shape[0],1)),axis=1)
 
     dists = np.zeros(labels[...,frame_2].shape)
     for l in np.unique(labels[...,frame_2]):
-        #dists[labels[...,frame_2]==l] = np.exp(-diff_norm[l]**2)
-        dists[labels[...,frame_2]==l] = -diff_norm[l]
+        dists[labels[...,frame_2]==l] = np.exp(-diff_norm[l]**2)
+        #dists[labels[...,frame_2]==l] = -diff_norm[l]
 
     im1 = utls.imread(conf.frameFileNames[frame_1])
     label_cont = segmentation.find_boundaries(labels[...,frame_1], mode='thick')
@@ -208,10 +202,10 @@ def main(arg_cfg):
     #for l in np.unique(labels[...,frame_1]):
     #    centroid =
 
-    im1 =  gaze.drawGazePoint(conf.myGaze_fg,
-                            frame_1,
-                            im1,
-                            radius=7)
+    im1 =  csv.draw2DPoint(conf.myGaze_fg,
+                           frame_1,
+                           im1,
+                           radius=7)
 
     im2 = utls.imread(conf.frameFileNames[frame_2])
     label_cont = segmentation.find_boundaries(labels[...,frame_1], mode='thick')

@@ -10,7 +10,6 @@ import logging
 import ksptrack.sp_manager as spm
 from sklearn.metrics import (f1_score,
                              roc_curve)
-from ksptrack.utils import plot_results_ksp_simple as pksp
 import pickle
 import matplotlib.pyplot as plt
 
@@ -23,12 +22,12 @@ def main(arg_cfg):
     cfg_dict.update(arg_cfg)
     conf = cfg.dict_to_munch(cfg_dict)
 
-    # Write config to result dir
-    conf.dataOutDir = utls.getDataOutDir(conf.dataOutRoot,
-                                         conf.dataSetDir,
-                                         conf.resultDir,
-                                         conf.fileOutPrefix,
-                                         conf.testing)
+    if not('dataOutDir' in arg_cfg.keys()):
+        conf.dataOutDir = utls.getDataOutDir(conf.dataOutRoot,
+                                            conf.dataSetDir,
+                                            conf.resultDir,
+                                            conf.fileOutPrefix,
+                                            conf.testing)
 
     # Set logger
     utls.setup_logging(conf.dataOutDir)
@@ -143,9 +142,9 @@ def main(arg_cfg):
                                  tol=conf.ksp_tol,
                                  mode='edge')
 
-    #g_back = gtrack.GraphTracking(sps_mans,
-    #                              tol=conf.ksp_tol,
-    #                              mode='edge')
+    g_back = gtrack.GraphTracking(sps_mans,
+                                  tol=conf.ksp_tol,
+                                  mode='edge')
 
     g_for.make_trans_transform(my_dataset.sp_desc_df,
                                my_dataset.fg_pm_df,
@@ -155,13 +154,13 @@ def main(arg_cfg):
                                conf.lfda_k,
                                pca=conf.pca)
 
-    #g_back.make_trans_transform(my_dataset.sp_desc_df,
-    #                            my_dataset.fg_pm_df,
-    #                            conf.thresh_aux_fix,
-    #                            conf.lfda_n_samps,
-    #                            conf.lfda_dim,
-    #                            conf.lfda_k,
-    #                            conf.pca)
+    g_back.make_trans_transform(my_dataset.sp_desc_df,
+                                my_dataset.fg_pm_df,
+                                conf.thresh_aux_fix,
+                                conf.lfda_n_samps,
+                                conf.lfda_dim,
+                                conf.lfda_k,
+                                conf.pca)
 
     find_new_forward = True
     find_new_backward = True
@@ -180,18 +179,18 @@ def main(arg_cfg):
 
         if(i == 0):
             # Make backward graph
-            #if(find_new_backward):
+            if(find_new_backward):
 
-            #    g_back.makeFullGraph(
-            #        my_dataset.get_sp_desc_from_file(),
-            #        my_dataset.fg_pm_df,
-            #        my_dataset.centroids_loc,
-            #        utls.pandas_to_std_csv(locs2d),
-            #        my_dataset.conf.normNeighbor_in,
-            #        my_dataset.conf.thresh_aux_fix,
-            #        my_dataset.conf.tau_u,
-            #        direction='backward',
-            #        labels=my_dataset.labels)
+                g_back.makeFullGraph(
+                    my_dataset.get_sp_desc_from_file(),
+                    my_dataset.fg_pm_df,
+                    my_dataset.centroids_loc,
+                    utls.pandas_to_std_csv(locs2d),
+                    my_dataset.conf.normNeighbor_in,
+                    my_dataset.conf.thresh_aux_fix,
+                    my_dataset.conf.tau_u,
+                    direction='backward',
+                    labels=my_dataset.labels)
 
             # Make forward graph
             if(find_new_forward):
@@ -208,7 +207,8 @@ def main(arg_cfg):
                     labels=my_dataset.labels)
 
         else:
-            g_for.merge_tracklets_temporally(my_dataset.centroids_loc,
+            g_for.merge_tracklets_temporally(pos_tls_for,
+                                             my_dataset.centroids_loc,
                                              my_dataset.fg_pm_df,
                                              my_dataset.sp_desc_df,
                                              utls.pandas_to_std_csv(locs2d),
@@ -216,10 +216,10 @@ def main(arg_cfg):
                                              my_dataset.conf.thresh_aux[-1],
                                              my_dataset.get_labels(),
                                              my_dataset.conf.tau_u)
-            g_for.reset_paths()
             pd_csv = utls.pandas_to_std_csv(locs2d)
 
-            g_back.merge_tracklets_temporally(my_dataset.centroids_loc,
+            g_back.merge_tracklets_temporally(pos_tls_back,
+                                              my_dataset.centroids_loc,
                                               my_dataset.fg_pm_df,
                                               my_dataset.sp_desc_df,
                                               pd_csv,
@@ -227,60 +227,50 @@ def main(arg_cfg):
                                               my_dataset.conf.thresh_aux[-1],
                                               my_dataset.get_labels(),
                                               my_dataset.conf.tau_u)
-            g_back.reset_paths()
 
-        logger.info("Computing KSP on forward graph (cxx). (i: " + str(i+1) + ")")
+        logger.info("Computing KSP on forward graph. (i: {})".format(i+1))
         g_for.run()
 
-        dict_ksp['forward_sets'] = utls.ksp2array_tracklets_cxx(
-            g_for.kspSet,
-            g_for.tracklets)
-        dict_ksp['forward_sets'] = g_for.kspSet
+        dict_ksp['forward_sets'], pos_tls_for = utls.ksp2sps(g_for.kspSet,
+                                                             g_for.tracklets)
         dict_ksp['forward_tracklets'] = g_for.tracklets
-        #dict_ksp['forward_costs'] = g_for.costs
 
-        logger.info("Computing KSP on backward graph. (i: " + str(i+1) + ")")
+        logger.info("Computing KSP on backward graph. (i: {}".format(i+1))
         g_back.run()
-        dict_ksp['backward_sets'] = g_back.kspSet
+        dict_ksp['backward_sets'], pos_tls_back = utls.ksp2sps(g_back.kspSet,
+                                                               g_back.tracklets)
         dict_ksp['backward_tracklets'] = g_back.tracklets
         dict_ksp['backward_costs'] = g_back.costs
 
-
         if((find_new_forward or find_new_backward)):
 
-            ksp_scores_mat = utls.get_scores_ksp_tracklets(
-                dict_ksp,
-                np.array([0]),
-                np.arange(0, len(conf.frameFileNames)),
-                conf.frameFileNames,
-                my_dataset.labels,
-                Kmax=None)
+            ksp_scores_mat = utls.sp_tuples_to_mat(
+                dict_ksp['forward_sets'] + dict_ksp['backward_sets'],
+                my_dataset.get_labels())
 
             # Update marked superpixels if graph is not "finished"
             if(find_new_forward):
-                this_marked_for = utls.ksp2array_tracklets(dict_ksp,
-                                        my_dataset.labels,
-                                        arg_direction=['forward_sets'])
+                this_marked_for =  utls.sps2marked(dict_ksp['forward_sets'])
                 my_dataset.update_marked_sp(this_marked_for,
                                             mode='foreground')
 
                 pos_sp_for.append(this_marked_for.shape[0])
 
-                logger.info("Forward graph. Number of positive sps of ksp at iteration " + str(i+1) + ": " + str(this_marked_for.shape[0]))
+                logger.info("""Forward graph. Number of positive sps
+                            of ksp at iteration {}: {}""".format(i+1,
+                                      this_marked_for.shape[0]))
                 if(i > 0):
                     if(pos_sp_for[-1] <= pos_sp_for[-2]):
                         find_new_forward = False
 
             if(find_new_backward):
-                this_marked_back = utls.ksp2array_tracklets(dict_ksp,
-                                        my_dataset.labels,
-                                        arg_direction=['backward_sets'])
+                this_marked_back =  utls.sps2marked(dict_ksp['backward_sets'])
                 my_dataset.update_marked_sp(this_marked_back,
                                             mode='foreground')
                 pos_sp_back.append(this_marked_back.shape[0])
 
                 logger.info("""Backward graph. Number of positive sps of
- ksp at iteration {}: {} """.format(i+1,
+                                ksp at iteration {}: {} """.format(i+1,
                                     this_marked_back.shape[0]))
                 if(i > 0):
                     if(pos_sp_back[-1] <= pos_sp_back[-2]):
@@ -332,7 +322,8 @@ def main(arg_cfg):
                                                conf.lfda_n_samps,
                                                conf.lfda_dim,
                                                conf.lfda_k,
-                                               conf.pca)
+                                               pca=conf.pca,
+                                               n_comps_pca=conf.n_comp_pca)
 
                     g_back.make_trans_transform(my_dataset.sp_desc_df,
                                                 my_dataset.fg_pm_df,
@@ -340,14 +331,10 @@ def main(arg_cfg):
                                                 conf.lfda_n_samps,
                                                 conf.lfda_dim,
                                                 conf.lfda_k,
-                                                conf.pca)
+                                               pca=conf.pca,
+                                               n_comps_pca=conf.n_comp_pca)
 
             i += 1
-
-    logger.info('Merging SPs frame-by-frame')
-    #my_dataset.load_ss_from_file()
-    seeds = np.asarray(utls.get_node_list_tracklets(list_ksp[-1]))
-    my_dataset.update_marked_sp(seeds, mode='foreground')
 
     # Saving KSP-------------------------------------------------
     fileOut = os.path.join(conf.dataOutDir, 'results.npz')
@@ -363,8 +350,7 @@ def main(arg_cfg):
 
     logger.info("done")
 
-    pksp.main(conf, logger=logger)
 
     logger.info('Finished experiment: ' + conf.dataOutDir)
 
-    return conf
+    return conf, logger

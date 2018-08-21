@@ -138,7 +138,7 @@ def cfg():
     n_bins_hoof = 100
 
     # Metric learning
-    n_comp_pca = 8
+    n_comp_pca = 3 # for vgg16!
     lfda_k = 7
     lfda_dim = 5
     lfda_n_samps = 1000

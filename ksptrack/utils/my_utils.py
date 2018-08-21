@@ -361,20 +361,56 @@ def marked_to_scores(marked,labels):
 
     return scores
 
-def ksp2array_tracklets_ids(paths,tls):
+def sps2marked(P):
+
+    marked = [m for sublist in P for m in sublist]
+    return np.asarray(marked)
+        
+def aggressive_flatten(xs):
+    result = []
+    if isinstance(xs, list):
+        for x in xs:
+            result.extend(aggressive_flatten(x))
+    else:
+        result.append(xs)
+    return result
+
+def ksp2sps(paths,tls):
     #Flatten all edges and return list of sps
 
     ids = []
-
-    import pdb; pdb.set_trace()
     for p in paths:
         #Keep only uniques
-        ids += [i for i in p if(i != -1)]
+        ids.append([])
+        ids[-1] = [i for i in p if(i != -1)]
 
-    return sps
+    this_tls = []
+    for p in ids:
+        this_tls.append([])
+        this_tls[-1] = [t for t in tls for i in range(len(p)) if(t.id_ == p[i])]
+        # sort tracklets according to direction
+        dir_ = this_tls[-1][0].direction
+        frames = [t.get_in_frame() for t in this_tls[-1]]
+        arg_sort_frames = np.argsort(frames)
+        if(dir_ == 'forward'):
+            this_tls[-1] = [this_tls[-1][i] for i in arg_sort_frames]
+        elif(dir_ == 'backward'):
+            arg_sort_frames = arg_sort_frames[::-1]
+            this_tls[-1] = [this_tls[-1][i] for i in arg_sort_frames]
+
+    sps = []
+    for p in this_tls:
+        sps.append([])
+        sps[-1] = aggressive_flatten([t.sps for t in p])
+    
+    return sps, this_tls
 
 
-def ksp2array_tracklets(dict_ksp,labels,arg_direction=['forward_sets','backward_sets'],source='s',sink='t'):
+def ksp2array_tracklets(dict_ksp,
+                        labels,
+                        arg_direction=['forward_sets','backward_sets'],
+                        source='s',
+                        sink='t'):
     #Flatten all edges and make node list. Returns array (frame_ind, sp_label)
 
     sps = []
@@ -460,6 +496,16 @@ def get_node_list(dict_ksp,source,sink, node_in_num = 0):
     sorted_nodes = sorted(nodes, key=lambda tup: tup[0])
 
     return nodes
+
+def sp_tuples_to_mat(P, labels):
+
+    scores = np.zeros(labels.shape, dtype=bool)
+    for p in P:
+        for s in p:
+            mask = labels[..., s[0]] == s[1]
+            scores[..., s[0]] += mask
+
+    return scores
 
 def score_path_tracklets(kspSet,labels,source,sink,set_idx = None, frame_idx = None, node_in_num = 0, Kmax = None,mode='stop'):
 
