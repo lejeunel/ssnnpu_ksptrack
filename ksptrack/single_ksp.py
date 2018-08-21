@@ -16,6 +16,9 @@ It writes result frames in conf.dataOutDir
 
 extra_cfg = dict()
 
+# This is where data will be stored
+#extra_cfg['dataOutDir'] = ...
+
 extra_cfg['calc_superpix'] = False  # Centroids and contours
 extra_cfg['calc_sp_feats'] = True
 extra_cfg['calc_pm'] = True  # Calculate probability maps from marked SPs
@@ -38,6 +41,5 @@ extra_cfg['pca'] = True
 # Run segmentation
 conf, logger = iterative_ksp.main(extra_cfg)
 
-import pdb; pdb.set_trace()
 writef.main(conf, logger=logger)
 
