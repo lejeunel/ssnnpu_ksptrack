@@ -19,7 +19,7 @@ extra_cfg = dict()
 # This is where data will be stored
 #extra_cfg['dataOutDir'] = ...
 
-extra_cfg['calc_superpix'] = False  # Centroids and contours
+extra_cfg['calc_superpix'] = True  # Centroids and contours
 extra_cfg['calc_sp_feats'] = True
 extra_cfg['calc_pm'] = True  # Calculate probability maps from marked SPs
 extra_cfg['n_iter_ksp'] = 10 # sets max amount of iterations (merges)
