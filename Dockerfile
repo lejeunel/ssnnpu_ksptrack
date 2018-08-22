@@ -5,16 +5,6 @@ RUN apt-get update && \
     apt-get install -y git libbz2-dev cmake vim python3-tk wget &&\
     rm -rf /var/lib/apt/lists/*
 
-#Boost with python and numpy support
-#ENV BOOST_VERSION 1.63.0
-#RUN git clone -b boost-${BOOST_VERSION} --recursive https://github.com/boostorg/boost.git
-#RUN cd /root
-#WORKDIR boost
-#ADD project-config.jam /root/
-#RUN sh bootstrap.sh --with-libraries=python --with-python=/usr/local/bin/python3 --with-python-version=3.5 --with-python-root=/usr/local/lib/python3.4 &&\
-#    ./b2 -j 4 headers &&\
-#    ./b2 -j 4 install &&\
-#    rm -rf /root/boost
 
 # Download boost, untar, setup install with bootstrap 
 # and then install
