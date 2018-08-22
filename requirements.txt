@@ -1,6 +1,6 @@
 scipy
 scikit-learn
-metric_learn
+metric-learn
 sharedmem
 pyyaml
 matplotlib
