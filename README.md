@@ -47,6 +47,7 @@ Once both external dependencies are installed, procede to the current package:
 git clone https://github.com/lejeunel/KSPTrack
 cd KSPTrack
 pip install .
+pip install -r requirements.txt
 ```
 
 ## Usage
