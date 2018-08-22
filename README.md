@@ -33,7 +33,7 @@ C++ implementation. Uses the boost graph library.
 
 ```
 git clone https://github.com/lejeunel/boost_ksp
-cd SLICsupervoxels
+cd boost_ksp
 mkdir build
 cd build
 cmake ..
