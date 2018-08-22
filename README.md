@@ -12,8 +12,9 @@ to install first.
 Both make use of the [C++ boost library](https://www.boost.org).
 The installation procedure are given in the respective github repositories
 as well as here for convenience.
-Note that the `make install` instruction uses `pip install -e`.
-You can therefore switch to your virtualenv of choice before calling it.
+
+We also provide a docker image at ~krakapwa/gazelabel_18~ as well as in
+the form of Dockerfile.
 
 ### SLIC Supervoxels
 simple and efficient supervoxels.
