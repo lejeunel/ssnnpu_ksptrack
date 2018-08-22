@@ -25,7 +25,7 @@ RUN cd /home && git clone https://github.com/lejeunel/boost_ksp.git \
   && cmake .. \
   && make -j 4 \
   && python3 src/setup.py install \
-  && python3 ../demo/demo.py \
+  && python3 ../demo/demo.py \ # This is a test script
   && rm -rf /home/boost_ksp
 
 #Install SLICsupervoxels
