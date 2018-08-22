@@ -8,26 +8,22 @@ import matplotlib.pyplot as plt
 
 extra_cfg = dict()
 
-extra_cfg['calc_superpix'] = False  # Centroids and contours
+extra_cfg['calc_superpix'] = True  # Centroids and contours
 #extra_cfg['calc_sp_feats'] = False
-extra_cfg['calc_sp_feats'] = False
-extra_cfg['calc_linking'] = False
-extra_cfg['calc_pm'] = False  # Calculate probability maps from marked SPs
-extra_cfg['calc_seen_feats'] = True
-extra_cfg['calc_ss'] = False
-extra_cfg['calc_desc_means'] = False
+extra_cfg['calc_sp_feats'] = True
+extra_cfg['calc_pm'] = True  # Calculate probability maps from marked SPs
 extra_cfg['n_iter_ksp'] = 10
-#extra_cfg['feat_extr_algorithm'] = 'unet'      # set unet as feature extractor algorithm
 extra_cfg['feats_graph'] = 'unet_gaze'      # set unet as feature extractor algorithm
 #extra_cfg['feats_graph'] = 'unet'      # set unet as feature extractor algorithm
 #extra_cfg['feats_graph'] = 'overfeat'      # set unet as feature extractor algorithm
 extra_cfg['thresh_aux'] = 0.5
-extra_cfg['calc_sp_feats_unet_gaze_rec'] = False
+extra_cfg['calc_sp_feats_unet_gaze_rec'] = True
 extra_cfg['calc_sp_feats_unet_rec'] = False
 extra_cfg['feats_graph'] = 'unet_gaze'      # set unet as feature extractor algorithm
 
-extra_cfg['fileOutPrefix'] = 'for_paths'
+extra_cfg['fileOutPrefix'] = 'exp'
 
+#all_datasets = ['Dataset00', 'Dataset01', 'Dataset02', 'Dataset03']
 all_datasets = ['Dataset00', 'Dataset01', 'Dataset02', 'Dataset03']
 #all_datasets = ['Dataset10', 'Dataset11', 'Dataset12', 'Dataset13']
 #root_dir = '/home/krakapwa/otlshare/medical-labeling'

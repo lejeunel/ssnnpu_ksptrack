@@ -9,8 +9,8 @@ from skimage import transform
 import csv
 import sys, getopt
 import os.path
-from labeling.utils import csv_utils as csv
-from labeling.utils import my_utils as utls
+from ksptrack.utils import csv_utils as csv
+from ksptrack.utils import my_utils as utls
 import natsort
 import glob
 
@@ -128,7 +128,7 @@ class Window(QtGui.QMainWindow):
         y = event.pos().y()
         im_shape = self.curr_img.shape
         x_norm,y_norm = csv.pix2Norm(x,y,im_shape[1], im_shape[0])
-        print("(x,y): (" + str(x_norm) + "," + str(y_norm) + ")")
+        print("(idx, x,y): ({}, {}, {})".format(self.curr_idx, x_norm, y_norm))
         self.mouse_clicks.append([self.curr_idx,0,1,x_norm,y_norm]) #frame,time,visible,x,y
 
         #Draw superpixel if exists
@@ -275,6 +275,7 @@ class Window(QtGui.QMainWindow):
         self.addDockWidget(QtCore.Qt.BottomDockWidgetArea, my_dock_widget)
 
     def drawFrame(self,idx):
+        print('drawFrame')
         img = utls.imread(self.frames[idx])
         if(img.shape[2] > 3): img = img[:,:,0:3]
         if(self.label_contours is not None):
@@ -284,8 +285,9 @@ class Window(QtGui.QMainWindow):
         if(self.gts is not None):
             gt = color.rgb2gray(utls.imread(self.gts[idx]))>0
 
-        if(self.gaze_ is not None):
-            img = csv.draw2DPoint(self.gaze_,idx,img,radius=7)
+        if(len(self.mouse_clicks) > 0):
+            img = csv.draw2DPoint(np.asarray(self.mouse_clicks),
+                                  idx,img,radius=7)
         if(self.gts is not None):
             img = color.label2rgb(gt,img,alpha=0.1)
 
@@ -316,7 +318,7 @@ def main():
 
     #Get frame file names
     csvFileNum = 1
-    dataset_dir = 'DatasetTest'
+    dataset_dir = 'Dataset04'
     frame_dir = os.path.expanduser(os.path.join('/home/laurent.lejeune',
                                                 'medical-labeling',
                                                 dataset_dir,
