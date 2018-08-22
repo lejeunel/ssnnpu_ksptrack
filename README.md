@@ -25,7 +25,7 @@ mkdir build
 cd build
 cmake ..
 make
-make install
+python3 src/setup.py install
 ```
 
 ### Edge-disjoint K-shortest paths
@@ -38,7 +38,7 @@ mkdir build
 cd build
 cmake ..
 make
-make install
+python3 src/setup.py install
 ```
 
 ### Install the whole thing
