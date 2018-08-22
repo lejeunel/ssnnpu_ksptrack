@@ -13,7 +13,7 @@ Both make use of the [C++ boost library](https://www.boost.org).
 The installation procedure are given in the respective github repositories
 as well as here for convenience.
 
-We also provide a docker image at ~krakapwa/gazelabel_18~ as well as in
+We also provide a docker image at =krakapwa/boost= as well as in
 the form of Dockerfile.
 
 ### SLIC Supervoxels
