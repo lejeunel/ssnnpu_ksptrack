@@ -17,14 +17,13 @@ It writes result frames in conf.dataOutDir
 extra_cfg = dict()
 
 # This is where data will be stored
-#extra_cfg['dataOutDir'] = ...
 
 extra_cfg['calc_superpix'] = True  # Centroids and contours
 extra_cfg['calc_sp_feats'] = True
 extra_cfg['calc_pm'] = True  # Calculate probability maps from marked SPs
 extra_cfg['n_iter_ksp'] = 10 # sets max amount of iterations (merges)
 
-extra_cfg['feats_graph'] = 'vgg16'      # set unet as feature extractor algorithm
+extra_cfg['feats_graph'] = 'vgg16'
 
 extra_cfg['thresh_aux'] = []
 extra_cfg['calc_sp_feats_unet_gaze_rec'] = False
