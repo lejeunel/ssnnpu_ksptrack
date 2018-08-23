@@ -11,10 +11,9 @@ from ksptrack.utils import write_frames_results as writef
 extra_cfg = dict()
 
 # This is where data will be stored
-#extra_cfg['dataOutDir'] = ...
 
 extra_cfg['calc_superpix'] = True  # Centroids and contours
-extra_cfg['calc_sp_feats'] = False
+extra_cfg['calc_sp_feats'] = True
 extra_cfg['calc_pm'] = True  # Calculate probability maps from marked SPs
 extra_cfg['n_iter_ksp'] = 10 # sets max amount of iterations (merges)
 
@@ -24,16 +23,29 @@ extra_cfg['thresh_aux'] = []
 extra_cfg['calc_sp_feats_unet_gaze_rec'] = True
 extra_cfg['calc_sp_feats_unet_rec'] = False
 extra_cfg['calc_sp_feats_vgg16'] = False
-extra_cfg['calc_oflow'] = False
+extra_cfg['calc_oflow'] = True
 
 extra_cfg['fileOutPrefix'] = 'exp'
 
-extra_cfg['dataSetDir'] = 'Dataset04'
+extra_cfg['dataSetDir'] = 'DatasetTest' #This is a test dataset
+
+extra_cfg['dataInRoot'] = '/home/laurent.lejeune/medical-labeling/'
+extra_cfg['dataOutRoot'] = '/home/laurent.lejeune/medical-labeling/'
+extra_cfg['frameDir'] = 'input-frames'
+extra_cfg['resultDir'] = 'results'
+extra_cfg['dataOutResultDir'] = ''
+extra_cfg['gazeDir'] = 'gaze-measurements'
+extra_cfg['gtFrameDir'] = 'ground_truth-frames'
+extra_cfg['fileOutPrefix'] = 'exp'
+extra_cfg['framePrefix'] = 'frame_'
+extra_cfg['frameExtension'] = '.png'
+extra_cfg['frameDigits'] = 4 # input frames are of the form frame_xxxx.png
 extra_cfg['csvFileName_fg'] = '2dlocs.csv'
 extra_cfg['pca'] = False
 
 # Run segmentation
 conf, logger = iterative_ksp.main(extra_cfg)
 
+# Write result frames
 writef.main(conf, logger=logger)
 

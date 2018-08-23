@@ -33,7 +33,7 @@ def main(conf, logger=None):
         logger.info('Creating output frame dir: {}'.format(frame_dir))
         os.makedirs(frame_dir)
 
-    scores = res['ksp_scores_mat']
+    scores = (res['ksp_scores_mat'].astype('uint8'))*255
 
     for i in range(scores.shape[-1]):
         logger.info('{}/{}'.format(i+1,scores.shape[-1]))
