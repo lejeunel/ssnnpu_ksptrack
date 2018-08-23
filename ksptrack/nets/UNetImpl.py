@@ -188,7 +188,8 @@ class UNetImpl:
     ####################################################################################################################
     # (PRIVATE) MEMBER FUNCTIONS
     ####################################################################################################################
-    def _train(self, conf, im_list, loss_name, gaze_labels=None, save_examples=False):
+    def _train(self, conf, im_list, loss_name,
+               gaze_labels=None, save_examples=False):
         """
         Stores the weight file and the feature at path conf.unet_path
 

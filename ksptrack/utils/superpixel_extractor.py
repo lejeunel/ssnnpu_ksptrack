@@ -26,18 +26,24 @@ class SuperpixelExtractor:
                 save = False):
 
         self.logger.info('Got {} images'.format(len(im_paths)))
+
         if(len(im_paths) < 5):
             im_paths += [im_paths[-1] for i in range(5-len(im_paths))]
+
         ims = [io.imread(im) for im in im_paths]
         ims = np.asarray(ims).transpose(1,2,3,0)
         dims = ims.shape
 
         numrequiredsupervoxels = int(dims[0]*dims[1]*dims[3]/reqdsupervoxelsize)
-        self.logger.info("""Number of required
-                    supervoxels {}""".format(numrequiredsupervoxels))
         labels, numlabels = self.my_svx.run(ims,
                                             numrequiredsupervoxels,
                                             compactness)
+
+        n_labels_per_frame = [np.unique(labels[..., i])
+                              for i in range(labels.shape[-1])]
+
+        self.logger.info('Mean num. of labels per frame: {}' \
+                            .format(np.mean(n_labels_per_frame)))
 
         if(save):
             self.logger.info('Saving labels to {}'.format(save_path))

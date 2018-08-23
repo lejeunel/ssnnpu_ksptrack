@@ -17,18 +17,13 @@ class UNetGazeRec(UNetImpl):
         :return:              None
         """
 
-        if len(im_list) != len(locs2d):
-            self.logger.error('Number of gaze locations (%i) must be equal to number of images (%i)' %
-                              (len(locs2d), len(im_list)))
-
         im_shape = scm.imread(im_list[0], mode='L').shape
 
         self.gazeGaussStd = (conf.unet_gaze_gaussian_std / 100.0) * im_shape[1]
 
-        gz_labels = self.__gen_gaze_labels(locs2d[:, 3:], (self.inputDimY, self.inputDimX))
-
-        # normalize to max value = 1
-        gz_labels = [i / i.max() for i in gz_labels]
+        gz_labels = self.__gen_gaze_labels(locs2d,
+                                           (self.inputDimY,
+                                            self.inputDimX))
 
         self.logger.info('Start training model: "U-Net Gaze Rec"')
         # forward the call using mean squared error loss
@@ -61,11 +56,11 @@ class UNetGazeRec(UNetImpl):
     ####################################################################################################################
     # (PRIVATE) MEMBER FUNCTIONS
     ####################################################################################################################
-    def __gen_gaze_labels(self, gaze_labels, shape, verbose=1):
+    def __gen_gaze_labels(self, locs2d, shape):
         """
         Generate the gaze labels.
 
-        :param gaze_labels: Gaze labels as a n x 2 numpy array
+        :param locs2d: gaze locations
         :param shape:       (tuple) Shape of the image (height, width)
         :param verbose;     (optional) 0: show nothing in stdout, 1: show state info
         :return:            Gaze labels as a list (per image one item)
@@ -73,47 +68,25 @@ class UNetGazeRec(UNetImpl):
 
         # make kernel of size 6 times the std (odd value)
         kernel_size = np.ceil(self.gazeGaussStd * 6) // 2 * 2 + 1
-        gauss_kernel = gaussian_2D((kernel_size, kernel_size), self.gazeGaussStd)
 
-        gaze_lab = list()
-        pbar = None
-        if verbose > 0:
-            self.logger.info('Build 2D-Gaussions maps with std = %i px' % self.gazeGaussStd)
-            pbar = ProgressBar(widgets=[Percentage(), Bar()], maxval=len(gaze_labels)).start()
+        unique_frames = np.unique(locs2d[:, 0])
+        n_frames = int(np.max(unique_frames)+1)
 
-        for idx, gz in enumerate(gaze_labels):
+        # Initialize to uniform (for missing frames)
+        gaze_labels = [np.ones(shape)/np.prod(shape) for i in range(n_frames)]
+
+        for idx, gz in enumerate(locs2d.tolist()):
             # do only add gausian if the gaze location is not zero (meaning object not present)
-            if not np.array_equal(gz, np.array((0.0, 0.0))):
-                # inpaint gaussian
-                gauss_arr = np.zeros(shape)
+            # inpaint gaussian
 
-                c_x = round(gz[0] * shape[1])
-                c_y = round(gz[1] * shape[0])
+            cx = round(gz[-2] * shape[1])
+            cy = round(gz[-1] * shape[0])
 
-                edge_x = int(c_x - kernel_size // 2)
-                edge_y = int(c_y - kernel_size // 2)
+            g = make_2d_gauss(shape, self.gazeGaussStd, (cy, cx))
 
-                v_range1 = slice(max(0, edge_y), max(min(edge_y + gauss_kernel.shape[0], gauss_arr.shape[0]), 0))
-                h_range1 = slice(max(0, edge_x), max(min(edge_x + gauss_kernel.shape[1], gauss_arr.shape[1]), 0))
+            gaze_labels[int(gz[0])] += g
 
-                v_range2 = slice(max(0, -edge_y), min(-edge_y + gauss_arr.shape[0], gauss_kernel.shape[0]))
-                h_range2 = slice(max(0, -edge_x), min(-edge_x + gauss_arr.shape[1], gauss_kernel.shape[1]))
-
-                gauss_arr[v_range1, h_range1] += gauss_kernel[v_range2, h_range2]
-            else:
-                # if gaze loc is zero (no object) we use uniform distribution
-                gauss_arr = np.ones(shape) / (shape[0] * shape[1])
-
-            gaze_lab.append(gauss_arr)
-
-            if verbose > 0:
-                pbar.update(idx)
-
-        if verbose > 0:
-            pbar.finish()
-
-        return gaze_lab
-
+        return gaze_labels
 
 ########################################################################################################################
 # NON-MEMBER FUNCTIONS
@@ -136,3 +109,22 @@ def gaussian_2D(shape=(3, 3), sigma=0.5):
     if sumh != 0:
         h /= sumh
     return h
+
+def make_1d_gauss(length, std, x0):
+
+    x = np.arange(length)
+    y = np.exp(-0.5*((x-x0)/std)**2)
+
+    return y/np.sum(y)
+    
+
+def make_2d_gauss(shape, std, center):
+
+    g_x = make_1d_gauss(shape[1], std, center[1])
+    g_x = np.tile(g_x, (shape[0], 1))
+    g_y = make_1d_gauss(shape[0], std, center[0])
+    g_y = np.tile(g_y.reshape(-1,1), (1, shape[1]))
+
+    g = g_x*g_y
+
+    return g/np.sum(g)
