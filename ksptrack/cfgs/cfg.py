@@ -92,7 +92,7 @@ def cfg():
 
     #Superpixel segmentation
     compactness = 10.0
-    reqdsupervoxelsize = 20000
+    reqdsupervoxelsize = 9000
 
     #Optical flow
     oflow_alpha = 0.012

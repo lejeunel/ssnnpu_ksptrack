@@ -9,3 +9,4 @@ pandas
 munch
 ruamel.yaml
 cvxopt
+tensorflow

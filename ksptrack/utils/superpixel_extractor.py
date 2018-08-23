@@ -39,11 +39,11 @@ class SuperpixelExtractor:
                                             numrequiredsupervoxels,
                                             compactness)
 
-        n_labels_per_frame = [np.unique(labels[..., i])
+        n_labels_per_frame = [np.unique(labels[..., i]).size
                               for i in range(labels.shape[-1])]
 
-        self.logger.info('Mean num. of labels per frame: {}' \
-                            .format(np.mean(n_labels_per_frame)))
+        self.logger.info('Num. of labels: {}' \
+                            .format(n_labels_per_frame[0]))
 
         if(save):
             self.logger.info('Saving labels to {}'.format(save_path))
