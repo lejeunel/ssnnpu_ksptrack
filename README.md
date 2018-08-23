@@ -13,10 +13,9 @@ Both make use of the [C++ boost library](https://www.boost.org).
 The installation procedure are given in the respective github repositories
 as well as here for convenience.
 
-We also provide a docker image at =krakapwa/boost= as well as in
-the form of Dockerfile.
+We also provide a docker image that includes all requirements below at [lejeunel/boost](https://hub.docker.com/r/lejeunel/ksptrack/).
 
-### SLIC Supervoxels
+### [SLIC Supervoxels](https://github.com/lejeunel/SLICsupervoxels)
 simple and efficient supervoxels.
 
 ```
@@ -29,7 +28,7 @@ make
 python3 src/setup.py install
 ```
 
-### Edge-disjoint K-shortest paths
+### [Edge-disjoint K-shortest paths](https://github.com/lejeunel/boost_ksp)
 C++ implementation. Uses the boost graph library.
 
 ```
