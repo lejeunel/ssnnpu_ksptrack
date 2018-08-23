@@ -52,6 +52,8 @@ pip install -r requirements.txt
 
 ## Usage
 All parameters used in this program are set in `cfgs/cfg.py`.
-Among others, it sets the paths to the input frames and 2D locations.
 
-For quick start, see `single_ksp.py`.
+We provide two files depending on the availability of GPU:
+
+- `single_ksp.py`: Uses a pre-trained VGG16 for feature-extraction. It requires no GPU.
+- `single_ksp_gpu.py`: Trains and extracts features from a U-Net. It requires a GPU.
