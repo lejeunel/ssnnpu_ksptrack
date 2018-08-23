@@ -46,4 +46,5 @@ RUN cd /home && git clone https://github.com/Illumina/pyflow.git \
 #Install KSPTrack
 RUN cd /home && git clone https://github.com/lejeunel/ksptrack.git \
   && cd ksptrack \
+  && pip3 install -r requirements.txt \
   && pip3 install -e .
