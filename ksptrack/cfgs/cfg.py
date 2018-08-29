@@ -1,5 +1,5 @@
 import os
-import ruamel
+from ruamel import yaml
 import warnings
 import munch
 
@@ -16,9 +16,9 @@ def dict_to_munch(a_dict):
 def load_and_convert(path):
     # Load yml file and convert to munch
 
-    warnings.simplefilter('ignore',
-                          ruamel.yaml.error.MantissaNoDotYAML1_1Warning)
-    yaml = ruamel.yaml.YAML(typ='safe')
+    #warnings.simplefilter('ignore',
+    #                      ruamel.yaml.error.MantissaNoDotYAML1_1Warning)
+    #yaml = yaml.YAML(typ='safe')
 
     with open(path, 'r') as myfile:
         out = yaml.load(myfile)
@@ -133,8 +133,7 @@ def cfg():
     max_depth_rf = 3
     # ----------------------
 
-    #tau_u = 0.45
-    tau_u = 0.
+    tau_u = 0.45
     n_bins_hoof = 100
 
     # Metric learning

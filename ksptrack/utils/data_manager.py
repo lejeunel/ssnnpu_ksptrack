@@ -189,7 +189,8 @@ class DataManager:
         elif(self.conf.feats_graph == 'unet_gaze'):
             gaze_fname = os.path.splitext(self.conf.csvFileName_fg)[0]
             gaze_num = gaze_fname[-1]
-            fname = 'sp_desc_ung_g' + gaze_num + '.p'
+            #fname = 'sp_desc_ung_g' + gaze_num + '.p'
+            fname = 'sp_desc_ung.p'
         elif(self.conf.feats_graph == 'unet_gaze_cov'):
             gaze_fname = os.path.splitext(self.conf.csvFileName_fg)[0]
             fname = 'sp_desc_ung_' + gaze_fname + '.p'
@@ -204,8 +205,9 @@ class DataManager:
         if(os.path.exists(path)):
             out =  pd.read_pickle(path)
 
-            self.logger.info("Loading features: " + path)
+            self.logger.info("Loaded features: " + path)
         else:
+            self.logger.info("Couldnt find features: {}".format(path))
             return None
 
         return out

@@ -87,28 +87,19 @@ def main(arg_cfg):
     if(conf.force_relabel):
         my_dataset.relabel(save=True)
     if(conf.calc_sp_feats_unet_rec):
-        my_dataset.calc_sp_feats_unet_rec(save_dir=conf.dataOutDir)
+        my_dataset.calc_sp_feats_unet_rec(save_dir=conf.precomp_desc_path)
     if(conf.calc_sp_feats_unet_gaze_rec):
         my_dataset.calc_sp_feats_unet_gaze_rec(locs2d,
-                                               save_dir=conf.dataOutDir)
+                                               save_dir=conf.precomp_desc_path)
     if(conf.calc_sp_feats_vgg16):
         my_dataset.calc_sp_feats_vgg16(save_dir=conf.precomp_desc_path)
 
     logger.info('Building superpixel managers')
-    sps_man_for = spm.SuperpixelManager(my_dataset,
-                                        conf,
-                                        direction='forward',
-                                        with_flow=True)
+    sps_man = spm.SuperpixelManager(my_dataset,
+                                    conf,
+                                    with_flow=True)
 
-    sps_man_back = spm.SuperpixelManager(my_dataset,
-                                         conf,
-                                         direction='backward',
-                                         with_flow=True)
-
-    sps_man_for.make_dicts()
-    sps_man_back.make_dicts()
-
-    sps_mans = {'forward': sps_man_for, 'backward': sps_man_back}
+    sps_man.make_dicts()
 
     if(conf.calc_pm):
         pd_csv = utls.pandas_to_std_csv(locs2d)
@@ -138,11 +129,11 @@ def main(arg_cfg):
     ksp_scores_mat = []
 
     #pm_arr = my_dataset.get_pm_array(frames=[0, 1, 2, 3])
-    g_for = gtrack.GraphTracking(sps_mans,
+    g_for = gtrack.GraphTracking(sps_man,
                                  tol=conf.ksp_tol,
                                  mode='edge')
 
-    g_back = gtrack.GraphTracking(sps_mans,
+    g_back = gtrack.GraphTracking(sps_man,
                                   tol=conf.ksp_tol,
                                   mode='edge')
 

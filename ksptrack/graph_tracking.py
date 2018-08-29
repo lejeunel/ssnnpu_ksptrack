@@ -25,7 +25,7 @@ class GraphTracking:
     Connects, merges and add edges to graph. Also has KSP algorithm.
     """
 
-    def __init__(self,sps_mans, tol=0, mode='edge', tau_u = -1):
+    def __init__(self,sps_man, tol=0, mode='edge', tau_u = -1):
         self.logger = logging.getLogger('GraphTracking')
 
         self.nodeTypes = ['virtual', 'input', 'output', 'none']
@@ -48,7 +48,7 @@ class GraphTracking:
         self.trans_transform = None
 
         self.tls_man = None
-        self.sps_mans = sps_mans
+        self.sps_man = sps_man
 
         # This holds the networkx graph
         self.g = None
@@ -158,7 +158,8 @@ class GraphTracking:
                 node_id += 2
 
         self.logger.info('Building tracklet manager')
-        self.tls_man = trm.TrackletManager(self.sps_mans,
+        self.tls_man = trm.TrackletManager(self.sps_man,
+                                           self.direction,
                                        self.tracklets,
                                        self.n_frames)
 
@@ -218,14 +219,15 @@ class GraphTracking:
                 blocked = False
             else:
                 blocked = True
+
             new_tracklets.append(tr.Tracklet(new_id,
-                                             tl_set[0].in_id,
-                                             tl_set[-1].out_id,
-                                            this_new_sps,
-                                            this_new_df_ix,
-                                            length=len(this_new_df_ix),
-                                            blocked=blocked,
-                                            direction=self.direction))
+                                                tl_set[0].in_id,
+                                                tl_set[-1].out_id,
+                                                this_new_sps,
+                                                this_new_df_ix,
+                                                length=len(this_new_df_ix),
+                                                blocked=blocked,
+                                                direction=self.direction))
 
             if(blocked == False):
                 w = np.sum([-np.log(p/(1-p)) for p in proba])
@@ -349,6 +351,7 @@ class GraphTracking:
 
         # Transition edges
         self.logger.info('Connecting transition edges on new and unblocked tracklets')
+        import pdb; pdb.set_trace()
         with progressbar.ProgressBar(maxval=len(new_and_unblocked_tls)) as bar:
             for i in range(len(new_and_unblocked_tls)):
 
