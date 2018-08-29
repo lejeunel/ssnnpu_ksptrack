@@ -97,9 +97,8 @@ def main(arg_cfg):
     logger.info('Building superpixel managers')
     sps_man = spm.SuperpixelManager(my_dataset,
                                     conf,
-                                    with_flow=True)
-
-    sps_man.make_dicts()
+                                    with_flow=True,
+                                    init_mode=conf.sp_trans_init_mode)
 
     if(conf.calc_pm):
         pd_csv = utls.pandas_to_std_csv(locs2d)

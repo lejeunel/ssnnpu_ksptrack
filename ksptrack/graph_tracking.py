@@ -351,7 +351,6 @@ class GraphTracking:
 
         # Transition edges
         self.logger.info('Connecting transition edges on new and unblocked tracklets')
-        import pdb; pdb.set_trace()
         with progressbar.ProgressBar(maxval=len(new_and_unblocked_tls)) as bar:
             for i in range(len(new_and_unblocked_tls)):
 
@@ -624,11 +623,11 @@ class GraphTracking:
                 bar.update(i)
                 this_tracklet = tls[i]
 
-
                 linkable_tracklets = self.tls_man.get_linkables(this_tracklet,
                                                                 tau_u=tau_u,
                                                                 mode=mode,
                                                                 direction=self.direction)
+                    
 
                 for j in range(len(linkable_tracklets)):
 

@@ -7,6 +7,7 @@ import os
 import pickle as pk
 import matplotlib.pyplot as plt
 import networkx as nx
+import pandas as pd
 
 class SuperpixelManager:
 
@@ -19,10 +20,14 @@ class SuperpixelManager:
                  dataset,
                  conf,
                  directions=['forward', 'backward'],
+                 init_mode='overlap',
+                 init_radius=0.07,
                  with_flow = False,
                  hoof_grid_ratio=0.07):
 
         self.dataset = dataset
+        self.init_mode = init_mode
+        self.init_radius = init_radius
         self.labels = dataset.get_labels()
         self.c_loc = dataset.centroids_loc
         self.with_flow = with_flow
@@ -33,24 +38,90 @@ class SuperpixelManager:
         self.conf = conf
         self.graph = self.make_dicts()
 
+    def make_init_constraint(self):
+        if(self.init_mode == 'overlap'):
+            return self.make_overlap_constraint()
+        elif(self.init_mode == 'radius'):
+            return self.make_radius_constraint()
+            
     def make_dicts(self):
         #self.dict_init = self.make_init_dicts()
         if(self.with_flow):
-            self.graph = self.make_overlap_constraint()
+            self.graph = self.make_init_constraint()
 
             flows = self.dataset.get_flows()
-            hoof_extr = HOOFExtractor(flows['fvx'], flows['fvy'],
-                                    flows['bvx'], flows['bvy'],
-                                    self.labels,
-                                    self.hoof_grid_ratio)
+            hoof_extr = HOOFExtractor(self.conf,
+                                      flows['fvx'], flows['fvy'],
+                                      flows['bvx'], flows['bvy'],
+                                      self.labels,
+                                      self.hoof_grid_ratio)
 
             # This will add fields in original graph
             self.graph = hoof_extr.make_hoof_inters(self.conf.precomp_desc_path,
                                                     self.graph)
         else:
-            self.graph = self.make_overlap_constraint()
+            self.graph = self.make_init_constraint()
 
         return self.graph
+
+    def make_radius_constraint(self):
+        """
+        Makes a first "gross" filtering of transition.
+        """
+
+        file_graph = os.path.join(self.conf.precomp_desc_path,
+                                 'radius_constraint.p')
+        if(not os.path.exists(file_graph)):
+            f = self.c_loc['frame']
+            s = self.c_loc['sp_label']
+
+            g = nx.Graph()
+
+            frames = np.unique(f)
+
+            frames_tup = [(frames[i],frames[i+1])
+                      for i in range(frames.shape[0]-1)]
+            dict_ = dict()
+
+            self.logger.info('Building SP radius dictionary')
+            with progressbar.ProgressBar(maxval=len(frames_tup)) as bar:
+                for i in range(len(frames_tup)):
+                    bar.update(i)
+
+                    f0 = frames_tup[i][0]
+                    f1 = frames_tup[i][1]
+                    df0 = self.c_loc.loc[self.c_loc['frame'] == f0].copy(deep=False)
+                    df1 = self.c_loc.loc[self.c_loc['frame'] == f1].copy(deep=False)
+                    df0.columns = ['frame_0', 'sp_label_0',
+                                         'x0', 'y0']
+                    df1.columns = ['frame_1', 'sp_label_1',
+                                         'x1', 'y1']
+                    df0.loc[:,'key'] = 1
+                    df1.loc[:,'key'] = 1
+                    df_combs = pd.merge(df0,df1,on='key').drop('key',axis=1)
+                    df_combs['rx'] = df_combs['x0'] - df_combs['x1']
+                    df_combs['ry'] = df_combs['y0'] - df_combs['y1']
+                    r = np.concatenate((df_combs['rx'].values.reshape(-1,1),
+                                            df_combs['ry'].values.reshape(-1,1)),
+                                           axis=1)
+                    dists = np.linalg.norm(r, axis=1)
+                    df_combs['dist'] = dists
+                    df_combs = df_combs.loc[df_combs['dist'] < self.init_radius]
+                    edges = [((row[1], row[2]),
+                              (row[5], row[6]))
+                             for row in df_combs.itertuples()]
+                    g.add_edges_from(edges)
+
+
+            self.logger.info('Saving radius graph to ' + file_graph)
+            with open(file_graph, 'wb') as f:
+                pk.dump(g, f, pk.HIGHEST_PROTOCOL)
+        else:
+            self.logger.info('Loading radius graph... (delete to re-run)')
+            with open(file_graph, 'rb') as f:
+                g = pk.load(f)
+        self.graph_init = g
+        return g
 
 
     def make_overlap_constraint(self):
@@ -95,7 +166,7 @@ class SuperpixelManager:
             with open(file_graph, 'wb') as f:
                 pk.dump(g, f, pk.HIGHEST_PROTOCOL)
         else:
-            self.logger.info('Loading overlap dictionary... (delete to re-run)')
+            self.logger.info('Loading overlap graph... (delete to re-run)')
             with open(file_graph, 'rb') as f:
                 g = pk.load(f)
         self.graph_init = g

@@ -19,6 +19,7 @@ class HOOFExtractor:
     Descriptors are mapped to superpixel labels according to overlap priority
     """
     def __init__(self,
+                 conf,
                  fvx,
                  fvy,
                  bvx,
@@ -34,27 +35,36 @@ class HOOFExtractor:
         self.bvy = bvy
 
         self.directions = directions
-
-        self.grid = make_grid_array(labels[..., 0].shape,
-                                    grid_size_ratio)
-
+        self.conf = conf
         self.labels = labels
-
         self.bins_hoof = np.linspace(-np.pi/2,np.pi/2,n_bins+1)
-
         self.logger = logging.getLogger('HOOFExtractor')
 
-        # make mapping from labels to grid on all frames
-        self.logger.info('Making labels-to-grid mappings')
-        mapping = dict()
-        for f in range(labels.shape[-1]):
-            print('{}/{}'.format(f+1, labels.shape[-1]))
-            mapping[f] = dict()
-            map_ = sp_to_grid_map(labels[..., f],
-                                          self.grid).tolist()
-            mapping[f] = {ls[0]:ls[1] for ls in map_}
 
-        self.mapping = mapping
+        self.grid = self.make_grid_array(self.labels[..., 0].shape,
+                                         grid_size_ratio,
+                                         self.conf.precomp_desc_path)
+        self.mapping = self.make_mapping(self.conf.precomp_desc_path)
+
+    def make_mapping(self, path):
+        # make mapping from labels to grid on all frames
+
+        file_mapping = os.path.join(path, 'grid_mapping.npz')
+        if(not os.path.exists(file_mapping)):
+            self.logger.info('Making labels-to-grid mappings')
+            mapping = dict()
+            for f in range(self.labels.shape[-1]):
+                print('{}/{}'.format(f+1, self.labels.shape[-1]))
+                mapping[f] = dict()
+                map_ = sp_to_grid_map(self.labels[..., f],
+                                            self.grid).tolist()
+                mapping[f] = {ls[0]:ls[1] for ls in map_}
+            np.savez(file_mapping,**{'mapping': mapping})
+        else:
+            mapping = np.load(file_mapping)['mapping'][()]
+
+        return mapping
+
 
     def make_hoof_on_grid(self, path):
         """
@@ -113,46 +123,71 @@ class HOOFExtractor:
 
                 edges = g.edges()
                 if(dir_ == 'forward'):
-                    edges = [e for e in edges
-                             if(e[1][0] > e[0][0])]
                     keys = ['fvx', 'fvy']
                 else:
-                    edges = [e for e in edges
-                             if(e[0][0] > e[1][0])]
                     keys = ['bvx', 'bvy']
 
-                frames = sorted(set([e[0][0] for e in edges]))
-
                 with progressbar.ProgressBar(maxval=len(g.edges())) as bar:
-                    for f in frames:
-                        edges_ = [e for e in edges if(e[0][0] == f)]
+                    for i, e in enumerate(edges):
 
+                        # hoof_grid is indexed by "past frame"
+                        f_= min(e[0][0], e[1][0])
 
-                        for e in edges_:
-                            if(dir_ == 'forward'):
-                                s_start = e[0][1]
-                                s_end = e[1][1]
-                            else:
-                                s_start = e[1][1]
-                                s_end = e[0][1]
+                        hoof_0 = \
+                            self.hoof_grid[dir_][f_]\
+                            [self.mapping[f_][e[0][1]]]
+                        hoof_1 = \
+                            self.hoof_grid[dir_][f_]\
+                            [self.mapping[f_][e[1][1]]]
 
-                            hoof_start = \
-                                self.hoof_grid[dir_][f][self.mapping[f][s_start]]
-                            hoof_end = \
-                                self.hoof_grid[dir_][f][self.mapping[f][s_end]]
+                        g[e[0]][e[1]][dir_] = utls.hist_inter(
+                            hoof_0,
+                            hoof_1)
 
-                            g[e[0]][e[1]][dir_] = utls.hist_inter(
-                                hoof_start,
-                                hoof_end)
+                        bar.update(i)
 
-                        bar.update(f)
-
-                        self.logger.info('Saving HOOF on sps ...')
-            np.savez(file_hoof_sps, **{'g': g})
+            self.logger.info('Saving HOOF on sps ...')
+            with open(file_hoof_sps, 'wb') as f:
+                pk.dump(g, f, pk.HIGHEST_PROTOCOL)
             self.g = g
         else:
             self.logger.info('Loading HOOF on sps ... (delete to re-run)')
-            self.g = np.load(file_hoof_sps)['g']
+            with open(file_hoof_sps, 'rb') as f:
+                self.g = pk.load(f)
+
+        return self.g
+
+    def make_grid_array(self, shape, grid_size_ratio, path):
+        """
+        Builds the grid with grid_size_ratio to determine size of cells
+        """
+
+        file_grid = os.path.join(path,
+                                'hoof_grid.npz')
+        if(not os.path.exists(file_grid)):
+            max_size = np.max(shape)
+            grid_size = int(grid_size_ratio*max_size)
+            print('block_size: {}'.format(grid_size))
+
+            n_blocks = int(np.ceil((max_size**2)/(block_size**2)))
+            print('n_blocks: {}'.format(n_blocks))
+
+            grid = np.empty((max_size, max_size), dtype=np.uint16)
+
+            val = 1
+            for i in range(n_blocks//2):
+                for j in range(n_blocks//2):
+                    grid[i*block_size:(i+1)*grid_size,
+                        j*block_size:(j+1)*grid_size] = val
+                    val += 1
+
+            print('n_blocks before reshape: {}'.format(np.unique(blocks).size))
+            grid = grid[0:shape[0], 0:shape[1]]
+            np.savez(file_grid, **{'grid': grid})
+        else:
+            grid = np.load(file_grid)['grid']
+
+        return grid
 
 def sp_to_grid_map(labels, grid):
     """
@@ -176,31 +211,6 @@ def sp_to_grid_map(labels, grid):
     return np.asarray(map_)
 
 
-def make_grid_array(shape, grid_size_ratio):
-    """
-    Builds the grid with grid_size_ratio to determine size of cells
-    """
-
-    max_size = np.max(shape)
-    block_size = int(grid_size_ratio*max_size)
-    print('block_size: {}'.format(block_size))
-
-    n_blocks = int(np.ceil((max_size**2)/(block_size**2)))
-    print('n_blocks: {}'.format(n_blocks))
-
-    blocks = np.empty((max_size, max_size), dtype=np.uint16)
-
-    val = 1
-    for i in range(n_blocks//2):
-        for j in range(n_blocks//2):
-            blocks[i*block_size:(i+1)*block_size,
-                   j*block_size:(j+1)*block_size] = val
-            val += 1
-        
-    print('n_blocks before reshape: {}'.format(np.unique(blocks).size))
-    blocks = blocks[0:shape[0], 0:shape[1]]
-
-    return blocks
 
 def make_hoof_labels(fx, fy, labels, bins_hoof):
 

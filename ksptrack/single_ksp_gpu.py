@@ -27,7 +27,7 @@ extra_cfg['calc_oflow'] = True
 
 extra_cfg['fileOutPrefix'] = 'exp'
 
-extra_cfg['dataSetDir'] = 'Dataset04' #This is a test dataset
+extra_cfg['dataSetDir'] = 'DatasetTest' #This is a test dataset
 
 extra_cfg['dataInRoot'] = '/home/laurent.lejeune/medical-labeling/'
 extra_cfg['dataOutRoot'] = '/home/laurent.lejeune/medical-labeling/'
@@ -45,6 +45,8 @@ extra_cfg['pca'] = False
 
 extra_cfg['tau_u'] = 0.7
 extra_cfg['n_bins_hoof'] = 30
+
+extra_cfg['sp_trans_init_mode'] = 'radius'
 
 # Run segmentation
 conf, logger = iterative_ksp.main(extra_cfg)

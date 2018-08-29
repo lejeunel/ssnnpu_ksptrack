@@ -94,6 +94,9 @@ def cfg():
     compactness = 10.0
     reqdsupervoxelsize = 9000
 
+    # Superpixel transitions
+    sp_trans_init_mode = 'overlap'
+
     #Optical flow
     oflow_alpha = 0.012
     oflow_ratio = 0.75
