@@ -262,17 +262,6 @@ def main(arg_cfg):
             logger.info("""Number hit pixels of ksp at iteration {}:
                         {}""".format(i+1, n_pix_ksp))
 
-            if(conf.monitor_score):
-                seeds = utls.make_full_y_from_ksp(dict_ksp,
-                                                    dm.sp_desc_df)
-                f1 = f1_score(gt_seeds[:, 2],seeds[:, 2])
-                fpr, tpr, _ = roc_curve(gt_seeds[:, 2], seeds[:, 2])
-
-                logger.info("""F1 (SP-level) at
-                            iteration {}: {} """.format(i + 1, f1))
-                logger.info("""FPR/TPR (SP-level) at
-                    iteration {}: {}/{} """.format(i+1, fpr[1], tpr[1]))
-
             fileOut = os.path.join(conf.dataOutDir,
                                     'pm_scores_iter_{}.npz'.format(i))
             data = dict()

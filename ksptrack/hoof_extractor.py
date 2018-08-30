@@ -120,7 +120,6 @@ class HOOFExtractor:
                 in {} direction on superpixels'\
                                 .format(dir_))
 
-
                 edges = g.edges()
                 if(dir_ == 'forward'):
                     keys = ['fvx', 'fvy']
