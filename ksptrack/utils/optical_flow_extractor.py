@@ -49,7 +49,7 @@ class OpticalFlowExtractor:
         else:
             self.logger.info('Precomputing the optical flows...')
             for f in np.arange(1, len(im_paths)):
-                self.logger.info('{}/{}'.format(f+1, len(im_paths)))
+                self.logger.info('{}/{}'.format(f, len(im_paths)))
                 im1 = io.imread(im_paths[f-1]).astype(float) / 255.
                 im2 = io.imread(im_paths[f]).astype(float) / 255.
                 fvx, fvy, _ = pyflow.coarse2fine_flow(im1,
@@ -70,10 +70,10 @@ class OpticalFlowExtractor:
                                                       self.nInnerFPIterations,
                                                       self.nSORIterations,
                                                       0)
-                flows_bvx.append(bvx)
-                flows_bvy.append(bvy)
-                flows_fvx.append(fvx)
-                flows_fvy.append(fvy)
+                flows_bvx.append(bvx.astype(np.float32))
+                flows_bvy.append(bvy.astype(np.float32))
+                flows_fvx.append(fvx.astype(np.float32))
+                flows_fvy.append(fvy.astype(np.float32))
 
             flows_bvx = np.asarray(flows_bvx).transpose(1, 2, 0)
             flows_bvy = np.asarray(flows_bvy).transpose(1, 2, 0)

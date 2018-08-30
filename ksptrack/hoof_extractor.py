@@ -1,6 +1,7 @@
 import logging
 import numpy as np
 from ksptrack.utils import my_utils as utls
+from ksptrack.utils import optical_flow_extractor as oflowx
 import progressbar
 import os
 import pickle as pk
@@ -15,30 +16,26 @@ class HOOFExtractor:
 
     """
     Computes Histograms of Oriented Optical Flow on superpixels
-    We build HOOF descriptors on a coarse grid
+    We build HOOF descriptors on a coarse grid instead of superpixels as the
+    latter will make the computation time prohibitive as the number of 
+    superpixels increase...
+    For improved precision, decrease the grid_size_ratio parameter
     Descriptors are mapped to superpixel labels according to overlap priority
     """
     def __init__(self,
                  conf,
-                 fvx,
-                 fvy,
-                 bvx,
-                 bvy,
+                 flows_path,
                  labels,
                  grid_size_ratio,
                  n_bins=30,
                  directions=['forward', 'backward']):
-
-        self.fvx = fvx
-        self.fvy = fvy
-        self.bvx = bvx
-        self.bvy = bvy
 
         self.directions = directions
         self.conf = conf
         self.labels = labels
         self.bins_hoof = np.linspace(-np.pi/2,np.pi/2,n_bins+1)
         self.logger = logging.getLogger('HOOFExtractor')
+        self.flows_path = flows_path
 
 
         self.grid = self.make_grid_array(self.labels[..., 0].shape,
@@ -66,13 +63,22 @@ class HOOFExtractor:
         return mapping
 
 
-    def make_hoof_on_grid(self, path):
+    def make_hoof_on_grid(self):
         """
         Compute HOOF on _grid_ labels
         """
 
         hoof = dict()
-        file_hoof_grid = os.path.join(path, 'hoof_grid.npz')
+
+        path_flow = self.flows_path
+
+        if(not os.path.exists(path_flow)):
+            self.calc_oflow(path_flow)
+
+        self.flows = self.get_flows(path_flow)
+
+        file_hoof_grid = os.path.join(self.conf.precomp_desc_path,
+                                      'hoof.npz')
 
         if(not os.path.exists(file_hoof_grid)):
             for dir_ in self.directions:
@@ -82,11 +88,11 @@ class HOOFExtractor:
 
                 frames = np.arange(self.labels.shape[-1]-1)
                 if(dir_ == 'forward'):
-                    vx = self.fvx
-                    vy = self.fvy
+                    vx = self.flows['fvx']
+                    vy = self.flows['fvy']
                 else:
-                    vx = self.bvx
-                    vy = self.bvy
+                    vx = self.flows['bvx']
+                    vy = self.flows['bvy']
 
                 hoof[dir_] = list()
 
@@ -106,15 +112,16 @@ class HOOFExtractor:
 
         return self.hoof_grid
 
-    def make_hoof_inters(self, path, g):
+    def make_hoof_inters(self, g):
         """
         Compute HOOF intersection on sps
         Neighboring superpixels are given by undirected graph g
         """
-        file_hoof_sps = os.path.join(path, 'hoof_inters_graph.npz')
+        file_hoof_sps = os.path.join(self.conf.precomp_desc_path,
+                                     'hoof_inters_graph.npz')
 
         if(not os.path.exists(file_hoof_sps)):
-            self.hoof_grid = self.make_hoof_on_grid(path)
+            self.hoof_grid = self.make_hoof_on_grid()
             for dir_ in self.directions:
                 self.logger.info('Computing HOOF\
                 in {} direction on superpixels'\
@@ -168,7 +175,7 @@ class HOOFExtractor:
             grid_size = int(grid_size_ratio*max_size)
             print('block_size: {}'.format(grid_size))
 
-            n_blocks = int(np.ceil((max_size**2)/(block_size**2)))
+            n_blocks = int(np.ceil((max_size**2)/(grid_size**2)))
             print('n_blocks: {}'.format(n_blocks))
 
             grid = np.empty((max_size, max_size), dtype=np.uint16)
@@ -176,17 +183,43 @@ class HOOFExtractor:
             val = 1
             for i in range(n_blocks//2):
                 for j in range(n_blocks//2):
-                    grid[i*block_size:(i+1)*grid_size,
-                        j*block_size:(j+1)*grid_size] = val
+                    grid[i*grid_size:(i+1)*grid_size,
+                        j*grid_size:(j+1)*grid_size] = val
                     val += 1
 
-            print('n_blocks before reshape: {}'.format(np.unique(blocks).size))
+            print('n_blocks before reshape: {}'.format(np.unique(grid).size))
             grid = grid[0:shape[0], 0:shape[1]]
             np.savez(file_grid, **{'grid': grid})
         else:
             grid = np.load(file_grid)['grid']
 
         return grid
+
+    def get_flows(self, path):
+        self.flows = dict()
+        self.logger.info('Loading optical flows...')
+        npzfile = np.load(path)
+        self.flows['bvx'] = npzfile['bvx']
+        self.flows['fvx'] = npzfile['fvx']
+        self.flows['bvy'] = npzfile['bvy']
+        self.flows['fvy'] = npzfile['fvy']
+        return self.flows
+
+    def calc_oflow(self, save=True, save_path=None):
+
+        if(not os.path.exists(save_path)):
+            os.mkdir(save_path)
+
+        oflow_extractor = oflowx.OpticalFlowExtractor(save_path,
+                                                      self.conf.oflow_alpha,
+                                                      self.conf.oflow_ratio,
+                                                      self.conf.oflow_minWidth,
+                                        self.conf.oflow_nOuterFPIterations,
+                                        self.conf.oflow_nInnerFPIterations,
+                                        self.conf.oflow_nSORIterations)
+        oflow_extractor.extract(self.conf.frameFileNames,
+                                save_path)
+
 
 def sp_to_grid_map(labels, grid):
     """

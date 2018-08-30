@@ -167,7 +167,6 @@ def main(arg_cfg):
 
         logger.info("i: " + str(i+1))
 
-        import pdb; pdb.set_trace()
         if((i>0) & find_new_forward):
             g_for.merge_tracklets_temporally(pos_tls_for,
                                              dm.fg_pm_df,

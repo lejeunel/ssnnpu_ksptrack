@@ -9,7 +9,6 @@ from ksptrack.utils import my_utils as utls
 from ksptrack.utils import bagging as bag
 from ksptrack.utils import csv_utils as csv
 from ksptrack.utils import superpixel_extractor as svx
-from ksptrack.utils import optical_flow_extractor as oflowx
 from ksptrack.cfgs import cfg
 import pickle as pk
 from progressbar import ProgressBar as pbar
@@ -119,19 +118,6 @@ class DataManager:
         #self.load_pm_bg_from_file()
         self.load_pm_fg_from_file()
         #self.load_pm_all_feats()
-
-    def get_flows(self):
-        file_ = os.path.join(self.conf.precomp_desc_path, 'flows.npz')
-        if(not os.path.exists(file_)):
-            self.flows_mat_to_np()
-        self.flows = dict()
-        self.logger.info('Loading optical flows...')
-        npzfile = np.load(file_)
-        self.flows['bvx'] = npzfile['bvx']
-        self.flows['fvx'] = npzfile['fvx']
-        self.flows['bvy'] = npzfile['bvy']
-        self.flows['fvy'] = npzfile['fvy']
-        return self.flows
 
     def get_labels(self):
         return self.load_labels_if_not_exist()
@@ -245,22 +231,6 @@ class DataManager:
             os.path.join(self.conf.precomp_desc_path, 'bg_pm_df.p'))
         self.bg_marked_feats = np.load(os.path.join(self.conf.precomp_desc_path, 'bg_marked_feats.npz'))['bg_marked_feats']
 
-
-    def calc_oflow(self, save=True):
-
-        save_path = os.path.join(self.conf.precomp_desc_path)
-        if(not os.path.exists(save_path)):
-            os.mkdir(save_path)
-
-        oflow_extractor = oflowx.OpticalFlowExtractor(save_path,
-                                                      self.conf.oflow_alpha,
-                                                      self.conf.oflow_ratio,
-                                                      self.conf.oflow_minWidth,
-                                        self.conf.oflow_nOuterFPIterations,
-                                        self.conf.oflow_nInnerFPIterations,
-                                        self.conf.oflow_nSORIterations)
-        oflow_extractor.extract(self.conf.frameFileNames,
-                                save_path)
 
     def calc_superpix(self,save=True):
         """

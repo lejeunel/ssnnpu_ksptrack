@@ -48,17 +48,16 @@ class SuperpixelManager:
         #self.dict_init = self.make_init_dicts()
         if(self.with_flow):
             self.graph = self.make_init_constraint()
+            flows_path = os.path.join(self.conf.precomp_desc_path,
+                                      'flows.npz')
 
-            flows = self.dataset.get_flows()
             hoof_extr = HOOFExtractor(self.conf,
-                                      flows['fvx'], flows['fvy'],
-                                      flows['bvx'], flows['bvy'],
+                                      flows_path,
                                       self.labels,
                                       self.hoof_grid_ratio)
 
             # This will add fields in original graph
-            self.graph = hoof_extr.make_hoof_inters(self.conf.precomp_desc_path,
-                                                    self.graph)
+            self.graph = hoof_extr.make_hoof_inters(self.graph)
         else:
             self.graph = self.make_init_constraint()
 
