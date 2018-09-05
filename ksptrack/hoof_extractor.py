@@ -73,9 +73,9 @@ class HOOFExtractor:
         path_flow = self.flows_path
 
         if(not os.path.exists(path_flow)):
-            self.calc_oflow(path_flow)
+            self.calc_oflow(save=True, save_path=path_flow)
 
-        self.flows = self.get_flows(path_flow)
+        flows = self.get_flows(path_flow)
 
         file_hoof_grid = os.path.join(self.conf.precomp_desc_path,
                                       'hoof.npz')
@@ -88,11 +88,11 @@ class HOOFExtractor:
 
                 frames = np.arange(self.labels.shape[-1]-1)
                 if(dir_ == 'forward'):
-                    vx = self.flows['fvx']
-                    vy = self.flows['fvy']
+                    vx = flows['fvx']
+                    vy = flows['fvy']
                 else:
-                    vx = self.flows['bvx']
-                    vy = self.flows['bvy']
+                    vx = flows['bvx']
+                    vy = flows['bvy']
 
                 hoof[dir_] = list()
 
@@ -136,15 +136,19 @@ class HOOFExtractor:
                 with progressbar.ProgressBar(maxval=len(g.edges())) as bar:
                     for i, e in enumerate(edges):
 
-                        # hoof_grid is indexed by "past frame"
-                        f_= min(e[0][0], e[1][0])
+                        i_0 = np.argmin((e[0][0], e[1][0]))
+                        i_1 = np.argmax((e[0][0], e[1][0]))
+                        f_0 = e[i_0][0]
+                        f_1 = e[i_1][0]
+                        s_0 = e[i_0][1]
+                        s_1 = e[i_1][1]
 
                         hoof_0 = \
-                            self.hoof_grid[dir_][f_]\
-                            [self.mapping[f_][e[0][1]]]
+                            self.hoof_grid[dir_][f_0]\
+                            [self.mapping[f_0][s_0]]
                         hoof_1 = \
-                            self.hoof_grid[dir_][f_]\
-                            [self.mapping[f_][e[1][1]]]
+                            self.hoof_grid[dir_][f_0]\
+                            [self.mapping[f_1][s_1]]
 
                         g[e[0]][e[1]][dir_] = utls.hist_inter(
                             hoof_0,
@@ -196,19 +200,16 @@ class HOOFExtractor:
         return grid
 
     def get_flows(self, path):
-        self.flows = dict()
+        flows = dict()
         self.logger.info('Loading optical flows...')
         npzfile = np.load(path)
-        self.flows['bvx'] = npzfile['bvx']
-        self.flows['fvx'] = npzfile['fvx']
-        self.flows['bvy'] = npzfile['bvy']
-        self.flows['fvy'] = npzfile['fvy']
-        return self.flows
+        flows['bvx'] = npzfile['bvx']
+        flows['fvx'] = npzfile['fvx']
+        flows['bvy'] = npzfile['bvy']
+        flows['fvy'] = npzfile['fvy']
+        return flows
 
     def calc_oflow(self, save=True, save_path=None):
-
-        if(not os.path.exists(save_path)):
-            os.mkdir(save_path)
 
         oflow_extractor = oflowx.OpticalFlowExtractor(save_path,
                                                       self.conf.oflow_alpha,

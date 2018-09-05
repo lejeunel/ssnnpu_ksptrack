@@ -83,7 +83,7 @@ def cfg():
     calc_sp_feats_unet_gaze_rec = False
     calc_entrance = False
     calc_linking = False
-    calc_oflow = False
+    use_hoof = False
     calc_pm = False
     calc_pm = False
     calc_ss = False

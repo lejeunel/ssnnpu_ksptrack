@@ -80,8 +80,8 @@ def main(arg_cfg):
     dm = DataManager(conf)
     if(conf.calc_superpix):
         dm.calc_superpix(save=True)
-    if(conf.calc_oflow):
-        dm.calc_oflow(save=True)
+    #if(conf.use_hoof):
+    #    dm.calc_oflow(save=True)
 
     dm.load_superpix_from_file()
     if(conf.force_relabel):
@@ -97,7 +97,7 @@ def main(arg_cfg):
     logger.info('Building superpixel managers')
     sps_man = spm.SuperpixelManager(dm,
                                     conf,
-                                    with_flow=True,
+                                    with_flow=conf.use_hoof,
                                     init_mode=conf.sp_trans_init_mode)
 
     if(conf.calc_pm):
