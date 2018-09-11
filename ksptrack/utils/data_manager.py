@@ -410,9 +410,11 @@ class DataManager:
 
         myvgg16 = MyVGG16(cuda=self.conf.vgg16_cuda)
 
+        print('starting VGG16 feature extraction')
         with pbar(maxval=len(fnames)) as bar:
             for f_ind, f in enumerate(fnames):
                 bar.update(f_ind)
+                print('frame {}/{}'.format(f_ind+1, len(fnames)))
                 feats = list()
                 patch_loader = PatchDataLoader(f,
                                                sp_labels[..., f_ind],
@@ -436,6 +438,7 @@ class DataManager:
                     feats.sort_values(['frame', 'sp_label'], inplace=True)
                     feats.to_pickle(im_feats_save_path)
 
+        print('done')
         # Make single feature file for convenience
         all_feats_path = os.path.join(self.conf.precomp_desc_path,
                                         'sp_desc_vgg16.p')

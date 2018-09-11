@@ -1,0 +1,12 @@
+scipy
+scikit-learn
+metric-learn
+sharedmem
+pyyaml
+matplotlib
+progressbar2
+pandas
+munch
+ruamel.yaml
+cvxopt
+tensorflow-gpu
