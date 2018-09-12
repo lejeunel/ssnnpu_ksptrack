@@ -71,7 +71,6 @@ class PatchDataLoader(Dataset):
         patch = Image.fromarray(patch)
         patch = self.transform(patch).squeeze()
 
-        import pdb; pdb.set_trace()
         return (patch, self.unique_sp_labels[index])
 
     @staticmethod
