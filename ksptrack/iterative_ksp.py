@@ -92,7 +92,7 @@ def main(arg_cfg):
         dm.calc_sp_feats_unet_gaze_rec(locs2d,
                                                save_dir=conf.precomp_desc_path)
     if(conf.calc_sp_feats_vgg16):
-        dm.calc_sp_feats_vgg16(save_dir=conf.precomp_desc_path)
+        dm.calc_sp_feats_vgg16(save_dir=conf.dataOutDir)
 
     logger.info('Building superpixel managers')
     sps_man = spm.SuperpixelManager(dm,

@@ -17,7 +17,7 @@ extra_cfg['calc_sp_feats'] = False
 extra_cfg['calc_pm'] = True  # Calculate probability maps from marked SPs
 extra_cfg['n_iter_ksp'] = 10 # sets max amount of iterations (merges)
 
-extra_cfg['feats_graph'] = 'unet_gaze'      # set unet as feature extractor algorithm
+extra_cfg['feats_graph'] = 'unet_gaze'
 
 extra_cfg['thresh_aux'] = []
 extra_cfg['calc_sp_feats_unet_gaze_rec'] = False
@@ -27,10 +27,13 @@ extra_cfg['use_hoof'] = True
 
 extra_cfg['fileOutPrefix'] = 'exp'
 
-extra_cfg['dataSetDir'] = 'Dataset04' #This is a test dataset
+extra_cfg['dataSetDir'] = 'datasetTest' #This is a test dataset
+extra_cfg['reqdsupervoxelsize'] = 20000
 
-extra_cfg['dataInRoot'] = '/home/laurent.lejeune/medical-labeling/'
-extra_cfg['dataOutRoot'] = '/home/laurent.lejeune/medical-labeling/'
+# extra_cfg['dataInRoot'] = '/home/laurent.lejeune/medical-labeling/'
+# extra_cfg['dataOutRoot'] = '/home/laurent.lejeune/medical-labeling/'
+extra_cfg['dataInRoot'] = '/home/krakapwa/Desktop/'
+extra_cfg['dataOutRoot'] = '/home/krakapwa/Desktop/'
 extra_cfg['frameDir'] = 'input-frames'
 extra_cfg['resultDir'] = 'results'
 extra_cfg['dataOutResultDir'] = ''

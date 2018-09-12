@@ -22,6 +22,7 @@ class PatchExtractor(DataLoader):
     def __getitem__(self, index):
         'Generates one sample of data'
         # Select sample
+        print('PathExtractor getitem')
         selem = square(2)
         mask = self.sp_labels == self.unique_labels[index]
         i_mask, j_mask = np.where(mask)
@@ -47,5 +48,6 @@ class PatchExtractor(DataLoader):
                                     axis=1),
                             (self.patch_size,
                              self.patch_size)).astype(np.float32)
+        print('done')
 
         return (patch, self.unique_labels[index])

@@ -92,7 +92,7 @@ def cfg():
 
     #Superpixel segmentation
     compactness = 10.0
-    reqdsupervoxelsize = 9000
+    reqdsupervoxelsize = 20000
 
     # Superpixel transitions
     sp_trans_init_mode = 'overlap'

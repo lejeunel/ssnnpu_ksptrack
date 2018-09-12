@@ -33,6 +33,8 @@ class MyVGG16(nn.Module):
                                 std=(0.229, 0.224, 0.225))])
 
         self.feat_size = 4096
+        torch.set_num_threads(4)
+        self.model.eval()
 
         # remove unncessary classification layer
         #feat_model = self.model.fe
@@ -46,7 +48,7 @@ class MyVGG16(nn.Module):
                                 for i in range(img_stack.shape[0])]).squeeze()
 
         def copy_data(m, i, o):
-                features.copy_(o.data)
+            features.copy_(o.data)
 
         # Create hook feat_layer
         h = self.model.register_forward_hook(copy_data)

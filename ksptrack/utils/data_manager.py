@@ -414,7 +414,6 @@ class DataManager:
         with pbar(maxval=len(fnames)) as bar:
             for f_ind, f in enumerate(fnames):
                 bar.update(f_ind)
-                print('frame {}/{}'.format(f_ind+1, len(fnames)))
                 feats = list()
                 patch_loader = PatchDataLoader(f,
                                                sp_labels[..., f_ind],
@@ -423,12 +422,22 @@ class DataManager:
                                                batch_size=\
                                                self.conf.vgg16_batch_size)
 
-                im_feats_save_path = os.path.join(self.conf.precomp_desc_path,
+                im_feats_save_path = os.path.join(save_dir,
                                                   'im_feat_{}.p'.format(f_ind))
 
                 if(not os.path.exists(im_feats_save_path)):
-                    for patches, labels in patch_loader.data_loader:
+                    for b_i, b in enumerate(patch_loader.data_loader):
+                        print('frame {}/{}. batch{}/{}'.format(
+                            f_ind+1,
+                            len(fnames),
+                            b_i+1,
+                            len(patch_loader.data_loader)
+                        ))
+                        patches = b[0]
+                        labels = b[1]
+                        print('myvgg16.get_features')
                         feats_ = myvgg16.get_features(patches)
+                        print('done')
                         feats += [(f_ind, l, f_)
                                 for (l, f_) in zip(np.asarray(labels),
                                                     np.asarray(feats_))]

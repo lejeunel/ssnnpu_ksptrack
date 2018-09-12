@@ -29,6 +29,7 @@ class PatchDataLoader(Dataset):
         self.transform = transform
         self.unique_sp_labels = np.unique(self.sp_labels)
         self.data_loader = DataLoader(self, batch_size=batch_size)
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     def __getitem__(self, index):
         # stuff
@@ -38,7 +39,6 @@ class PatchDataLoader(Dataset):
         return self.unique_sp_labels.size
 
     def extract_patch(self, index):
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         """Load an image and convert it to a torch tensor."""
 
         img = utls.imread(self.img_path)
@@ -71,6 +71,7 @@ class PatchDataLoader(Dataset):
         patch = Image.fromarray(patch)
         patch = self.transform(patch).squeeze()
 
+        import pdb; pdb.set_trace()
         return (patch, self.unique_sp_labels[index])
 
     @staticmethod
