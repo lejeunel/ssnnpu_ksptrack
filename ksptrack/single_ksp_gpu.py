@@ -17,9 +17,9 @@ extra_cfg['calc_sp_feats'] = False
 extra_cfg['calc_pm'] = True  # Calculate probability maps from marked SPs
 extra_cfg['n_iter_ksp'] = 10 # sets max amount of iterations (merges)
 
-extra_cfg['feats_graph'] = 'vgg16'
+extra_cfg['feats_graph'] = 'unet_gaze'
 
-extra_cfg['make_datetime_dir'] = False
+extra_cfg['make_datetime_dir'] = True
 
 extra_cfg['thresh_aux'] = []
 

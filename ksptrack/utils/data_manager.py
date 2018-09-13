@@ -156,16 +156,11 @@ class DataManager:
     def load_labels_if_not_exist(self):
 
         if (self.labels is None):
+            path_ = os.path.join(self.conf.precomp_desc_path,
+                                        'sp_labels.npz')
+            self.logger.info('loading superpixel labels: {}'.format(path_))
 
-            self.labels = np.load(
-                os.path.join(self.conf.precomp_desc_path,
-                             'sp_labels.npz'))['sp_labels']
-
-            #mat_file_out = os.path.join(self.conf.dataInRoot,
-            #                            self.conf.dataSetDir,
-            #                            'EE',
-            #                            'sp_labels_ml.mat')
-            #self.labels = scipy.io.loadmat(mat_file_out)['labels']
+            self.labels = np.load(path_)['sp_labels']
 
         return self.labels
 
@@ -179,9 +174,11 @@ class DataManager:
 
     def load_superpix_from_file(self):
 
-        self.logger.info('loading superpixel data (labels,centroids)')
+        centroid_path = os.path.join(self.conf.precomp_desc_path,
+                                     'centroids_loc_df.p')
+        self.logger.info('loading superpixel centroids: {}'.format(centroid_path))
         self.centroids_loc = pd.read_pickle(
-            os.path.join(self.conf.precomp_desc_path, 'centroids_loc_df.p'))
+            centroid_path)
         self.load_labels_if_not_exist()
 
     def get_sp_desc_from_file(self):

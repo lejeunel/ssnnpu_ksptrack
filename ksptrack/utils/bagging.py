@@ -94,11 +94,6 @@ def calc_bagging_para(T,
         #with progressbar.ProgressBar(maxval=int(marked_arr.shape[0])) as bar:
         for i in range(marked_arr.shape[0]):
 
-            #bar.update(i)
-            #print(i)
-            #if(i == 28):
-            #    import pdb; pdb.set_trace()
-
             if (not np.any(
                     marked_arr[i, :] == -1)):  #Some points might be missing
                 this_idx = np.where((all_feats_df['frame']==marked_arr[i,0])\

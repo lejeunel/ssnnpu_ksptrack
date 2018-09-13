@@ -313,7 +313,7 @@ def main(arg_cfg):
     data['frameFileNames'] = conf.frameFileNames
     data['n_iter_ksp'] = conf.n_iter_ksp
     data['ksp_scores_mat'] = ksp_scores_mat
-    #data['list_ksp'] = list_ksp
+    data['pm_scores_mat'] = dm.get_pm_array()
     data['list_paths_back'] = list_paths_back
     data['list_paths_for'] = list_paths_for
     logger.info("Saving results and config to: " + fileOut)
