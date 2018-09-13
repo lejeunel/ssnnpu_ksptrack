@@ -19,6 +19,8 @@ extra_cfg['n_iter_ksp'] = 10 # sets max amount of iterations (merges)
 
 extra_cfg['feats_graph'] = 'vgg16'
 
+extra_cfg['make_datetime_dir'] = False
+
 extra_cfg['thresh_aux'] = []
 
 # This is to force (re)computation of features

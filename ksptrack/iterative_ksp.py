@@ -24,10 +24,11 @@ def main(arg_cfg):
 
     if not('dataOutDir' in arg_cfg.keys()):
         conf.dataOutDir = utls.getDataOutDir(conf.dataOutRoot,
-                                            conf.dataSetDir,
-                                            conf.resultDir,
-                                            conf.fileOutPrefix,
-                                            conf.testing)
+                                             conf.dataSetDir,
+                                             conf.resultDir,
+                                             conf.fileOutPrefix,
+                                             conf.testing,
+                                             conf.make_datetime_dir)
 
     # Set logger
     utls.setup_logging(conf.dataOutDir)

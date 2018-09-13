@@ -323,13 +323,21 @@ def readCsv(csvName,seqStart=None,seqEnd=None):
         out[:,0] = np.arange(0,seqEnd-seqStart)
     return out
 
-def getDataOutDir(dataOutRoot,dataSetDir,resultDir,fileOutPrefix,testing):
+def getDataOutDir(dataOutRoot,
+                  dataSetDir,
+                  resultDir,
+                  fileOutPrefix,
+                  testing,
+                  make_datetime_dir=True):
 
     now = datetime.datetime.now()
     dateTime = now.strftime("%Y-%m-%d_%H-%M-%S")
 
     dataOutDir = os.path.join(dataOutRoot,dataSetDir,resultDir)
-    dataOutResultDir = os.path.join(dataOutDir,dateTime+'_' + fileOutPrefix)
+    if(make_datetime_dir):
+        dataOutResultDir = os.path.join(dataOutDir,dateTime+'_' + fileOutPrefix)
+    else:
+        dataOutResultDir = dataOutDir
 
     #print(dataOutResultDir)
     if (not os.path.exists(dataOutResultDir)) and (not testing):
