@@ -1,5 +1,4 @@
 scipy
-scikit-learn
 metric-learn
 sharedmem
 progressbar2
@@ -18,5 +17,4 @@ numpy
 PyYAML
 scikit-image
 scikit-learn
-scipy
 pytest
