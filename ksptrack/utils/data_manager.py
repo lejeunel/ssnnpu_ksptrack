@@ -361,7 +361,7 @@ class DataManager:
         elif (self.conf.feats_graph == 'unet_gaze'):
             self.calc_sp_feats_unet_gaze_rec(self.locs2d, save_dir)
         elif (self.conf.feats_graph == 'vgg16'):
-            self.calc_sp_feats_vgg16(save_dir=None)
+            self.calc_sp_feats_vgg16(save_dir)
 
     def __calc_sp_feats_unet(self,
                              model,
@@ -445,7 +445,7 @@ class DataManager:
             self.logger.info('sp descriptors : ' + sp_desc_fname +
                              ' already exist.')
 
-    def calc_sp_feats_vgg16(self, save_dir=None):
+    def calc_sp_feats_vgg16(self, save_dir):
         """ Computes VGG16 features
          and save features
         """
@@ -474,7 +474,7 @@ class DataManager:
 
                 if (not os.path.exists(im_feats_save_path)):
                     for b_i, b in enumerate(patch_loader.data_loader):
-                        print('frame {}/{}. batch{}/{}'.format(
+                        print('frame {}/{}. batch {}/{}'.format(
                             f_ind + 1, len(fnames), b_i + 1,
                             len(patch_loader.data_loader)))
                         patches = b[0]
