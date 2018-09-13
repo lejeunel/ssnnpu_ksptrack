@@ -28,7 +28,7 @@ def main(conf, logger=None):
     res = np.load(
         os.path.join(conf.dataOutDir, 'results.npz'))
 
-    frame_dir = os.path.join(conf.dataOutDir, 'results')
+    frame_dir = os.path.join(conf.dataOutDir, conf.dataOutImageResultDir)
     if(not os.path.exists(frame_dir)):
         logger.info('Creating output frame dir: {}'.format(frame_dir))
         os.makedirs(frame_dir)

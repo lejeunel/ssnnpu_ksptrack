@@ -54,6 +54,7 @@ def cfg():
     dataInRoot = '/home/laurent.lejeune/medical-labeling/'
     dataOutRoot = '/home/laurent.lejeune/medical-labeling/'
     dataOutResultDir = ''
+    dataOutImageResultDir = 'results' # Where segmentations are saved
     make_datetime_dir = True
     resultDir = 'results'
     gazeDir = 'gaze-measurements'
