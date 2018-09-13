@@ -79,8 +79,9 @@ class TrackletManager:
         # check HOOF intersection
         labels_filt = []
         for s, val in sps.items():
-            if(val[direction] > tau_u): 
-                labels_filt.append(s[1])
+            if(direction in val.keys()):
+                if(val[direction] > tau_u):
+                    labels_filt.append(s[1])
 
         # Get tracklet
         if((mode == 'head') & (direction == 'forward')):

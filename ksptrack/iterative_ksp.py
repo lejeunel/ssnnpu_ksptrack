@@ -60,6 +60,8 @@ def main(arg_cfg):
                                                    conf.gazeDir,
                                                    conf.csvFileName_fg))
 
+    
+
     if (conf.labelMatPath != ''):
         conf.labelMatPath = os.path.join(conf.dataOutRoot,
                                          conf.dataSetDir,
@@ -78,6 +80,7 @@ def main(arg_cfg):
 
     # ---------- Descriptors/superpixel costs
     dm = DataManager(conf)
+    dm.locs2d = locs2d
     if(conf.calc_superpix):
         dm.calc_superpix(save=True)
     #if(conf.use_hoof):

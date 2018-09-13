@@ -20,6 +20,9 @@ extra_cfg['n_iter_ksp'] = 10 # sets max amount of iterations (merges)
 extra_cfg['feats_graph'] = 'unet_gaze'
 
 extra_cfg['thresh_aux'] = []
+
+# This is to force (re)computation of features
+
 extra_cfg['calc_sp_feats_unet_gaze_rec'] = False
 extra_cfg['calc_sp_feats_unet_rec'] = False
 extra_cfg['calc_sp_feats_vgg16'] = False
