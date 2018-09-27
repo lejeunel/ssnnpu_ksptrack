@@ -4,21 +4,22 @@ from skimage.util import montage
 import os
 import datetime
 import yaml
-import my_utils as utls
 import logging
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-import learning_dataset
-import gazeCsv as gaze
-import dataset as ds
-import learning_dataset
-import results_dirs as rd
+from ksptrack.utils import csv_utils as csv
+from ksptrack.utils import learning_dataset
+from ksptrack.utils import my_utils as utls
+from ksptrack.exps import results_dirs as rd
 from PIL import Image, ImageFont, ImageDraw
+import glob
 
 """
 Makes plots self
 """
+
+cmap = plt.get_cmap('viridis')
 
 def gray2rgb(im):
     return (color.gray2rgb(im)*255).astype(np.uint8)
@@ -33,9 +34,7 @@ dfs = []
 
 ims = []
 ksp = []
-vilar = []
-g2s = []
-wtp = []
+pm = []
 
 #for key in rd.res_dirs_dict_ksp.keys(): # Types
 for key in rd.types: # Types
@@ -60,20 +59,35 @@ for key in rd.types: # Types
         idx_cont_gt = np.where(cont_gt)
         im = utls.imread(confs[0].frameFileNames[f])
         im[idx_cont_gt[0], idx_cont_gt[1], :] = (255, 0, 0)
-        im =  gaze.drawGazePoint(confs[0].myGaze_fg,
-                                f,
-                                im,
-                                radius=7)
+
+        locs2d = utls.readCsv(os.path.join(confs[0].dataInRoot,
+                                           confs[0].dataSetDir,
+                                           confs[0].gazeDir,
+                                           confs[0].csvFileName_fg))
+        im =  csv.draw2DPoint(locs2d,
+                              f,
+                              im,
+                              radius=7)
         ims[-1].append(im)
 
         file_ksp = os.path.join(rd.root_dir,
                                 rd.res_dirs_dict_ksp[key][dset][gset],
                                 'metrics.npz')
 
+        file_pm = sorted(glob.glob(os.path.join(rd.root_dir,
+                                rd.res_dirs_dict_ksp[key][dset][gset],
+                                'pm_scores*.npz')))[-1]
+
         print('Loading (KSP): ' + file_ksp)
         npzfile = np.load(file_ksp)
         ksp_ = gray2rgb(npzfile['ksp_scores'][..., f])
         ksp[-1].append(ksp_)
+
+        print('Loading (PM): ' + file_pm)
+        npzfile = np.load(file_pm)
+
+        pm_ = (cmap(npzfile['pm'])[...,0:3]*255).astype(np.uint8)
+        pm[-1].append(pm_)
 
 
 ims = [ims[i][j] for i in range(len(ims)) for j in range(len(ims[i]))]

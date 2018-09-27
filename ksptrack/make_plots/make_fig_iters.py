@@ -79,7 +79,6 @@ for key in rd.types: # Types
                                 rd.res_dirs_dict_ksp[key][dset][gset],
                                 'results.npz')
 
-        import pdb; pdb.set_trace()
         print('Loading (KSP): ' + file_ksp)
         npzfile = np.load(file_ksp)
         ksp_ = gray2rgb(npzfile['ksp_scores'][..., f])

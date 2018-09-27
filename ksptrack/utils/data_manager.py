@@ -9,7 +9,6 @@ from ksptrack.utils import my_utils as utls
 from ksptrack.utils import bagging as bag
 from ksptrack.utils import csv_utils as csv
 from ksptrack.utils import superpixel_extractor as svx
-from ksptrack.utils import optical_flow_extractor as oflowx
 from ksptrack.cfgs import cfg
 import pickle as pk
 from progressbar import ProgressBar as pbar
@@ -49,6 +48,8 @@ class DataManager:
         if (not os.path.exists(self.conf.precomp_desc_path)):
             self.logger.info('Feature directory does not exist... creating')
             os.mkdir(self.conf.precomp_desc_path)
+
+        self.locs2d = None
 
     def relabel(self, save=False, who=[]):
         """ Relabel labels, sp_desc_df and sp_link_df to make labels contiguous
@@ -131,19 +132,6 @@ class DataManager:
         self.load_pm_fg_from_file()
         #self.load_pm_all_feats()
 
-    def get_flows(self):
-        file_ = os.path.join(self.conf.precomp_desc_path, 'flows.npz')
-        if (not os.path.exists(file_)):
-            self.flows_mat_to_np()
-        self.flows = dict()
-        self.logger.info('Loading optical flows...')
-        npzfile = np.load(file_)
-        self.flows['bvx'] = npzfile['bvx']
-        self.flows['fvx'] = npzfile['fvx']
-        self.flows['bvy'] = npzfile['bvy']
-        self.flows['fvy'] = npzfile['fvy']
-        return self.flows
-
     def get_labels(self):
         return self.load_labels_if_not_exist()
 
@@ -168,16 +156,11 @@ class DataManager:
     def load_labels_if_not_exist(self):
 
         if (self.labels is None):
+            path_ = os.path.join(self.conf.precomp_desc_path,
+                                        'sp_labels.npz')
+            self.logger.info('loading superpixel labels: {}'.format(path_))
 
-            self.labels = np.load(
-                os.path.join(self.conf.precomp_desc_path,
-                             'sp_labels.npz'))['sp_labels']
-
-            #mat_file_out = os.path.join(self.conf.dataInRoot,
-            #                            self.conf.dataSetDir,
-            #                            'EE',
-            #                            'sp_labels_ml.mat')
-            #self.labels = scipy.io.loadmat(mat_file_out)['labels']
+            self.labels = np.load(path_)['sp_labels']
 
         return self.labels
 
@@ -191,9 +174,11 @@ class DataManager:
 
     def load_superpix_from_file(self):
 
-        self.logger.info('loading superpixel data (labels,centroids)')
+        centroid_path = os.path.join(self.conf.precomp_desc_path,
+                                     'centroids_loc_df.p')
+        self.logger.info('loading superpixel centroids: {}'.format(centroid_path))
         self.centroids_loc = pd.read_pickle(
-            os.path.join(self.conf.precomp_desc_path, 'centroids_loc_df.p'))
+            centroid_path)
         self.load_labels_if_not_exist()
 
     def get_sp_desc_from_file(self):
@@ -218,9 +203,12 @@ class DataManager:
         if (os.path.exists(path)):
             out = pd.read_pickle(path)
 
-            self.logger.info("Loading features: " + path)
+            self.logger.info("Loaded features: " + path)
         else:
-            return None
+            self.logger.info("Couldnt find features: {}".format(path))
+            self.logger.info("Will compute them now.")
+            self.calc_sp_feats_dispatch(self.conf.precomp_desc_path)
+            return self.get_sp_desc_from_file()
 
         return out
 
@@ -266,18 +254,6 @@ class DataManager:
         self.bg_marked_feats = np.load(
             os.path.join(self.conf.precomp_desc_path,
                          'bg_marked_feats.npz'))['bg_marked_feats']
-
-    def calc_oflow(self, save=True):
-
-        save_path = os.path.join(self.conf.precomp_desc_path)
-        if (not os.path.exists(save_path)):
-            os.mkdir(save_path)
-
-        oflow_extractor = oflowx.OpticalFlowExtractor(
-            save_path, self.conf.oflow_alpha, self.conf.oflow_ratio,
-            self.conf.oflow_minWidth, self.conf.oflow_nOuterFPIterations,
-            self.conf.oflow_nInnerFPIterations, self.conf.oflow_nSORIterations)
-        oflow_extractor.extract(self.conf.frameFileNames, save_path)
 
     def calc_superpix(self, save=True):
         """
@@ -372,6 +348,15 @@ class DataManager:
 
         return self.fg_pm_df
 
+    def calc_sp_feats_dispatch(self, save_dir=None):
+
+        if (self.conf.feats_graph == 'unet'):
+            self.calc_sp_feats_unet_rec(self, save_dir)
+        elif (self.conf.feats_graph == 'unet_gaze'):
+            self.calc_sp_feats_unet_gaze_rec(self.locs2d, save_dir)
+        elif (self.conf.feats_graph == 'vgg16'):
+            self.calc_sp_feats_vgg16(save_dir)
+
     def __calc_sp_feats_unet(self,
                              model,
                              feats_name,
@@ -454,7 +439,7 @@ class DataManager:
             self.logger.info('sp descriptors : ' + sp_desc_fname +
                              ' already exist.')
 
-    def calc_sp_feats_vgg16(self, save_dir=None):
+    def calc_sp_feats_vgg16(self, save_dir):
         """ Computes VGG16 features
          and save features
         """
@@ -466,6 +451,7 @@ class DataManager:
 
         myvgg16 = MyVGG16(cuda=self.conf.vgg16_cuda)
 
+        print('starting VGG16 feature extraction')
         with pbar(maxval=len(fnames)) as bar:
             for f_ind, f in enumerate(fnames):
                 bar.update(f_ind)
@@ -477,12 +463,19 @@ class DataManager:
                                                batch_size=\
                                                self.conf.vgg16_batch_size)
 
-                im_feats_save_path = os.path.join(self.conf.precomp_desc_path,
+                im_feats_save_path = os.path.join(save_dir,
                                                   'im_feat_{}.p'.format(f_ind))
 
                 if (not os.path.exists(im_feats_save_path)):
-                    for patches, labels in patch_loader.data_loader:
+                    for b_i, b in enumerate(patch_loader.data_loader):
+                        print('frame {}/{}. batch {}/{}'.format(
+                            f_ind + 1, len(fnames), b_i + 1,
+                            len(patch_loader.data_loader)))
+                        patches = b[0]
+                        labels = b[1]
+                        print('myvgg16.get_features')
                         feats_ = myvgg16.get_features(patches)
+                        print('done')
                         feats += [(f_ind, l, f_) for (
                             l,
                             f_) in zip(np.asarray(labels), np.asarray(feats_))]
@@ -492,6 +485,7 @@ class DataManager:
                     feats.sort_values(['frame', 'sp_label'], inplace=True)
                     feats.to_pickle(im_feats_save_path)
 
+        print('done')
         # Make single feature file for convenience
         all_feats_path = os.path.join(self.conf.precomp_desc_path,
                                       'sp_desc_vgg16.p')

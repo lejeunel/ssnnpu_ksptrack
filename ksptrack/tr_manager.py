@@ -7,14 +7,19 @@ import logging
 class TrackletManager:
     # Makes dictionary of tracklets with in_frame and out_frame keys
 
-    def __init__(self, sps_mans, tls, n_frames):
+    def __init__(self,
+                 sps_man,
+                 direction,
+                 tls,
+                 n_frames):
 
         self.n_frames = 0
         self.dict_in = dict()
         self.dict_out = dict()
         self.logger = logging.getLogger('TrackletManager')
+        self.direction = direction
         self.make_dict(tls, n_frames)
-        self.sps_mans = sps_mans
+        self.sps_man = sps_man
 
     def make_dict(self, tls, n_frames):
 
@@ -59,23 +64,30 @@ class TrackletManager:
         t_linkable = []
 
         # Get superpixels candidates
-        if ((mode == 'head') & (direction == 'forward')):
-            sps = self.sps_mans['forward'].dict_[(t_arg.get_out_frame(),
-                                                  t_arg.get_out_label())]
-        elif ((mode == 'tail') & (direction == 'forward')):
-            sps = self.sps_mans['backward'].dict_[(t_arg.get_in_frame(),
-                                                   t_arg.get_in_label())]
-        elif ((mode == 'head') & (direction == 'backward')):
-            sps = self.sps_mans['backward'].dict_[(t_arg.get_out_frame(),
-                                                   t_arg.get_out_label())]
-        elif ((mode == 'tail') & (direction == 'backward')):
-            sps = self.sps_mans['forward'].dict_[(t_arg.get_in_frame(),
-                                                  t_arg.get_in_label())]
+        if((mode == 'head')):
+            sps = self.sps_man.graph[(t_arg.get_out_frame(),
+                                      t_arg.get_out_label())]
+            if(direction == 'forward'):
+                keys = [k for k in sps.keys() if(k[0] > t_arg.get_out_frame())]
+            else:
+                keys = [k for k in sps.keys() if(k[0] < t_arg.get_out_frame())]
+                
+        elif((mode == 'tail')):
+            sps = self.sps_man.graph[(t_arg.get_in_frame(),
+                                      t_arg.get_in_label())]
+            if(direction == 'forward'):
+                keys = [k for k in sps.keys() if(k[0] < t_arg.get_in_frame())]
+            else:
+                keys = [k for k in sps.keys() if(k[0] > t_arg.get_in_frame())]
 
+        sps = { key:value for key, value in sps.items() if(key in keys)}
+
+        # check HOOF intersection
         labels_filt = []
-        for s in sps:
-            if (s[-1] > tau_u):  # check HOOF intersection
-                labels_filt.append(s[1])
+        for s, val in sps.items():
+            if(direction in val.keys()):
+                if(val[direction] > tau_u):
+                    labels_filt.append(s[1])
 
         # Get tracklet
         if ((mode == 'head') & (direction == 'forward')):

@@ -35,11 +35,15 @@ class SuperpixelExtractor:
         dims = ims.shape
 
         numrequiredsupervoxels = int(dims[0]*dims[1]*dims[3]/reqdsupervoxelsize)
-        self.logger.info("""Number of required
-                    supervoxels {}""".format(numrequiredsupervoxels))
         labels, numlabels = self.my_svx.run(ims,
                                             numrequiredsupervoxels,
                                             compactness)
+
+        n_labels_per_frame = [np.unique(labels[..., i]).size
+                              for i in range(labels.shape[-1])]
+
+        self.logger.info('Num. of labels: {}' \
+                            .format(n_labels_per_frame[0]))
 
         if(save):
             self.logger.info('Saving labels to {}'.format(save_path))

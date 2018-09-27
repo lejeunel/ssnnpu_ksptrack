@@ -204,7 +204,6 @@ class VGG16Basic:
             valGenerator = datagenTrain.flow(imgs[ind_val], gts[ind_val],
                                                batch_size=conf.batchsize, shuffle=True)
 
-            import pdb; pdb.set_trace()
             self.model.fit_generator(trainGenerator,
                                      steps_per_epoch=conf.data_steps_per_epoch // conf.batchsize,
                                      epochs=n_epochs,

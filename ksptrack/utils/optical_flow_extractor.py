@@ -41,15 +41,14 @@ class OpticalFlowExtractor:
         flows_fvx = []
         flows_fvy = []
 
-        out_path = os.path.join(save_path, 'flows.npz')
 
-        if(os.path.isfile(out_path)):
+        if(os.path.isfile(save_path)):
             self.logger.info("""Output file {} exists. Delete it
-                    or change output path """.format(out_path))
+                    or change output path """.format(save_path))
         else:
             self.logger.info('Precomputing the optical flows...')
             for f in np.arange(1, len(im_paths)):
-                self.logger.info('{}/{}'.format(f+1, len(im_paths)))
+                self.logger.info('{}/{}'.format(f, len(im_paths)))
                 im1 = io.imread(im_paths[f-1]).astype(float) / 255.
                 im2 = io.imread(im_paths[f]).astype(float) / 255.
                 fvx, fvy, _ = pyflow.coarse2fine_flow(im1,
@@ -70,10 +69,10 @@ class OpticalFlowExtractor:
                                                       self.nInnerFPIterations,
                                                       self.nSORIterations,
                                                       0)
-                flows_bvx.append(bvx)
-                flows_bvy.append(bvy)
-                flows_fvx.append(fvx)
-                flows_fvy.append(fvy)
+                flows_bvx.append(bvx.astype(np.float32))
+                flows_bvy.append(bvy.astype(np.float32))
+                flows_fvx.append(fvx.astype(np.float32))
+                flows_fvy.append(fvy.astype(np.float32))
 
             flows_bvx = np.asarray(flows_bvx).transpose(1, 2, 0)
             flows_bvy = np.asarray(flows_bvy).transpose(1, 2, 0)
@@ -81,14 +80,14 @@ class OpticalFlowExtractor:
             flows_fvy = np.asarray(flows_fvy).transpose(1, 2, 0)
             self.logger.info('Optical flow calculations done')
 
-            self.logger.info('Saving optical flows to {}'.format(out_path))
+            self.logger.info('Saving optical flows to {}'.format(save_path))
 
             data = dict()
             data['bvx'] = flows_bvx
             data['bvy'] = flows_bvy
             data['fvx'] = flows_fvx
             data['fvy'] = flows_fvy
-            np.savez(out_path, **data)
+            np.savez(save_path, **data)
 
             self.logger.info('Done.')
 
