@@ -348,6 +348,9 @@ def main(arg_cfg):
     logger.info("Saving results and config to: " + fileOut)
     np.savez(fileOut, **data)
 
+    g_for.save_graph(os.path.join(conf.dataOutDir, 'g_for.p'))
+    g_back.save_graph(os.path.join(conf.dataOutDir, 'g_back.p'))
+
     logger.info("done")
 
 

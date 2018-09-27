@@ -92,7 +92,7 @@ def cfg():
 
     #Superpixel segmentation
     compactness = 10.0
-    reqdsupervoxelsize = 20000
+    reqdsupervoxelsize = 1000
 
     #Optical flow
     oflow_alpha = 0.012
@@ -197,7 +197,7 @@ def cfg():
     unet_data_width_shift = 0.2          # max x-shift by ratio
     unet_data_height_shift = 0.2         # max y-shift by ratio
     unet_data_shear_range = 22.5         # max shearing in degrees (+/-)
-    unet_interp_n_jobs = 1               # Num of jobs to interpolate unet features back to orig size
+    unet_interp_n_jobs = 4               # Num of jobs to interpolate unet features back to orig size
     unet_gaze_gaussian_std = 30          # std dev for creating 2D Gaussian map
 
     vgg16_batch_size = 16

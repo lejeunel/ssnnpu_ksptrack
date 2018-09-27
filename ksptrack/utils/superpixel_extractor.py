@@ -26,8 +26,10 @@ class SuperpixelExtractor:
                 save = False):
 
         self.logger.info('Got {} images'.format(len(im_paths)))
+
         if(len(im_paths) < 5):
             im_paths += [im_paths[-1] for i in range(5-len(im_paths))]
+
         ims = [io.imread(im) for im in im_paths]
         ims = np.asarray(ims).transpose(1,2,3,0)
         dims = ims.shape
