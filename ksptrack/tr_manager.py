@@ -71,7 +71,7 @@ class TrackletManager:
                 keys = [k for k in sps.keys() if(k[0] > t_arg.get_out_frame())]
             else:
                 keys = [k for k in sps.keys() if(k[0] < t_arg.get_out_frame())]
-                
+
         elif((mode == 'tail')):
             sps = self.sps_man.graph[(t_arg.get_in_frame(),
                                       t_arg.get_in_label())]
@@ -112,3 +112,11 @@ class TrackletManager:
             ]
 
         return t_linkable
+
+    def __getstate__(self):
+        d = dict(self.__dict__)
+        del d['logger']
+        return d
+
+    def __setstate__(self, d):
+        self.__dict__.update(d)

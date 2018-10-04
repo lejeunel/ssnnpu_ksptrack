@@ -1,11 +1,11 @@
 import numpy as np
-import os,sys,yaml
+import os, sys, yaml
 from skimage import io
 from skimage import color
 import progressbar
-from skimage import (color,feature)
+from skimage import (color, feature)
 from skimage.transform import resize
-from sklearn import (preprocessing,mixture,decomposition)
+from sklearn import (preprocessing, mixture, decomposition)
 from sklearn.metrics import confusion_matrix
 from scipy import cluster
 import datetime
@@ -19,6 +19,7 @@ import logging.config
 from scipy import interpolate
 import pandas as pd
 import ksptrack
+
 
 def df_crossjoin(df1, df2, **kwargs):
     """
@@ -41,35 +42,38 @@ def df_crossjoin(df1, df2, **kwargs):
 
     return res
 
-def my_interp(x, y, n_samp, xrange_ = [0,1]):
+
+def my_interp(x, y, n_samp, xrange_=[0, 1]):
 
     x = x.ravel()
     y = y.ravel()
-    x_out = np.linspace(x[0],x[-1],n_samp)
+    x_out = np.linspace(x[0], x[-1], n_samp)
     #x_out = np.linspace(xrange_[0],xrange_[1],n_samp)
     f = interpolate.interp1d(x.ravel(), y.ravel())
 
     try:
         y_out = f(x_out)
     except:
-        x_out = np.linspace(xrange_[0],xrange_[1],n_samp)
+        x_out = np.linspace(xrange_[0], xrange_[1], n_samp)
         #x_out = np.linspace(x[0],x[-1],n_samp)
         f = interpolate.interp1d(x.ravel(), y.ravel())
         y_out = f(x_out)
 
-    return x_out,y_out
+    return x_out, y_out
 
-def concat_interp(x,y,n_samp):
+
+def concat_interp(x, y, n_samp):
 
     y_out = []
 
     for i in range(len(y)):
-        this_x_out, this_y_out = my_interp(x[i],y[i],n_samp)
+        this_x_out, this_y_out = my_interp(x[i], y[i], n_samp)
         y_out.append(this_y_out)
 
     x_out = this_x_out
 
     return x_out, np.asarray(y_out)
+
 
 def concat_arr(x):
 
@@ -80,43 +84,45 @@ def concat_arr(x):
 
     return np.asarray(x_out)
 
-def make_y_array_true(map_,labels,pos_thr=0.5):
+
+def make_y_array_true(map_, labels, pos_thr=0.5):
 
     #self.logger.info('Making Y vector (true groundtruths)')
     y = []
     with progressbar.ProgressBar(maxval=labels.shape[-1]) as bar:
         for i in range(labels.shape[-1]):
             bar.update(i)
-            for j in np.unique(labels[...,i]):
-                this_mask = labels[...,i] == j
-                this_overlap = np.logical_and(map_[...,i], this_mask)
-                y.append((i,j,np.sum(this_overlap)/np.sum(this_mask) > pos_thr))
+            for j in np.unique(labels[..., i]):
+                this_mask = labels[..., i] == j
+                this_overlap = np.logical_and(map_[..., i], this_mask)
+                y.append((i, j,
+                          np.sum(this_overlap) / np.sum(this_mask) > pos_thr))
 
     return np.asarray(y)
 
-def make_sp_gts(map_,labels,pos_thr=0.5):
+
+def make_sp_gts(map_, labels, pos_thr=0.5):
 
     #Convert superpixel labels to ground-truth based on threshold
     y = np.zeros(labels.shape, dtype=np.bool)
 
     with progressbar.ProgressBar(maxval=labels.shape[-1]) as bar:
         for i in range(labels.shape[-1]):
-        #for i in range(1):
+            #for i in range(1):
             bar.update(i)
-            for j in np.unique(labels[...,i]):
-                mask = labels[...,i] == j
-                overlap = np.logical_and(map_[...,i], mask)
-                if(np.sum(overlap)/np.sum(mask) > pos_thr):
+            for j in np.unique(labels[..., i]):
+                mask = labels[..., i] == j
+                overlap = np.logical_and(map_[..., i], mask)
+                if (np.sum(overlap) / np.sum(mask) > pos_thr):
                     y[..., i] += mask
 
     return y
 
-def setup_logging(
-    log_path,
-    conf_path='logging.yaml',
-    default_level=logging.INFO,
-    env_key='LOG_CFG'
-):
+
+def setup_logging(log_path,
+                  conf_path='logging.yaml',
+                  default_level=logging.INFO,
+                  env_key='LOG_CFG'):
     """Setup logging configuration
 
     """
@@ -130,14 +136,16 @@ def setup_logging(
     if os.path.exists(path):
         with open(path, 'rt') as f:
             config = yaml.safe_load(f.read())
-            config['handlers']['info_file_handler']['filename'] = os.path.join(log_path,'info.log')
-            config['handlers']['error_file_handler']['filename'] = os.path.join(log_path,'error.log')
+            config['handlers']['info_file_handler']['filename'] = os.path.join(
+                log_path, 'info.log')
+            config['handlers']['error_file_handler'][
+                'filename'] = os.path.join(log_path, 'error.log')
         logging.config.dictConfig(config)
     else:
         logging.basicConfig(level=default_level)
 
-def split_homogeneous(arr,vals):
 
+def split_homogeneous(arr, vals):
     """
     arr : array with values to split
     vals: array of values that determines homogeneity
@@ -153,7 +161,7 @@ def split_homogeneous(arr,vals):
     init_ind = np.arange(vals.shape[0])
 
     start = 0
-    while(split_ind.size > 0):
+    while (split_ind.size > 0):
         chunk = init_ind[start:split_ind[0]]
         out.append(chunk)
         start = split_ind[0] + 1
@@ -161,7 +169,8 @@ def split_homogeneous(arr,vals):
 
     return out
 
-def make_sc_graph(R,F):
+
+def make_sc_graph(R, F):
 
     g = nx.DiGraph()
     keys = R.keys()
@@ -173,37 +182,53 @@ def make_sc_graph(R,F):
     #for i in range(all_labels.shape[0]):
     #    g.add_node(all_labels[i],stack_idx=np.min([s for s in range(len(labels_per_frame)) if(all_labels[i] in labels_per_frame[s])]))
 
-    non_empty_keys = [k for k in keys if(len(R[k]) > 0)]
-
+    non_empty_keys = [k for k in keys if (len(R[k]) > 0)]
 
     root = non_empty_keys[-1]
 
-    stack_idx = dict(nx.get_node_attributes(g,'stack_idx'))
+    stack_idx = dict(nx.get_node_attributes(g, 'stack_idx'))
 
     #Link and store scale difference (parent - child)
     for k in non_empty_keys:
-        frame_parent_idx=np.min([s for s in range(len(labels_per_frame)) if(k in labels_per_frame[s])])
-        frame_child_left=np.max([s for s in range(len(labels_per_frame)) if(R[k][0] in labels_per_frame[s])])
-        frame_child_right=np.max([s for s in range(len(labels_per_frame)) if(R[k][1] in labels_per_frame[s])])
+        frame_parent_idx = np.min([
+            s for s in range(len(labels_per_frame))
+            if (k in labels_per_frame[s])
+        ])
+        frame_child_left = np.max([
+            s for s in range(len(labels_per_frame))
+            if (R[k][0] in labels_per_frame[s])
+        ])
+        frame_child_right = np.max([
+            s for s in range(len(labels_per_frame))
+            if (R[k][1] in labels_per_frame[s])
+        ])
         #ds = stack_idx[k] - stack_idx[R[k][j]]
-        g.add_edge(k,R[k][0],ds=frame_parent_idx-frame_child_left)
-        g.add_edge(k,R[k][1],ds=frame_parent_idx-frame_child_right)
+        g.add_edge(k, R[k][0], ds=frame_parent_idx - frame_child_left)
+        g.add_edge(k, R[k][1], ds=frame_parent_idx - frame_child_right)
 
     scales = nx.single_source_dijkstra_path_length(g, root, weight='ds')
 
     return g, scales
 
 
-def merge_feats(df,feat_fields):
+def merge_feats(df, feat_fields):
     out = []
     for i in df.index:
-            out.append(np.hstack((df.frame[i],df.sp_label[i],np.hstack([df[feat_field][i].reshape(1,-1) for feat_field in feat_fields]).ravel())))
+        out.append(
+            np.hstack((df.frame[i], df.sp_label[i],
+                       np.hstack([
+                           df[feat_field][i].reshape(1, -1)
+                           for feat_field in feat_fields
+                       ]).ravel())))
 
     del df
     return np.asarray(out)
 
 
-def ksp2array(g,ksp_dict,labels,arg_direction=['forward_sets','backward_sets']):
+def ksp2array(g,
+              ksp_dict,
+              labels,
+              arg_direction=['forward_sets', 'backward_sets']):
     #Flatten all edges and make node list. Returns array (frame_ind, sp_label)
 
     nodes = []
@@ -211,67 +236,79 @@ def ksp2array(g,ksp_dict,labels,arg_direction=['forward_sets','backward_sets']):
         if direction in ksp_dict.keys():
             this_set = ksp_dict[direction][-1]
             this_paths = [item for sublist in this_set for item in sublist]
-            this_nodes = [n for n in this_paths if((n != g.source) and (n != g.sink))]
-            this_nodes = [n[0] for n in this_nodes if((n[1] == g.nodeTypes.index('input')))]
+            this_nodes = [
+                n for n in this_paths if ((n != g.source) and (n != g.sink))
+            ]
+            this_nodes = [
+                n[0] for n in this_nodes
+                if ((n[1] == g.nodeTypes.index('input')))
+            ]
         nodes += this_nodes
 
     #Keep only uniques
     nodes = np.asarray(list(set(nodes)))
 
-    idx_sort = np.argsort(nodes[:,0])
-    return nodes[idx_sort,:]
+    idx_sort = np.argsort(nodes[:, 0])
+    return nodes[idx_sort, :]
 
-def hist_inter(x,y,w=None):
 
-    if(w is not None):
-      out = np.min(w*np.append(x.reshape(-1,1),y.reshape(-1,1),axis=1),axis=1)
+def hist_inter(x, y, w=None):
+
+    if (w is not None):
+        out = np.min(
+            w * np.append(x.reshape(-1, 1), y.reshape(-1, 1), axis=1), axis=1)
     else:
-      out = np.min(np.append(x.reshape(-1,1),y.reshape(-1,1),axis=1),axis=1)
+        out = np.min(
+            np.append(x.reshape(-1, 1), y.reshape(-1, 1), axis=1), axis=1)
     return np.sum(out)
 
-def hoof(f,nbins):
 
-    bins = np.linspace(-np.pi,np.pi,nbins)
-    angle = np.arctan2(f[:,1],f[:,0])
-    norm = np.linalg.norm(f,axis=1)
-    idx = np.digitize(angle,bins)
+def hoof(f, nbins):
+
+    bins = np.linspace(-np.pi, np.pi, nbins)
+    angle = np.arctan2(f[:, 1], f[:, 0])
+    norm = np.linalg.norm(f, axis=1)
+    idx = np.digitize(angle, bins)
 
     out = np.zeros(bins.shape[0])
     for i in range(norm.shape[0]):
         out[idx[i]] += norm[i]
 
     sum_out = np.sum(out)
-    if(sum_out == 0):
+    if (sum_out == 0):
         return out
     else:
-        return out/np.sum(out)
+        return out / np.sum(out)
+
 
 def get_complement_arrays(arr):
 
     out = np.empty(arr.shape)
     for i in range(arr.shape[2]):
-        out[...,i] = np.logical_not(arr[...,i])
+        out[..., i] = np.logical_not(arr[..., i])
 
     return out
 
-def get_complement(dict_ksp,labels,source,sink,node_in_num = 0):
-    #Return complement of node set (for later computation of background model)
 
+def get_complement(dict_ksp, labels, source, sink, node_in_num=0):
+    #Return complement of node set (for later computation of background model)
 
     #Get all nodes from labels
     all_nodes = []
     for i in range(labels.shape[0]):
-        for j in np.unique(labels[i,:,:]):
-            all_nodes.append((i,j))
+        for j in np.unique(labels[i, :, :]):
+            all_nodes.append((i, j))
 
     #Get nodes from ksp set
     nodes = []
-    for direction in {'forward_sets','backward_sets'}:
+    for direction in {'forward_sets', 'backward_sets'}:
         if direction in kspSet.keys():
             this_set = dict_ksp[direction][-1]
             this_paths = [item for sublist in this_set for item in sublist]
-            this_nodes = [n for n in this_paths if((n != source) and (n != sink))]
-            this_nodes = [n[0] for n in this_nodes if((n[1] == node_in_num))]
+            this_nodes = [
+                n for n in this_paths if ((n != source) and (n != sink))
+            ]
+            this_nodes = [n[0] for n in this_nodes if ((n[1] == node_in_num))]
             nodes += this_nodes
 
     #Remove duplicates (two directions)
@@ -279,49 +316,88 @@ def get_complement(dict_ksp,labels,source,sink,node_in_num = 0):
 
     sorted_nodes = sorted(nodes, key=lambda tup: tup[0])
 
-    complement_nodes = [all_nodes[i] for i in range(len(all_nodes)) if(all_nodes[i] not in nodes)]
+    complement_nodes = [
+        all_nodes[i] for i in range(len(all_nodes))
+        if (all_nodes[i] not in nodes)
+    ]
 
     return complement_nodes
 
-def get_scores_ksp_tracklets(dict_ksp,winInd,frameInd,frameFileNames,labels,Kmax=None,mode='all'):
 
-    scores = score_path_tracklets(dict_ksp,labels,'s','t',set_idx = winInd,frame_idx = frameInd,Kmax=Kmax, mode=mode).astype(int)
+def get_scores_ksp_tracklets(dict_ksp,
+                             winInd,
+                             frameInd,
+                             frameFileNames,
+                             labels,
+                             Kmax=None,
+                             mode='all'):
+
+    scores = score_path_tracklets(
+        dict_ksp,
+        labels,
+        's',
+        't',
+        set_idx=winInd,
+        frame_idx=frameInd,
+        Kmax=Kmax,
+        mode=mode).astype(int)
 
     return scores
 
-def get_scores_from_sps(sps_arr,labels,probas=None):
+
+def get_scores_from_sps(sps_arr, labels, probas=None):
 
     scores = np.zeros(labels.shape)
-    if(probas is None):
+    if (probas is None):
         probas = np.ones(sps_arr.shape[0]).astype(int)
 
     n = 0
     with progressbar.ProgressBar(maxval=sps_arr.shape[0]) as bar:
         for i in range(sps_arr.shape[0]):
             bar.update(i)
-            scores[...,sps_arr[i,0]] += (labels[:,:,sps_arr[i,0]] == sps_arr[i,1])*probas[i]
+            scores[..., sps_arr[i, 0]] += (
+                labels[:, :, sps_arr[i, 0]] == sps_arr[i, 1]) * probas[i]
 
     return scores
 
-def get_scores_ksp(dict_ksp,winInd,frameInd,gt_dir,frameFileNames,labels,Kmax=None,mode='all'):
+
+def get_scores_ksp(dict_ksp,
+                   winInd,
+                   frameInd,
+                   gt_dir,
+                   frameFileNames,
+                   labels,
+                   Kmax=None,
+                   mode='all'):
 
     #Extract ground-truth files
-    gt = np.zeros((len(frameFileNames),labels.shape[0],labels.shape[1]))
+    gt = np.zeros((len(frameFileNames), labels.shape[0], labels.shape[1]))
     for i in range(len(frameFileNames)):
-        base,fname = os.path.split(frameFileNames[i])
-        this_gt = imread(os.path.join(gt_dir,fname))
-        gt[i,:,:] = (this_gt[:,:,0] > 0)
+        base, fname = os.path.split(frameFileNames[i])
+        this_gt = imread(os.path.join(gt_dir, fname))
+        gt[i, :, :] = (this_gt[:, :, 0] > 0)
 
     #scores = np.zeros((len(frameFileNames),labels.shape[0],labels.shape[1]))
-    scores = score_path_sets(dict_ksp,labels,'s','t',set_idx = winInd,frame_idx = frameInd,Kmax=Kmax, mode=mode).astype(int)
+    scores = score_path_sets(
+        dict_ksp,
+        labels,
+        's',
+        't',
+        set_idx=winInd,
+        frame_idx=frameInd,
+        Kmax=Kmax,
+        mode=mode).astype(int)
 
     return scores
 
-def readCsv(csvName,seqStart=None,seqEnd=None):
-    out = np.loadtxt(open(csvName,"rb"),delimiter=";",skiprows=5)[seqStart:seqEnd,:]
-    if((seqStart is not None) or (seqEnd is not None)):
-        out[:,0] = np.arange(0,seqEnd-seqStart)
+
+def readCsv(csvName, seqStart=None, seqEnd=None):
+    out = np.loadtxt(
+        open(csvName, "rb"), delimiter=";", skiprows=5)[seqStart:seqEnd, :]
+    if ((seqStart is not None) or (seqEnd is not None)):
+        out[:, 0] = np.arange(0, seqEnd - seqStart)
     return out
+
 
 def getDataOutDir(dataOutRoot,
                   dataSetDir,
@@ -333,9 +409,10 @@ def getDataOutDir(dataOutRoot,
     now = datetime.datetime.now()
     dateTime = now.strftime("%Y-%m-%d_%H-%M-%S")
 
-    dataOutDir = os.path.join(dataOutRoot,dataSetDir,resultDir)
-    if(make_datetime_dir):
-        dataOutResultDir = os.path.join(dataOutDir,dateTime+'_' + fileOutPrefix)
+    dataOutDir = os.path.join(dataOutRoot, dataSetDir, resultDir)
+    if (make_datetime_dir):
+        dataOutResultDir = os.path.join(dataOutDir,
+                                        dateTime + '_' + fileOutPrefix)
     else:
         dataOutResultDir = dataOutDir
 
@@ -345,35 +422,42 @@ def getDataOutDir(dataOutRoot,
 
     return dataOutResultDir
 
-def array_to_marked(arr,labels):
+
+def array_to_marked(arr, labels):
     marked = []
     for i in range(arr.shape[2]):
-        this_mask = np.where(arr[...,i])
-        this_marked = np.unique(labels[this_mask[0],this_mask[1],i])
-        this_frame_col = np.tile(i,this_marked.shape[0])
-        marked.append(np.concatenate((this_frame_col.reshape(-1,1),this_marked.reshape(-1,1)),axis=1))
+        this_mask = np.where(arr[..., i])
+        this_marked = np.unique(labels[this_mask[0], this_mask[1], i])
+        this_frame_col = np.tile(i, this_marked.shape[0])
+        marked.append(
+            np.concatenate(
+                (this_frame_col.reshape(-1, 1), this_marked.reshape(-1, 1)),
+                axis=1))
 
     out = np.concatenate(marked)
 
     return out
 
-def marked_to_scores(marked,labels):
+
+def marked_to_scores(marked, labels):
 
     scores = np.zeros(labels.shape)
     #for f in labels.shape[0]:
-    frames = np.unique(marked[:,0])
+    frames = np.unique(marked[:, 0])
     for f in frames:
-        sps = marked[marked[:,0] == f,:]
+        sps = marked[marked[:, 0] == f, :]
         for s in range(sps.shape[0]):
-            scores[...,f] += labels[...,f] == sps[s,1]
+            scores[..., f] += labels[..., f] == sps[s, 1]
 
     return scores
+
 
 def sps2marked(P):
 
     marked = [m for sublist in P for m in sublist]
     return np.asarray(marked)
-        
+
+
 def aggressive_flatten(xs):
     result = []
     if isinstance(xs, list):
@@ -383,26 +467,29 @@ def aggressive_flatten(xs):
         result.append(xs)
     return result
 
-def ksp2sps(paths,tls):
+
+def ksp2sps(paths, tls):
     #Flatten all edges and return list of sps
 
     ids = []
     for p in paths:
         #Keep only uniques
         ids.append([])
-        ids[-1] = [i for i in p if(i != -1)]
+        ids[-1] = [i for i in p if (i != -1)]
 
     this_tls = []
     for p in ids:
         this_tls.append([])
-        this_tls[-1] = [t for t in tls for i in range(len(p)) if(t.id_ == p[i])]
+        this_tls[-1] = [
+            t for t in tls for i in range(len(p)) if (t.id_ == p[i])
+        ]
         # sort tracklets according to direction
         dir_ = this_tls[-1][0].direction
         frames = [t.get_in_frame() for t in this_tls[-1]]
         arg_sort_frames = np.argsort(frames)
-        if(dir_ == 'forward'):
+        if (dir_ == 'forward'):
             this_tls[-1] = [this_tls[-1][i] for i in arg_sort_frames]
-        elif(dir_ == 'backward'):
+        elif (dir_ == 'backward'):
             arg_sort_frames = arg_sort_frames[::-1]
             this_tls[-1] = [this_tls[-1][i] for i in arg_sort_frames]
 
@@ -410,13 +497,13 @@ def ksp2sps(paths,tls):
     for p in this_tls:
         sps.append([])
         sps[-1] = aggressive_flatten([t.sps for t in p])
-    
+
     return sps, this_tls
 
 
 def ksp2array_tracklets(dict_ksp,
                         labels,
-                        arg_direction=['forward_sets','backward_sets'],
+                        arg_direction=['forward_sets', 'backward_sets'],
                         source='s',
                         sink='t'):
     #Flatten all edges and make node list. Returns array (frame_ind, sp_label)
@@ -424,17 +511,19 @@ def ksp2array_tracklets(dict_ksp,
     sps = []
     for direction in arg_direction:
         if direction in dict_ksp.keys():
-            if(direction == 'forward_sets'):
+            if (direction == 'forward_sets'):
                 this_tracklets = dict_ksp['forward_tracklets']
             else:
                 this_tracklets = dict_ksp['backward_tracklets']
 
             this_set = dict_ksp[direction][-1]
             this_nodes = [item for sublist in this_set for item in sublist]
-            this_nodes = [n for n in this_nodes if((n != source) and (n != sink))]
+            this_nodes = [
+                n for n in this_nodes if ((n != source) and (n != sink))
+            ]
             this_ids = [n[0] for n in this_nodes]
             this_ids = list(set(this_ids))
-            this_tls = [t for t in this_tracklets if(t.id_ in this_ids)]
+            this_tls = [t for t in this_tracklets if (t.id_ in this_ids)]
             this_sps = [t.sps for t in this_tls]
             this_sps = [item for sublist in this_sps for item in sublist]
             #this_sps = [item for sublist in this_sps for item in sublist]
@@ -444,8 +533,9 @@ def ksp2array_tracklets(dict_ksp,
     sps = [item for sublist in sps for item in sublist]
     sps = np.asarray(list(set(sps)))
 
-    idx_sort = np.argsort(sps[:,0])
-    return sps[idx_sort,:]
+    idx_sort = np.argsort(sps[:, 0])
+    return sps[idx_sort, :]
+
 
 def list_paths_to_seeds(forw, back, iter_=-1):
 
@@ -457,22 +547,25 @@ def list_paths_to_seeds(forw, back, iter_=-1):
 
     return seeds
 
-def get_node_list_tracklets(dict_ksp,source = 's',sink = 't', node_in_num = 0):
+
+def get_node_list_tracklets(dict_ksp, source='s', sink='t', node_in_num=0):
     #Return list of nodes of last family of ksp sets
     sps = []
-    for direction in {'forward_sets','backward_sets'}:
+    for direction in {'forward_sets', 'backward_sets'}:
         if direction in dict_ksp.keys():
-            if(direction == 'forward_sets'):
+            if (direction == 'forward_sets'):
                 this_tracklets = dict_ksp['forward_tracklets']
             else:
                 this_tracklets = dict_ksp['backward_tracklets']
 
             this_set = dict_ksp[direction][-1]
             this_nodes = [item for sublist in this_set for item in sublist]
-            this_nodes = [n for n in this_nodes if((n != source) and (n != sink))]
+            this_nodes = [
+                n for n in this_nodes if ((n != source) and (n != sink))
+            ]
             this_ids = [n[0] for n in this_nodes]
             this_ids = list(set(this_ids))
-            this_tls = [t for t in this_tracklets if(t.id_ in this_ids)]
+            this_tls = [t for t in this_tracklets if (t.id_ in this_ids)]
             this_sps = [t.sps for t in this_tls]
             this_sps = [item for sublist in this_sps for item in sublist]
             this_sps = [item for sublist in this_sps for item in sublist]
@@ -485,18 +578,20 @@ def get_node_list_tracklets(dict_ksp,source = 's',sink = 't', node_in_num = 0):
 
     return sorted_sps
 
-def get_node_list(dict_ksp,source,sink, node_in_num = 0):
+
+def get_node_list(dict_ksp, source, sink, node_in_num=0):
     #Return list of nodes of last family of ksp sets
 
     nodes = []
-    for direction in {'forward_sets','backward_sets'}:
+    for direction in {'forward_sets', 'backward_sets'}:
         if direction in dict_ksp.keys():
             this_set = dict_ksp[direction][-1]
             this_paths = [item for sublist in this_set for item in sublist]
-            this_nodes = [n for n in this_paths if((n != source) and (n != sink))]
-            this_nodes = [n[0] for n in this_nodes if((n[1] == node_in_num))]
+            this_nodes = [
+                n for n in this_paths if ((n != source) and (n != sink))
+            ]
+            this_nodes = [n[0] for n in this_nodes if ((n[1] == node_in_num))]
             nodes += this_nodes
-
 
     #Remove duplicates (two directions)
     list(set(nodes))
@@ -504,6 +599,7 @@ def get_node_list(dict_ksp,source,sink, node_in_num = 0):
     sorted_nodes = sorted(nodes, key=lambda tup: tup[0])
 
     return nodes
+
 
 def sp_tuples_to_mat(P, labels):
 
@@ -515,7 +611,16 @@ def sp_tuples_to_mat(P, labels):
 
     return scores
 
-def score_path_tracklets(kspSet,labels,source,sink,set_idx = None, frame_idx = None, node_in_num = 0, Kmax = None,mode='stop'):
+
+def score_path_tracklets(kspSet,
+                         labels,
+                         source,
+                         sink,
+                         set_idx=None,
+                         frame_idx=None,
+                         node_in_num=0,
+                         Kmax=None,
+                         mode='stop'):
 
     if frame_idx is None:
         frame_idx = np.array([0])
@@ -527,53 +632,60 @@ def score_path_tracklets(kspSet,labels,source,sink,set_idx = None, frame_idx = N
     else:
         frame_array = frame_idx
 
-    if(Kmax is None):
+    if (Kmax is None):
         Kmax = np.NAN
 
-    scores = np.zeros((labels.shape[0],labels.shape[1],frame_array.shape[0]))
+    scores = np.zeros((labels.shape[0], labels.shape[1], frame_array.shape[0]))
 
-    nodes = get_node_list_tracklets(kspSet,source,sink,node_in_num)
+    nodes = get_node_list_tracklets(kspSet, source, sink, node_in_num)
 
     with progressbar.ProgressBar(maxval=len(nodes)) as bar:
         for n in range(len(nodes)):
 
             bar.update(n)
-            scores[...,nodes[n][0]] += labels[...,nodes[n][0]] == nodes[n][1]
+            scores[..., nodes[n][0]] += labels[..., nodes[n][0]] == nodes[n][1]
 
     return scores
 
+
 def make_full_y_from_ksp(dict_ksp, sps):
 
+    sps_ksp = np.asarray(
+        get_node_list_tracklets(dict_ksp, source='s', sink='t', node_in_num=0))
 
-    sps_ksp =  np.asarray(get_node_list_tracklets(dict_ksp,
-                                   source = 's',
-                                   sink = 't',
-                                   node_in_num = 0))
-
-    seeds_out = np.concatenate((sps['frame'].reshape(-1,1),
-                                sps['sp_label'].reshape(-1,1),
-                                np.zeros((sps.shape[0],1))),
-                               axis=1)
+    seeds_out = np.concatenate(
+        (sps['frame'].reshape(-1, 1), sps['sp_label'].reshape(-1, 1),
+         np.zeros((sps.shape[0], 1))),
+        axis=1)
 
     for i in range(sps_ksp.shape[0]):
-        idx = np.where((seeds_out[:,0] == sps_ksp[i,0]) &
-                       (seeds_out[:,1] == sps_ksp[i,1])
-        )[0]
-        seeds_out[idx,-1] = 1
+        idx = np.where((seeds_out[:, 0] == sps_ksp[i, 0]) &
+                       (seeds_out[:, 1] == sps_ksp[i, 1]))[0]
+        seeds_out[idx, -1] = 1
 
     return seeds_out
 
-def seeds_to_scores(labels,seeds):
+
+def seeds_to_scores(labels, seeds):
     scores = np.zeros(labels.shape)
 
     with progressbar.ProgressBar(maxval=seeds.shape[0]) as bar:
         for n in range(seeds.shape[0]):
             bar.update(n)
-            scores[...,seeds[n,0]] += labels[...,seeds[n,0]] == seeds[n,1]
+            scores[..., seeds[n, 0]] += labels[..., seeds[n, 0]] == seeds[n, 1]
 
     return scores
 
-def score_path_sets(kspSet,labels,source,sink,set_idx = None, frame_idx = None, node_in_num = 0, Kmax = None,mode='stop'):
+
+def score_path_sets(kspSet,
+                    labels,
+                    source,
+                    sink,
+                    set_idx=None,
+                    frame_idx=None,
+                    node_in_num=0,
+                    Kmax=None,
+                    mode='stop'):
 
     if frame_idx is None:
         frame_idx = np.array([0])
@@ -585,38 +697,39 @@ def score_path_sets(kspSet,labels,source,sink,set_idx = None, frame_idx = None, 
     else:
         frame_array = frame_idx
 
-    if(Kmax is None):
+    if (Kmax is None):
         Kmax = np.NAN
 
-    scores = np.zeros((labels.shape[0],labels.shape[1],frame_array.shape[0]))
+    scores = np.zeros((labels.shape[0], labels.shape[1], frame_array.shape[0]))
 
-    nodes = get_node_list(kspSet,source,sink,node_in_num)
+    nodes = get_node_list(kspSet, source, sink, node_in_num)
 
     with progressbar.ProgressBar(maxval=len(nodes)) as bar:
         for n in range(len(nodes)):
             bar.update(n)
-            scores[...,nodes[n][0]] += labels[:,:,nodes[n][0]] == nodes[n][1]
+            scores[..., nodes[n][0]] += labels[:, :, nodes[n][0]] == nodes[n][
+                1]
 
     return scores
+
 
 def imread(fname):
 
     img = io.imread(fname)
-    if(len(img.shape) > 2):
+    if (len(img.shape) > 2):
         nchans = img.shape[2]
-        if(nchans>3):
-            return img[:,:,0:3]
+        if (nchans > 3):
+            return img[:, :, 0:3]
         else:
             return img
     else:
         return color.gray2rgb(img)
 
+
 def img_float_to_uint8(img):
     rimg = img - np.min(img)
     rimg = (rimg / np.max(rimg) * 255).round().astype(np.uint8)
     return rimg
-
-
 
 
 def concatenate_images(img, gt_img):
@@ -628,24 +741,25 @@ def concatenate_images(img, gt_img):
     else:
         gt_img_3c = np.zeros((w, h, 3), dtype=np.uint8)
         gt_img8 = img_float_to_uint8(gt_img)
-        gt_img_3c[:,:,0] = gt_img8
-        gt_img_3c[:,:,1] = gt_img8
-        gt_img_3c[:,:,2] = gt_img8
+        gt_img_3c[:, :, 0] = gt_img8
+        gt_img_3c[:, :, 1] = gt_img8
+        gt_img_3c[:, :, 2] = gt_img8
         img8 = img_float_to_uint8(img)
         cimg = np.concatenate((img8, gt_img_3c), axis=1)
     return cimg
 
 
+def getPositiveSPMasks(g_arg, spLabels):
 
-def getPositiveSPMasks(g_arg,spLabels):
-
-    posMasks = np.zeros((len(spLabels),spLabels[0].shape[0],spLabels[0].shape[1]),np.uint8)
+    posMasks = np.zeros(
+        (len(spLabels), spLabels[0].shape[0], spLabels[0].shape[1]), np.uint8)
 
     for v in g_arg.vertices():
-            mask = (spLabels[g_arg.vp["frameInd"][v]] == g_arg.vp["partInd"][v])
-            posMasks[g_arg.vp["frameInd"][v],:,:] += mask
+        mask = (spLabels[g_arg.vp["frameInd"][v]] == g_arg.vp["partInd"][v])
+        posMasks[g_arg.vp["frameInd"][v], :, :] += mask
 
     return posMasks
+
 
 def getPositives(groundTruthFileNames):
 
@@ -653,86 +767,108 @@ def getPositives(groundTruthFileNames):
 
     for i in range(len(groundTruthFileNames)):
         img = imread(groundTruthFileNames[i])
-        gt = img>0
+        gt = img > 0
         positives.append(gt)
 
     positives = np.asarray(positives)
-    positives = positives[:,:,:,0]
-    positives = np.transpose(positives,(1,2,0))
+    positives = positives[:, :, :, 0]
+    positives = np.transpose(positives, (1, 2, 0))
     return positives
 
-def getTrueFalsePositiveRates(gt_positives,seg_positives,thr=None):
 
-    if(thr is None):
+def getTrueFalsePositiveRates(gt_positives, seg_positives, thr=None):
+
+    if (thr is None):
         thr = np.asarray([1])
 
     truePositives = np.bool((gt_positives.shape[0]))
-    falsePositives= np.bool((gt_positives.shape[0]))
-    trueNegatives= np.bool((gt_positives.shape[0]))
-    falseNegatives= np.bool((gt_positives.shape[0]))
-    true_pos_rate= np.zeros((thr.shape[0]))
-    false_pos_rate= np.zeros((thr.shape[0]))
-
+    falsePositives = np.bool((gt_positives.shape[0]))
+    trueNegatives = np.bool((gt_positives.shape[0]))
+    falseNegatives = np.bool((gt_positives.shape[0]))
+    true_pos_rate = np.zeros((thr.shape[0]))
+    false_pos_rate = np.zeros((thr.shape[0]))
 
     with progressbar.ProgressBar(maxval=thr.shape[0]) as bar:
-        for i in range(thr.shape[0]): #thresholds
+        for i in range(thr.shape[0]):  #thresholds
             bar.update(i)
             #print "Calculating rates with score above: ", scores[j]
-            truePositives = np.logical_and(gt_positives,seg_positives>=thr[i])
-            falsePositives = np.logical_and(np.logical_not(gt_positives),seg_positives>=thr[i])
-            trueNegatives = np.logical_and(np.logical_not(gt_positives),np.logical_not(seg_positives>=thr[i]))
-            falseNegatives = np.logical_and(gt_positives,np.logical_not(seg_positives>=thr[i]))
+            truePositives = np.logical_and(gt_positives,
+                                           seg_positives >= thr[i])
+            falsePositives = np.logical_and(
+                np.logical_not(gt_positives), seg_positives >= thr[i])
+            trueNegatives = np.logical_and(
+                np.logical_not(gt_positives),
+                np.logical_not(seg_positives >= thr[i]))
+            falseNegatives = np.logical_and(
+                gt_positives, np.logical_not(seg_positives >= thr[i]))
 
-            true_pos_rate[i] = float(np.sum(truePositives))/float(np.sum(truePositives) + np.sum(falseNegatives))
-            false_pos_rate[i] = float(np.sum(falsePositives))/float(np.sum(falsePositives) + np.sum(trueNegatives))
+            true_pos_rate[i] = float(np.sum(truePositives)) / float(
+                np.sum(truePositives) + np.sum(falseNegatives))
+            false_pos_rate[i] = float(np.sum(falsePositives)) / float(
+                np.sum(falsePositives) + np.sum(trueNegatives))
 
-    return(true_pos_rate,false_pos_rate)
+    return (true_pos_rate, false_pos_rate)
 
-def get_max_f_score(gt_positives,seg_positives,thr):
+
+def get_max_f_score(gt_positives, seg_positives, thr):
     f1 = []
     for t in thr:
-        f1.append(f1_score(gt_positives.astype(int).ravel(),(seg_positives>t).astype(int).ravel()))
+        f1.append(
+            f1_score(
+                gt_positives.astype(int).ravel(),
+                (seg_positives > t).astype(int).ravel()))
 
     return np.max(f1)
 
+
 def conf_mat_to_tpr_fpr(conf_mat):
 
-    tp = conf_mat[1,1]
-    fp = conf_mat[0,1]
-    tn = conf_mat[0,0]
-    fn = conf_mat[1,0]
+    tp = conf_mat[1, 1]
+    fp = conf_mat[0, 1]
+    tn = conf_mat[0, 0]
+    fn = conf_mat[1, 0]
 
-    return (tp/(tp+fn),fp/(fp+tn))
+    return (tp / (tp + fn), fp / (fp + tn))
+
 
 def conf_mat_to_f1(conf_mat):
 
-    return float(2 * conf_mat[1, 1]) / float(
-        2 * conf_mat[1, 1] + conf_mat[0, 1] + conf_mat[1, 0])
+    return float(2 * conf_mat[1, 1]) / float(2 * conf_mat[1, 1] +
+                                             conf_mat[0, 1] + conf_mat[1, 0])
 
-def getF1Score(gt_positives,seg_positives):
 
+def getF1Score(gt_positives, seg_positives):
 
     f1 = np.zeros((maxIdx))
 
-    for i in range(maxIdx): #frames
-        f1[i] = f1_score(gt_positives[i],seg_positives[i],average=None)
+    for i in range(maxIdx):  #frames
+        f1[i] = f1_score(gt_positives[i], seg_positives[i], average=None)
 
-    return(f1)
+    return (f1)
 
-def makeFrameFileNames(framePrefix,frameDigits,frameDir,dataInRoot,dataSetDir,frameExtension,seqStart=None,seqEnd=None):
+
+def makeFrameFileNames(framePrefix,
+                       frameDigits,
+                       frameDir,
+                       dataInRoot,
+                       dataSetDir,
+                       frameExtension,
+                       seqStart=None,
+                       seqEnd=None):
     """ Generates list of (sorted) images
     Returns List of paths to images
     """
 
     frameFileNames = []
-    path = dataInRoot+dataSetDir+'/'+frameDir+'/'
+    path = dataInRoot + dataSetDir + '/' + frameDir + '/'
 
-    frameFileNames = glob.glob(os.path.join(path,framePrefix+'*'))
+    frameFileNames = glob.glob(os.path.join(path, framePrefix + '*'))
     frameFileNames = sorted(frameFileNames)
 
     return frameFileNames
 
-def relabel(labels,map_dict):
+
+def relabel(labels, map_dict):
     """ Relabel superpixel array from dictionary
     Returns array of labels
     """
@@ -740,18 +876,19 @@ def relabel(labels,map_dict):
     labels = labels.ravel()
     new_labels = np.copy(labels)
     for k, v in map_dict.items():
-        new_labels[labels==k] = v
+        new_labels[labels == k] = v
 
     return new_labels.reshape(shape)
 
-def lp_sol_to_sps(g,tls,g_ss,x,labels=None):
+
+def lp_sol_to_sps(g, tls, g_ss, x, labels=None):
 
     e = g.edges()
-    e_marked = [e[i] for i in range(len(e)) if(x[i] > 0)]
-    e_marked = [e for e in e_marked if((e[0] != 's') & (e[1] != 't'))]
+    e_marked = [e[i] for i in range(len(e)) if (x[i] > 0)]
+    e_marked = [e for e in e_marked if ((e[0] != 's') & (e[1] != 't'))]
     all_ids = [e[0][0] for e in e_marked]
 
-    sps = [tls[id_].sps[0] for id_ in all_ids ]
+    sps = [tls[id_].sps[0] for id_ in all_ids]
     sps = [item for sublist in sps for item in sublist]
     #sps = [item for sublist in sps for item in sublist]
 
@@ -759,32 +896,38 @@ def lp_sol_to_sps(g,tls,g_ss,x,labels=None):
     for s in sps:
         this_frame = s[0]
         #print(s[1])
-        if(type(s[1]) is np.int64):
-            this_children = ss.get_children(g_ss[this_frame],s[1])
+        if (type(s[1]) is np.int64):
+            this_children = ss.get_children(g_ss[this_frame], s[1])
             for c in this_children:
-                sps_children.append((this_frame,c[0]))
-        if(type(s[1]) is np.ndarray):
-            this_children = [ss.get_children(g_ss[this_frame],s[1][t]) for t in range(s[1].shape[0])]
+                sps_children.append((this_frame, c[0]))
+        if (type(s[1]) is np.ndarray):
+            this_children = [
+                ss.get_children(g_ss[this_frame], s[1][t])
+                for t in range(s[1].shape[0])
+            ]
             for c in this_children:
-                sps_children.append((this_frame,c[0]))
+                sps_children.append((this_frame, c[0]))
 
     return np.asarray(sps_children)
 
     #sps = [t.sps[0][0] for t in tls if(t.id_ == )]
 
-def norm_to_pix(x,y,width,height):
 
-    j = int(np.round(x*(width-1),0))
-    i = int(np.round(y*(height-1),0))
+def norm_to_pix(x, y, width, height):
 
-    return i,j
+    j = int(np.round(x * (width - 1), 0))
+    i = int(np.round(y * (height - 1), 0))
+
+    return i, j
+
 
 def pandas_to_std_csv(arr):
 
     if isinstance(arr, pd.DataFrame):
-        return arr.as_matrix()[:,1:]
+        return arr.as_matrix()[:, 1:]
     else:
         return arr
+
 
 def splitall(path):
     allparts = []
@@ -793,13 +936,14 @@ def splitall(path):
         if parts[0] == path:  # sentinel for absolute paths
             allparts.insert(0, parts[0])
             break
-        elif parts[1] == path: # sentinel for relative paths
+        elif parts[1] == path:  # sentinel for relative paths
             allparts.insert(0, parts[1])
             break
         else:
             path = parts[0]
             allparts.insert(0, parts[1])
     return allparts
+
 
 def tracklet_set_to_sp_path(tls, set_):
     paths = list()
@@ -808,12 +952,12 @@ def tracklet_set_to_sp_path(tls, set_):
     set_ = set_[-1]
     for s, i in zip(set_, range(len(set_))):
         # Get tracklets id_
-        ids = [tup for tup in s if((tup != 's') and (tup != 't'))]
-        ids = ids[0::2] # Keep entrance node
+        ids = [tup for tup in s if ((tup != 's') and (tup != 't'))]
+        ids = ids[0::2]  # Keep entrance node
         ids = [n[0] for n in ids]
         p_ = list()
         for id_ in ids:
-            p_.append([tl.sps for tl in tls if(tl.id_ == id_)][0])
+            p_.append([tl.sps for tl in tls if (tl.id_ == id_)][0])
 
         paths.append(np.concatenate(p_))
 

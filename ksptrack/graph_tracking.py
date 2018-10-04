@@ -26,16 +26,24 @@ class GraphTracking:
     Connects, merges and add edges to graph. Also has KSP algorithm.
     """
 
-    def __init__(self,sps_man, tol=0, mode='edge', tau_u = -1):
+    def __init__(self,
+                 sps_man=None,
+                 tol=0,
+                 mode='edge',
+                 tau_u=-1,
+                 cxx_loglevel="info",
+                 cxx_return_edges=True):
         self.logger = logging.getLogger('GraphTracking')
 
         self.nodeTypes = ['virtual', 'input', 'output', 'none']
         self.source = 0
         self.sink = 1
+
+        self.cxx_loglevel = cxx_loglevel
+        self.cxx_return_edges = cxx_return_edges
         self.kspSet = []
         self.tracklets = None
         self.costs = []
-        self.sp = []  #Used for cost transformation
         self.nb_sets = 0
         self.mode = mode
         self.direction = None
@@ -43,8 +51,6 @@ class GraphTracking:
         self.tol = tol
         self.tau_u = tau_u  # Threshold for HOOF, set to -1 to disable constraint
 
-        self.means_feats = []
-        self.covs_inv_feats = []
         self.PCAs = []
         self.trans_transform = None
 
@@ -59,18 +65,18 @@ class GraphTracking:
 
         tls = [t for t in self.tracklets if (t.blocked == False)]
         with progressbar.ProgressBar(maxval=len(tls)) as bar:
-            for i in range(len(tls)):
+            for i, tl in enumerate(tls):
                 bar.update(i)
                 this_tracklet_probas = []
-                for df_ix in tls[i].df_ix:
+                for df_ix in tl.df_ix:
                     this_tracklet_probas.append(sp_pm['proba'][df_ix])
                 this_tracklet_probas = np.asarray(this_tracklet_probas)
-                this_tracklet_probas = np.clip(this_tracklet_probas,
-                                            a_min=self.thr,
-                                            a_max=1-self.thr)
-                w = np.sum(-np.log(np.asarray(this_tracklet_probas) / (1 - np.asarray(this_tracklet_probas))))
-                this_e = (tls[i].in_id,
-                        tls[i].out_id)
+                this_tracklet_probas = np.clip(
+                    this_tracklet_probas, a_min=self.thr, a_max=1 - self.thr)
+                w = np.sum(-np.log(
+                    np.asarray(this_tracklet_probas) /
+                    (1 - np.asarray(this_tracklet_probas))))
+                this_e = (tl.in_id, tl.out_id)
                 self.g.add_edge(*this_e, weight=w, id_=tls[i].id_)
 
     def make_init_tracklets(self, sp_pm, labels, centroids_loc, thresh,
@@ -116,10 +122,8 @@ class GraphTracking:
                 node_id += 2
 
         self.logger.info('Building tracklet manager')
-        self.tls_man = trm.TrackletManager(self.sps_man,
-                                           self.direction,
-                                       self.tracklets,
-                                       self.n_frames)
+        self.tls_man = trm.TrackletManager(self.sps_man, self.direction,
+                                           self.tracklets, self.n_frames)
 
     def unblock_tracklets(self, sp_pm, thresh):
 
@@ -137,11 +141,15 @@ class GraphTracking:
 
         return tls_unblocked
 
-    def merge_tracklets_temporally(self, tl_sets_to_merge, sp_pm, sp_desc,
+    def merge_tracklets_temporally(self,
+                                   tl_sets_to_merge,
+                                   sp_pm,
+                                   sp_desc,
                                    pm_thr=0.8):
 
         #Get id of last tracklet
-        curr_ids_tls = np.asarray([self.tracklets[i].id_ for i in range(len(self.tracklets))])
+        curr_ids_tls = np.asarray(
+            [self.tracklets[i].id_ for i in range(len(self.tracklets))])
         max_id_tls = np.max(curr_ids_tls)
         new_id_tls = max_id_tls + 1
 
@@ -149,7 +157,7 @@ class GraphTracking:
         #Build new tracklets
         #this_set = self.kspSet[-1]
         new_tracklets = []
-        ids_to_delete = [] #Store IDs of tracklets to delete after merging
+        ids_to_delete = []  #Store IDs of tracklets to delete after merging
         for tl_set in tl_sets_to_merge:
             #Remove source and sink edges
             #Get corresponding (frame,sp_label) tuples
@@ -169,19 +177,21 @@ class GraphTracking:
             proba = np.clip(proba, a_min=self.thr, a_max=1 - self.thr)
 
             # Create new tracklet and corresponding edge to graph
-            if(np.max(proba) > pm_thr):
+            if (np.max(proba) > pm_thr):
                 blocked = False
             else:
                 blocked = True
 
-            new_tracklets.append(tr.Tracklet(new_id_tls,
-                                             tl_set[0].in_id,
-                                             tl_set[-1].out_id,
-                                             this_new_sps,
-                                             this_new_df_ix,
-                                             length=len(this_new_df_ix),
-                                             blocked=blocked,
-                                             direction=self.direction))
+            new_tracklets.append(
+                tr.Tracklet(
+                    new_id_tls,
+                    tl_set[0].in_id,
+                    tl_set[-1].out_id,
+                    this_new_sps,
+                    this_new_df_ix,
+                    length=len(this_new_df_ix),
+                    blocked=blocked,
+                    direction=self.direction))
 
             new_id_tls += 1
 
@@ -200,7 +210,6 @@ class GraphTracking:
 
         self.logger.info('Updating tracklet dictionary')
         self.tls_man.make_dict(self.tracklets, self.n_frames)
-
 
     def is_linkable_entrance_radius(self,
                                     centroids,
@@ -303,7 +312,7 @@ class GraphTracking:
     def makeFullGraph(self,
                       sp_desc,
                       sp_pom,
-                      loc,
+                      centroid_locs,
                       points_2d,
                       normNeighbor_in,
                       thresh_aux,
@@ -321,14 +330,17 @@ class GraphTracking:
         #Auxiliary edges (appearance) creates tracklets, input/output nodes and weight
         self.logger.info('Making/connecting tracklets')
         if (self.tracklets is None):
-            self.make_init_tracklets(sp_pom, labels, loc, thresh_aux,
+            self.make_init_tracklets(sp_pom,
+                                     labels,
+                                     centroid_locs,
+                                     thresh_aux,
                                      direction)
         else:
             self.make_tracklets(sp_pom)
 
         tls = [t for t in self.tracklets if (t.blocked == False)]
 
-        self.make_edges_from_tracklets(tls, sp_desc, loc, points_2d,
+        self.make_edges_from_tracklets(tls, sp_desc, centroid_locs, points_2d,
                                        normNeighbor_in, tau_u, labels)
 
         self.orig_weights = nx.get_edge_attributes(self.g, 'weight')
@@ -375,8 +387,43 @@ class GraphTracking:
             self.trans_transform = PCA(n_components=n_comps_pca, whiten=True)
             self.trans_transform.fit(descs_cat)
 
-    def make_edges_from_tracklets(self, tls, sp_desc, loc, points_2d,
-                                  normNeighbor_in, tau_u, labels):
+    def connect_sources_cxx(self, locs2d, centroid_locs, labels, sp_desc,
+                        normNeighbor_in):
+        tls = [t for t in self.tracklets if (t.blocked == False)]
+        for tl in tls:
+            this_frame = tl.get_in_frame()
+            # Check if we have a 2d location on this_frame
+            if (this_frame in locs2d[:, 0]):
+                loc_2d = locs2d[locs2d[:, 0] == this_frame, 3:5].ravel()
+                i_gaze, j_gaze = utls.norm_to_pix(loc_2d[0], loc_2d[1],
+                                                  labels[..., 0].shape[1],
+                                                  labels[..., 0].shape[0])
+
+                sp_gaze = labels[i_gaze, j_gaze, this_frame]
+
+                if (self.is_linkable_entrance_radius(centroid_locs,
+                                                     loc_2d,
+                                                     tl,
+                                                     labels,
+                                                     normNeighbor_in)):
+
+                    this_e = (int(self.source), int(tl.in_id))
+
+                    proba = self.proba_trans(sp_desc, tl.get_in_frame(),
+                                             tl.get_in_label(), this_frame,
+                                             sp_gaze)
+                    w = -np.log(proba / (1 - proba))
+                    self.g_cxx.add_edge(*this_e, w, -1)
+                    #self.g.add_edge(*this_e, weight=w, id_=-1)
+
+    def make_edges_from_tracklets(self,
+                                  tls,
+                                  sp_desc,
+                                  loc,
+                                  points_2d,
+                                  normNeighbor_in,
+                                  tau_u,
+                                  labels):
 
         #Exit edges (time lapse)
         self.logger.info('Connecting exit edges')
@@ -422,11 +469,11 @@ class GraphTracking:
                 bar.update(i)
                 this_tracklet = tls[i]
 
-                linkable_tracklets = self.tls_man.get_linkables(this_tracklet,
-                                                                tau_u=tau_u,
-                                                                mode=mode,
-                                                                direction=self.direction)
-                    
+                linkable_tracklets = self.tls_man.get_linkables(
+                    this_tracklet,
+                    tau_u=tau_u,
+                    mode=mode,
+                    direction=self.direction)
 
                 for j in range(len(linkable_tracklets)):
 
@@ -442,20 +489,49 @@ class GraphTracking:
                     self.g.add_edge(*this_e, weight=w, id_=-1)
 
     def run(self):
+        self.copy_cxx()
+        self.kspSet = self.g_cxx.run()
+        return self.kspSet
 
+    def run_nocopy(self):
+        self.kspSet = self.g_cxx.run()
+        return self.kspSet
+
+    def copy_cxx(self):
         # This holds the c++ graph
         self.g_cxx = libksp.ksp()
         self.g_cxx.config(
-            self.source, self.sink, loglevel="info", min_cost=True)
+            self.source,
+            self.sink,
+            loglevel=self.cxx_loglevel,
+            min_cost=True,
+            return_edges=self.cxx_return_edges
+        )
 
         self.logger.info('Copying graph...')
         for e in self.g.edges():
             self.g_cxx.add_edge(
                 int(e[0]), int(e[1]), self.g[e[0]][e[1]]['weight'],
                 int(self.g[e[0]][e[1]]['id_']))
-        self.kspSet = self.g_cxx.run()
-        return self.kspSet
 
     def save_graph(self, path):
-            
         nx.write_gpickle(self.g, path)
+
+    def load_graph(self, path):
+        self.g = nx.read_gpickle(path)
+
+    def save_all(self, path):
+        graph_save_path = path + '_graph.p'
+        sps_man_save_path = path + '_sp_man.p'
+        tls_man_save_path = path + '_tls_man.p'
+        self.logger.info('Saving graph to {}'.format(graph_save_path))
+        self.save_graph()
+        self.logger.info('Saving sp manager to {}'.format(sps_man_save_path))
+        pk.dump(self.sps_man, open(path + '_sp_man.p', 'wb'))
+        self.logger.info('Saving tls manager to {}'.format(tls_man_save_path))
+        pk.dump(self.tls_man, open(path + '_tls_man.p', 'wb'))
+
+    def load_all(self, path):
+        self.load_graph(path + '_graph.p')
+        self.sps_man = pk.load(open(path + '_sp_man.p', 'rb'))
+        self.tls_man = pk.load(open(path + '_tls_man.p', 'rb'))

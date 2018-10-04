@@ -319,25 +319,15 @@ class DataManager:
         Computes "Bagging" transductive probabilities using marked_arr as positives.
         """
 
-        if (n_jobs > 1):
-            this_marked_feats, this_pm_df = bag.calc_bagging_para(
-                T,
-                max_depth,
-                max_n_feats,
-                marked_arr,
-                all_feats_df=all_feats_df,
-                feat_fields=['desc'],
-                max_samples=max_samples,
-                n_jobs=n_jobs)
-        else:
-            this_marked_feats, this_pm_df = bag.calc_bagging(
-                T,
-                max_depth,
-                max_n_feats,
-                marked_arr,
-                all_feats_df=all_feats_df,
-                feat_fields=['desc'],
-                max_samples=max_samples)
+        this_marked_feats, this_pm_df = bag.calc_bagging(
+            T,
+            max_depth,
+            max_n_feats,
+            marked_arr,
+            all_feats_df=all_feats_df,
+            feat_fields=['desc'],
+            max_samples=max_samples,
+            n_jobs=n_jobs)
 
         if (mode == 'foreground'):
             self.fg_marked_feats = this_marked_feats

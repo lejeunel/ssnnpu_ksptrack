@@ -10,12 +10,10 @@ from ksptrack.utils import write_frames_results as writef
 
 extra_cfg = dict()
 
-# This is where data will be stored
-
 extra_cfg['calc_superpix'] = False  # Centroids and contours
 extra_cfg['calc_sp_feats'] = False
-extra_cfg['calc_pm'] = True  # Calculate probability maps from marked SPs
-extra_cfg['n_iter_ksp'] = 10 # sets max amount of iterations (merges)
+extra_cfg['calc_pm'] = False  # Calculate probability maps from marked SPs
+extra_cfg['n_iter_ksp'] = 1  # sets max amount of iterations (merges)
 
 extra_cfg['feats_graph'] = 'unet_gaze'
 
@@ -30,12 +28,12 @@ extra_cfg['use_hoof'] = True
 
 extra_cfg['fileOutPrefix'] = 'exp'
 
-extra_cfg['dataSetDir'] = 'Dataset02' #This is a test dataset
+extra_cfg['dataSetDir'] = 'Dataset02'  #This is a test dataset
 
-# extra_cfg['dataInRoot'] = '/home/laurent.lejeune/medical-labeling/'
-# extra_cfg['dataOutRoot'] = '/home/laurent.lejeune/medical-labeling/'
-extra_cfg['dataInRoot'] = '/home/krakapwa/Desktop/'
-extra_cfg['dataOutRoot'] = '/home/krakapwa/Desktop/'
+extra_cfg['dataInRoot'] = '/home/laurent.lejeune/medical-labeling/'
+extra_cfg['dataOutRoot'] = '/home/laurent.lejeune/medical-labeling/'
+#extra_cfg['dataInRoot'] = '/home/krakapwa/Desktop/'
+#extra_cfg['dataOutRoot'] = '/home/krakapwa/Desktop/'
 extra_cfg['frameDir'] = 'input-frames'
 extra_cfg['resultDir'] = 'results'
 extra_cfg['dataOutResultDir'] = ''
@@ -44,7 +42,7 @@ extra_cfg['gtFrameDir'] = 'ground_truth-frames'
 extra_cfg['fileOutPrefix'] = 'exp'
 extra_cfg['framePrefix'] = 'frame_'
 extra_cfg['frameExtension'] = '.png'
-extra_cfg['frameDigits'] = 4 # input frames are of the form frame_xxxx.png
+extra_cfg['frameDigits'] = 4  # input frames are of the form frame_xxxx.png
 #extra_cfg['csvFileName_fg'] = '2dlocs.csv'
 extra_cfg['csvFileName_fg'] = 'video1.csv'
 extra_cfg['pca'] = False

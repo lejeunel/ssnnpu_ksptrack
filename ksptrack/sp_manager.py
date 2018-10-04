@@ -290,3 +290,13 @@ class SuperpixelManager:
                 self.graph =  pk.load(f)
                 return self.graph
 
+    def __getstate__(self):
+        d = dict(self.__dict__)
+        del d['logger']
+        del d['labels']
+        del d['c_loc']
+        del d['dataset']
+        return d
+
+    def __setstate__(self, d):
+        self.__dict__.update(d)

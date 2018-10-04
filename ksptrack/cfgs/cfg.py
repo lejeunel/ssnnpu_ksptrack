@@ -121,6 +121,7 @@ def cfg():
     n_iter_ksp = 10
     n_iter_lp = 1
     n_iter_lp_gd = 10
+    do_temporal_merge = True
 
     monitor_score = False
 
