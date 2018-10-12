@@ -2,7 +2,7 @@ FROM tensorflow/tensorflow:latest-gpu-py3
 MAINTAINER Laurent Lejeune <laurent.lejeune@artorg.unibe.ch>
 #Install basic tools
 RUN apt-get update && \
-    apt-get install -y git libbz2-dev cmake vim python3-tk wget &&\
+    apt-get install -y git libbz2-dev cmake vim python3-tk wget libsm6 libxext6 &&\
     rm -rf /var/lib/apt/lists/*
 
 
@@ -25,7 +25,7 @@ RUN cd /home && git clone https://github.com/lejeunel/boost_ksp.git \
   && cmake .. \
   && make -j 4 \
   && python3 src/setup.py install \
-  && python3 ../demo/demo.py \ # This is a test script
+  && python3 ../demo/demo.py \ 
   && rm -rf /home/boost_ksp
 
 #Install SLICsupervoxels

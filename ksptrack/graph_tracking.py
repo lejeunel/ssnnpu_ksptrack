@@ -525,11 +525,11 @@ class GraphTracking:
         sps_man_save_path = path + '_sp_man.p'
         tls_man_save_path = path + '_tls_man.p'
         self.logger.info('Saving graph to {}'.format(graph_save_path))
-        self.save_graph()
+        self.save_graph(graph_save_path)
         self.logger.info('Saving sp manager to {}'.format(sps_man_save_path))
-        pk.dump(self.sps_man, open(path + '_sp_man.p', 'wb'))
+        pk.dump(self.sps_man, open(sps_man_save_path, 'wb'))
         self.logger.info('Saving tls manager to {}'.format(tls_man_save_path))
-        pk.dump(self.tls_man, open(path + '_tls_man.p', 'wb'))
+        pk.dump(self.tls_man, open(tls_man_save_path, 'wb'))
 
     def load_all(self, path):
         self.load_graph(path + '_graph.p')

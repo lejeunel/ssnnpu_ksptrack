@@ -292,10 +292,10 @@ class SuperpixelManager:
 
     def __getstate__(self):
         d = dict(self.__dict__)
-        del d['logger']
-        del d['labels']
-        del d['c_loc']
-        del d['dataset']
+        keys_to_ignore = ['logger', 'labels', 'c_loc', 'dataset']
+        for k in keys_to_ignore:
+            if k in d.keys():
+                del d[k]
         return d
 
     def __setstate__(self, d):
