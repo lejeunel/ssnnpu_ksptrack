@@ -14,11 +14,16 @@ import pickle as pk
 from progressbar import ProgressBar as pbar
 from skimage import (color, io, segmentation)
 from sklearn import (mixture, metrics, preprocessing, decomposition)
-from scipy import (ndimage, io)
+from scipy import (ndimage, io, misc)
 import glob, itertools
 from ksptrack.cfgs import cfg
 import logging
 from sklearn.ensemble import RandomForestClassifier
+from imgaug import augmenters as iaa
+from imgaug import parameters as iap
+from pytorch_utils.im_utils import upsample_sequence
+from pytorch_utils.utils import chunks
+import shutil
 
 
 class DataManager:
@@ -156,8 +161,7 @@ class DataManager:
     def load_labels_if_not_exist(self):
 
         if (self.labels is None):
-            path_ = os.path.join(self.conf.precomp_desc_path,
-                                        'sp_labels.npz')
+            path_ = os.path.join(self.conf.precomp_desc_path, 'sp_labels.npz')
             self.logger.info('loading superpixel labels: {}'.format(path_))
 
             self.labels = np.load(path_)['sp_labels']
@@ -176,9 +180,9 @@ class DataManager:
 
         centroid_path = os.path.join(self.conf.precomp_desc_path,
                                      'centroids_loc_df.p')
-        self.logger.info('loading superpixel centroids: {}'.format(centroid_path))
-        self.centroids_loc = pd.read_pickle(
-            centroid_path)
+        self.logger.info(
+            'loading superpixel centroids: {}'.format(centroid_path))
+        self.centroids_loc = pd.read_pickle(centroid_path)
         self.load_labels_if_not_exist()
 
     def get_sp_desc_from_file(self):
@@ -262,10 +266,16 @@ class DataManager:
 
         self.labelContourMask = list()
         spix_extr = svx.SuperpixelExtractor()
+
+        #def extract(self, im_paths,
+        #            save_path,
+        #            compactness = 10.0,
+        #            reqdsupervoxelsize = 2500,
+        #            save = False):
         self.labels = spix_extr.extract(
             self.conf.frameFileNames,
             os.path.join(self.conf.precomp_desc_path, 'sp_labels.npz'),
-            self.conf.compactness, self.conf.reqdsupervoxelsize, save)
+            self.conf.compactness, self.conf.numreqdsupervoxels, save)
 
         self.logger.info("Loading npz label map")
 
@@ -347,88 +357,6 @@ class DataManager:
         elif (self.conf.feats_graph == 'vgg16'):
             self.calc_sp_feats_vgg16(save_dir)
 
-    def __calc_sp_feats_unet(self,
-                             model,
-                             feats_name,
-                             desc_name,
-                             locs2d=None,
-                             save_dir=None):
-        """ Computes UNet features in Autoencoder-mode
-                Train/forward-propagate Unet and save features/weights
-                """
-
-        self.logger.info('Calculating U-Net features.')
-
-        #img_all_dirs = cfg.seq_type_dict[self.conf.seq_type]
-
-        all_imgs = self.conf.frameFileNames
-
-        # get 2d locations as numpy array
-        if (self.conf.csvFileType == 'anna'):
-            self.locs2d_arr = locs2d[:, 3:]
-        elif (self.conf.csvFileType == 'pandas'):
-            self.locs2d_arr = locs2d.as_matrix()[:, 4:]
-
-        # get a sample image to set correct input size of network
-        sample_img_path = all_imgs[0]
-
-        #weight_dir_existed = False
-        if not os.path.exists(save_dir):
-            self.logger.info('U-Net output directory: ' + str(save_dir) +
-                             ' does not exist...creating.')
-            os.makedirs(save_dir)
-        else:
-            self.logger.info('Found directory: ' + str(save_dir))
-
-        # constructor (specify "img_height" and "img_width" for a specific input size)
-        unet_mod = model(
-            self.conf,
-            save_dir,
-            sample_img_path,
-            img_height=None,
-            img_width=None,
-            locs2d=self.locs2d_arr)
-        weights_fname = unet_mod.get_weights_path()
-        feat_fname = os.path.join(save_dir, feats_name)
-        sp_desc_fname = os.path.join(save_dir, desc_name)
-
-        if not os.path.exists(weights_fname):
-
-            self.logger.info('Weight file: ' + str(weights_fname) +
-                             ' does not exist...train network.')
-
-            # train the model on all image sets
-            unet_mod.train(self.conf, all_imgs, locs2d)
-        else:
-            self.logger.info('Weight file: ' + str(weights_fname) + ' exists.')
-
-        # always do forward propagation, since we do not know if the existing feature file would be created with the
-        # latest model weights
-        # note: forward propagation only on the individual set images
-        if not os.path.exists(feat_fname):
-            self.logger.info('Forward propagating...')
-            unet_mod.forward_prop(self.conf, feat_fname, all_imgs)
-        else:
-            self.logger.info('Downscaled features already exist in')
-            self.logger.info(feat_fname)
-
-        if not os.path.exists(sp_desc_fname):
-            self.logger.info(
-                'Generating features on superpixels (interpolating)')
-            self.logger.info('Number of jobs: ' +
-                             str(self.conf.unet_interp_n_jobs))
-            sp_desc_df = unet_mod.interp_features(
-                self.conf,
-                feat_fname,
-                self.get_labels(),
-                n_jobs=self.conf.unet_interp_n_jobs)
-            if (save_dir is not None):
-                self.logger.info('Saving sp descriptors to: ' + sp_desc_fname)
-                sp_desc_df.to_pickle(sp_desc_fname)
-        else:
-            self.logger.info('sp descriptors : ' + sp_desc_fname +
-                             ' already exist.')
-
     def calc_sp_feats_vgg16(self, save_dir):
         """ Computes VGG16 features
          and save features
@@ -498,29 +426,142 @@ class DataManager:
 
         return all_feats
 
-    def calc_sp_feats_unet_rec(self, save_dir=None):
-        """ Computes UNet features in Autoencoder-mode
-        Train/forward-propagate Unet and save features/weights
-        """
-
-        from unet.UNetRec import UNetRec
-        self.__calc_sp_feats_unet(
-            UNetRec,
-            'feats_unet_rec.h5',
-            'sp_desc_unet_rec.p',
-            save_dir=save_dir)
-
     def calc_sp_feats_unet_gaze_rec(self, locs2d, save_dir=None):
-        """ Computes UNet features in Autoencoder-mode
+        """ 
+        Computes UNet features in Autoencoder-mode
         Train/forward-propagate Unet and save features/weights
         """
 
-        h5_fname = 'feat_ung.h5'
         df_fname = 'sp_desc_ung.p'
+        feats_fname = 'feats_unet.npz'
+        feats_upsamp_fname = 'feats_unet_upsamp.npz'
+        cp_fname = 'checkpoint.pth.tar'
+        bm_fname = 'best_model.pth.tar'
 
-        from ksptrack.nets.UNetGazeRec import UNetGazeRec
-        self.__calc_sp_feats_unet(
-            UNetGazeRec, h5_fname, df_fname, locs2d=locs2d, save_dir=save_dir)
+        feats_path = os.path.join(save_dir, feats_fname)
+        feats_upsamp_path = os.path.join(save_dir, feats_upsamp_fname)
+        df_path = os.path.join(save_dir, df_fname)
+        bm_path = os.path.join(save_dir, bm_fname)
+
+        from unet_obj_prior.unet_feat_extr import UNetFeatExtr
+        from pytorch_utils.dataset import Dataset
+        from pytorch_utils import utils as unet_utls
+
+        orig_shape = utls.imread(self.conf.frameFileNames[0]).shape
+
+
+        params = {
+            'batch_size': self.conf.unet_batchsize,
+            'cuda': self.conf.cuda,
+            'lr': self.conf.unet_adam_learning_rate,
+            'momentum': 0.9,
+            'beta1': self.conf.unet_adam_beta1,
+            'beta2': self.conf.unet_adam_beta2,
+            'epsilon': self.conf.unet_adam_epsilon,
+            'weight_decay_adam': self.conf.unet_adam_decay,
+            'num_epochs': self.conf.unet_nbr_epochs,
+            'out_dir': save_dir,
+            'cp_fname': cp_fname,
+            'bm_fname': bm_fname
+        }
+
+        train_net = not os.path.exists(bm_path)
+        forward_pass = not os.path.exists(feats_path)
+        assign_feats_to_sps = not os.path.exists(df_path)
+
+        if (train_net):
+            self.logger.info(
+                "Network weights file {} does not exist. Training...".format(
+                    bm_path))
+
+            model = UNetFeatExtr(params)
+            model.model.train()
+            in_shape = unet_utls.comp_unet_input_shape(
+                orig_shape, model.model.depth, max_shape=(600, 600))
+
+            dl = Dataset(
+                in_shape,
+                im_paths=self.conf.frameFileNames,
+                truth_paths=self.conf.frameFileNames,
+                locs2d=locs2d,
+                sig_prior=0.1,
+                sometimes_rate=self.conf.unet_data_sometimes_rate,
+                cuda=self.conf.cuda)
+
+            dl.set_aug_affine(
+                iaa.Sequential([
+                    iaa.Affine(
+                        scale={
+                            "x": (1 - self.conf.unet_data_width_shift,
+                                    1 + self.conf.unet_data_width_shift),
+                            "y": (1 - self.conf.unet_data_height_shift,
+                                    1 + self.conf.unet_data_height_shift)
+                        },
+                        rotate=(-self.conf.unet_data_rot_range,
+                                self.conf.unet_data_rot_range),
+                        shear=(-self.conf.unet_data_shear_range,
+                                self.conf.unet_data_shear_range)),
+                    iaa.Fliplr(self.conf.unet_data_sometimes_rate)
+                ]))
+
+            dl.set_aug_noise(
+                iaa.AdditiveGaussianNoise(
+                    scale=self.conf.unet_data_gaussian_noise_std))
+
+            model.train(dl)
+
+        # Do forward pass on images and retrieve features
+        if (forward_pass):
+            model = UNetFeatExtr(params)
+
+            in_shape = unet_utls.comp_unet_input_shape(
+                orig_shape, model.model.depth, max_shape=(600, 600))
+
+            self.logger.info(
+                "Downsampled feature file {} does not exist...".format(
+                    feats_path))
+
+            model.model.eval()
+            feats_ds = model.calc_features(self.conf.frameFileNames,
+                                           in_shape,
+                                           bm_path)
+            self.logger.info(
+                'Saving (downsampled) features to {}.'.format(feats_path))
+            np.savez(feats_path, **{'feats': feats_ds})
+        else:
+            feats_ds = np.load(feats_path)['feats']
+
+        feats_ds = [f.transpose((1, 2, 0)) for f in feats_ds]
+        # feats_tmp_dir = os.path.join(save_dir, 'feats_tmp')
+        # feats_tmp_names = [
+        #     os.path.join(feats_tmp_dir, 'f_{0:04d}.npz'.format(i))
+        #     for i in range(len(feats_ds))
+        # ]
+
+        if(assign_feats_to_sps):
+            self.logger.info("Computing features on superpixels")
+            self.load_superpix_from_file()
+            feats_sp = list()
+            frames = np.unique(self.centroids_loc['frame'].values)
+            with pbar(maxval=frames.shape[0]) as bar:
+                for f in frames:
+                    bar.update(f)
+                    feats_us = np.asarray([
+                        misc.imresize(feats_ds[f][..., i],
+                                      orig_shape[0:2], interp='bilinear')
+                        for i in range(feats_ds[f].shape[-1])
+                    ]).transpose((1, 2, 0))
+                    for index, row in self.centroids_loc[
+                            self.centroids_loc['frame'] == f].iterrows():
+                        x = row['pos_norm_x']
+                        y = row['pos_norm_y']
+                        ci, cj = csv.coord2Pixel(x, y, feats_us.shape[1],
+                                                 feats_us.shape[0])
+                        feats_sp.append(feats_us[ci, cj, :].copy())
+
+            feats_df = self.centroids_loc.assign(desc=feats_sp)
+            self.logger.info('Saving  features to {}.'.format(df_path))
+            feats_df.to_pickle(os.path.join(df_path))
 
     def calc_entrance(self, save=False):
         """
@@ -562,7 +603,8 @@ class DataManager:
                 os.path.join(self.conf.precomp_desc_path, 'sp_entr_df.p'))
 
     def calc_linking(self, save=False):
-        """ Computes linking costs of neighboring superpixels
+        """ 
+        Computes linking costs of neighboring superpixels
         """
 
         self.load_superpix_from_file()
@@ -753,104 +795,6 @@ class DataManager:
             max_depth=max_depth,
             max_samples=max_samples,
             n_jobs=n_jobs)
-
-        if (save):
-
-            if (mode == 'foreground'):
-                data = dict()
-                data['fg_marked'] = self.fg_marked
-                np.savez(
-                    os.path.join(self.conf.precomp_desc_path, 'fg_marked.npz'),
-                    **data)
-                self.fg_pm_df.to_pickle(
-                    os.path.join(self.conf.precomp_desc_path, 'fg_pm_df.p'))
-                data = dict()
-                data['fg_marked_feats'] = self.fg_marked_feats
-                np.savez(
-                    os.path.join(self.conf.precomp_desc_path,
-                                 'fg_marked_feats.npz'), **data)
-            else:
-                data = dict()
-                data['bg_marked'] = self.bg_marked
-                np.savez(
-                    os.path.join(self.conf.precomp_desc_path, 'bg_marked.npz'),
-                    **data)
-                self.bg_pm_df.to_pickle(
-                    os.path.join(self.conf.precomp_desc_path, 'bg_pm_df.p'))
-                data = dict()
-                data['bg_marked_feats'] = self.bg_marked_feats
-                np.savez(
-                    os.path.join(self.conf.precomp_desc_path,
-                                 'bg_marked_feats.npz'), **data)
-
-    def calc_pm_rf(self,
-                   coords_arr,
-                   save=False,
-                   marked_feats=None,
-                   all_feats_df=None,
-                   in_type='csv_normalized',
-                   mode='foreground',
-                   feat_fields=['desc']):
-        """ Main function that extracts or updates gaze coordinates and computes transductive learning model (bagging)
-            Inputs:
-                save: Boolean (save to file?)
-                in_type: {'csv_normalized,','centroids'}
-                mode: {'foreground','background'}
-        """
-
-        self.load_labels_if_not_exist()
-
-        self.logger.info('--- Generating probability map foreground')
-        self.logger.info("T: " + str(self.conf.T))
-        self.logger.info("n_bins: " + str(self.conf.n_bins))
-
-        #Convert input to marked (if necessary). This is used only once (from csv gaze file)
-        marked_arr = np.empty((coords_arr.shape[0], 2))
-        if (in_type == 'csv_normalized'):
-            for i in range(coords_arr.shape[0]):
-                ci, cj = gaze.gazeCoord2Pixel(
-                    coords_arr[i, 3], coords_arr[i, 4], self.labels.shape[1],
-                    self.labels.shape[0])
-                marked_arr[i, ...] = (i, self.labels[ci, cj, i])
-            if (mode == 'foreground'):
-                self.fg_marked = marked_arr  #Set first marked sp array
-            else:
-                self.bg_marked = marked_arr  #Set first marked sp array
-        else:
-            marked_arr = coords_arr
-
-        X_neg, X_pos = bag.make_samples(
-            marked_arr,
-            marked_feats=None,
-            all_feats_df=all_feats_df,
-            mode='foreground',
-            feat_fields=['desc'],
-            remove_marked=False)
-
-        y = np.concatenate((np.ones(X_pos.shape[0]), np.zeros(X_neg.shape[0])))
-        X = np.concatenate((X_pos[:, 2:], X_neg[:, 2:]))
-
-        clf = RandomForestClassifier(
-            n_estimators=self.conf.T,
-            verbose=1,
-            max_depth=self.conf.max_depth,
-            n_jobs=4)
-        clf.fit(X, y)
-        clf_probs = clf.predict_proba(X)
-
-        data_frames = np.vstack((X_pos[:, 0].reshape(-1, 1),
-                                 X_neg[:, 0].reshape(-1, 1))).astype(int)
-        data_labels = np.vstack((X_pos[:, 1].reshape(-1, 1),
-                                 X_neg[:, 1].reshape(-1, 1))).astype(int)
-        data_probas = clf_probs[:, 1].reshape(-1, 1)
-        pm_df = pd.DataFrame({
-            'frame': data_frames.ravel(),
-            'sp_label': data_labels.ravel(),
-            'proba': data_probas.ravel()
-        })
-
-        pm_df.sort_values(['frame', 'sp_label'], inplace=True)
-        self.fg_pm_df = pm_df
 
         if (save):
 

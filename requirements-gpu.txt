@@ -9,4 +9,8 @@ pandas
 munch
 ruamel.yaml
 cvxopt
-tensorflow-gpu
+tensorflow-gpu==1.6.0
+networkx==1.10
+torch
+torchvision
+Cython

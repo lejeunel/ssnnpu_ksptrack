@@ -582,7 +582,7 @@ confs_dict_ksp = nested_dict()
 from ruamel.yaml import YAML
 from ksptrack.cfgs import cfg
 
-yaml=YAML(typ='safe')   # default, if not specfied, is 'rt' (round-trip)
+yaml = YAML(typ='safe')   # default, if not specfied, is 'rt' (round-trip)
 
 for key in res_dirs_dict_ksp.keys():
     for dset in range(len(res_dirs_dict_ksp[key])):

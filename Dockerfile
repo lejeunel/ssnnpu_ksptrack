@@ -8,14 +8,14 @@ RUN apt-get update && \
 
 # Download boost, untar, setup install with bootstrap 
 # and then install
-RUN cd /home && wget http://downloads.sourceforge.net/project/boost/boost/1.66.0/boost_1_66_0.tar.gz \
-  && tar xfz boost_1_66_0.tar.gz \
-  && rm boost_1_66_0.tar.gz \
-  && cd boost_1_66_0 \
+RUN cd /home && wget http://downloads.sourceforge.net/project/boost/boost/1.68.0/boost_1_68_0.tar.gz \
+  && tar xfz boost_1_68_0.tar.gz \
+  && rm boost_1_68_0.tar.gz \
+  && cd boost_1_68_0 \
   && sh bootstrap.sh --with-libraries=python,log --with-python=/usr/local/bin/python3 --with-python-version=3.5 --with-python-root=/usr/local/lib/python3.5 \
   && ./b2 -j 4 install \
   && cd /home \
-&& rm -rf boost_1_66_0
+&& rm -rf boost_1_68_0
 
 #Install boost_ksp
 RUN cd /home && git clone https://github.com/lejeunel/boost_ksp.git \

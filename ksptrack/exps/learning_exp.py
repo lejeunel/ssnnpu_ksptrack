@@ -408,7 +408,6 @@ def main(confs, out_dir=None):
             probas_true = res_list[j]['probas_true'][idx_y]
             probas_my = res_list[j]['probas_my'][idx_y]
 
-            import pdb; pdb.set_trace()
             scores_my = utls.get_scores_from_sps(y_true[:,0:2],
                                             datasets[j].get_labels(),
                                                 probas_my)[...,f]

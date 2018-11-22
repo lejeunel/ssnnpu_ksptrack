@@ -5,7 +5,7 @@ import os
 import glob
 import numpy as np
 import matplotlib.pyplot as plt
-from labeling.utils import my_utils as utls
+from ksptrack.utils import my_utils as utls
 
 root_path = '/home/laurent.lejeune/medical-labeling'
 
@@ -30,7 +30,6 @@ candidates.append(sorted(res[my_keys[2]],
                    key=res[my_keys[2]].get))
 candidates.append(sorted(res[my_keys[3]],
                          key=res[my_keys[3]].get))
-
 
 for i in range(len(candidates)):
     print('--------------------')

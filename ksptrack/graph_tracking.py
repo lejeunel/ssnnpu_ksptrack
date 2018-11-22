@@ -16,7 +16,7 @@ import pandas as pd
 import pickle as pk
 import os
 from skimage.draw import circle
-from metric_learn import LFDA
+from ksptrack.utils.lfda import myLFDA
 from sklearn.decomposition import PCA
 from boostksp import libksp
 
@@ -256,13 +256,11 @@ class GraphTracking:
 
     def proba_trans(self, sp_desc, f1, l1, f2, l2):
 
-        feat_2 = sp_desc.loc[(
-            (sp_desc['frame'] == f2) &
-            (sp_desc['sp_label'] == l2)), 'desc'].as_matrix()[0]
+        feat_2 = sp_desc.loc[((sp_desc['frame'] == f2) &
+                              (sp_desc['sp_label'] == l2)), 'desc'].values[0]
         feat_2_proj = self.trans_transform.transform(feat_2.reshape(1, -1))
-        feat_1 = sp_desc.loc[(
-            (sp_desc['frame'] == f1) &
-            (sp_desc['sp_label'] == l1)), 'desc'].as_matrix()[0]
+        feat_1 = sp_desc.loc[((sp_desc['frame'] == f1) &
+                              (sp_desc['sp_label'] == l1)), 'desc'].values[0]
         feat_1_proj = self.trans_transform.transform(feat_1.reshape(1, -1))
 
         dist = np.linalg.norm(feat_2_proj - feat_1_proj)
@@ -274,13 +272,11 @@ class GraphTracking:
 
     def proba_pca(self, sp_desc, f1, l1, f2, l2):
 
-        feat_2 = sp_desc.loc[(
-            (sp_desc['frame'] == f2) &
-            (sp_desc['sp_label'] == l2)), 'desc'].as_matrix()[0]
+        feat_2 = sp_desc.loc[((sp_desc['frame'] == f2) &
+                              (sp_desc['sp_label'] == l2)), 'desc'].values[0]
         feat_2_pca = self.PCAs[f2].transform(feat_2.reshape(1, -1))
-        feat_1 = sp_desc.loc[(
-            (sp_desc['frame'] == f1) &
-            (sp_desc['sp_label'] == l1)), 'desc'].as_matrix()[0]
+        feat_1 = sp_desc.loc[((sp_desc['frame'] == f1) &
+                              (sp_desc['sp_label'] == l1)), 'desc'].values[0]
         feat_1_pca = self.PCAs[f2].transform(feat_1.reshape(1, -1))
 
         dist = np.linalg.norm(feat_2_pca - feat_1_pca)
@@ -330,10 +326,7 @@ class GraphTracking:
         #Auxiliary edges (appearance) creates tracklets, input/output nodes and weight
         self.logger.info('Making/connecting tracklets')
         if (self.tracklets is None):
-            self.make_init_tracklets(sp_pom,
-                                     labels,
-                                     centroid_locs,
-                                     thresh_aux,
+            self.make_init_tracklets(sp_pom, labels, centroid_locs, thresh_aux,
                                      direction)
         else:
             self.make_tracklets(sp_pom)
@@ -355,75 +348,107 @@ class GraphTracking:
                              pca=False,
                              n_comps_pca=3):
 
-        descs_cat = utls.concat_arr(sp_desc['desc'])
+        # descs_cat = utls.concat_arr(sp_desc['desc'])
+        descs_cat = np.vstack(sp_desc['desc'].values)
+        if (descs_cat.shape[1] == sp_desc.shape[0]):
+            descs_cat = descs_cat.T
 
         if (not pca):
-            y = (pm['proba'] > thresh).as_matrix().astype(int)
 
-            self.trans_transform = LFDA(dim=n_dims, k=k)
+            self.trans_transform = myLFDA(num_dims=n_dims, k=k,
+                                          embedding_type='orthonormalized')
+            self.trans_transform.fit(descs_cat,
+                                     pm['proba'].values,
+                                     thresh,
+                                     n_samps,
+                                     clean_zeros=True)
+            self.logger.info(
+                'Fitting LFDA (dims,k,n_samps): ({}, {}, {})'.format(
+                    n_dims, k, n_samps))
 
-            rand_idx_pos = np.random.choice(np.where(y > 0)[0], size=n_samps)
-            rand_idx_neg = np.random.choice(np.where(y == 0)[0], size=n_samps)
-            rand_descs_pos = descs_cat[rand_idx_pos, :]
-            rand_descs_neg = descs_cat[rand_idx_neg, :]
-            rand_y_pos = y[rand_idx_pos]
-            rand_y_neg = y[rand_idx_neg]
-            rand_descs = np.concatenate((rand_descs_pos, rand_descs_neg),
-                                        axis=0)
-
-            # Check for features with all zeros
-            inds_ = np.where(np.sum(rand_descs, axis=0) != 0)[0]
-            rand_descs = rand_descs[:, inds_]
-
-            rand_y = np.concatenate((rand_y_pos, rand_y_neg), axis=0)
-
-            self.logger.info('Fitting LFDA (dims,k,n_samps): (' + str(n_dims) +
-                             ',' + str(k) + ',' + str(n_samps) + ')')
-
-            self.trans_transform.fit(rand_descs, rand_y)
         else:
             self.logger.info(
                 'Fitting PCA with {} components'.format(n_comps_pca))
             self.trans_transform = PCA(n_components=n_comps_pca, whiten=True)
             self.trans_transform.fit(descs_cat)
 
-    def connect_sources_cxx(self, locs2d, centroid_locs, labels, sp_desc,
-                        normNeighbor_in):
-        tls = [t for t in self.tracklets if (t.blocked == False)]
+    def connect_sources_cxx_dqn(self, loc2d, centroid_locs, labels, sp_desc,
+                                normNeighbor_in):
+        # tls = [t for t in self.tracklets if (t.blocked == False)]
+        # frames = locs2d['frame']
+        tls = [self.tls_man.dict_in[f] for f in np.unique(loc2d['frame'])]
+        tls = [item for sublist in tls for item in sublist]
+        tls = [t for t in tls if (t.blocked is False)]
+        added_edges = list()
+        got_bg = True
+
+        edges_from_src = self.g_cxx.out_edges(self.source)
         for tl in tls:
             this_frame = tl.get_in_frame()
+
             # Check if we have a 2d location on this_frame
-            if (this_frame in locs2d[:, 0]):
-                loc_2d = locs2d[locs2d[:, 0] == this_frame, 3:5].ravel()
-                i_gaze, j_gaze = utls.norm_to_pix(loc_2d[0], loc_2d[1],
-                                                  labels[..., 0].shape[1],
-                                                  labels[..., 0].shape[0])
+            i_gaze, j_gaze = utls.norm_to_pix(loc2d['x'], loc2d['y'],
+                                              labels[..., 0].shape[1],
+                                              labels[..., 0].shape[0])
 
-                sp_gaze = labels[i_gaze, j_gaze, this_frame]
+            sp_gaze = labels[i_gaze, j_gaze, this_frame]
+            e = (int(self.source), int(tl.in_id))
 
-                if (self.is_linkable_entrance_radius(centroid_locs,
-                                                     loc_2d,
-                                                     tl,
-                                                     labels,
-                                                     normNeighbor_in)):
+            if (self.is_linkable_entrance_radius(centroid_locs,
+                                                 (loc2d['x'], loc2d['y']), tl,
+                                                 labels, normNeighbor_in)):
+                got_bg = False
+                if ((e not in edges_from_src)):
 
-                    this_e = (int(self.source), int(tl.in_id))
+                    added_edges.append(e)
 
                     proba = self.proba_trans(sp_desc, tl.get_in_frame(),
                                              tl.get_in_label(), this_frame,
                                              sp_gaze)
                     w = -np.log(proba / (1 - proba))
-                    self.g_cxx.add_edge(*this_e, w, -1)
+                    self.g_cxx.add_edge(*e, w, -1)
+
+        return added_edges, got_bg
+
+    def connect_sources_cxx(self, locs2d, centroid_locs, labels, sp_desc,
+                            normNeighbor_in):
+        # tls = [t for t in self.tracklets if (t.blocked == False)]
+        # frames = locs2d['frame']
+        tls = [self.tls_man.dict_in[f] for f in np.unique(locs2d['frame'])]
+        tls = [item for sublist in tls for item in sublist]
+        tls = [t for t in tls if (t.blocked is False)]
+
+        added_edges = 0
+        for tl in tls:
+            this_frame = tl.get_in_frame()
+            locs_ = locs2d[locs2d['frame'] == this_frame]
+
+            # Check if we have a 2d location on this_frame
+            for _, l in locs_.iterrows():
+                i_gaze, j_gaze = utls.norm_to_pix(l['x'], l['y'],
+                                                  labels[..., 0].shape[1],
+                                                  labels[..., 0].shape[0])
+
+                sp_gaze = labels[i_gaze, j_gaze, this_frame]
+                e = (int(self.source), int(tl.in_id))
+
+                if (self.is_linkable_entrance_radius(centroid_locs,
+                                                     (l['x'], l['y']), tl,
+                                                     labels, normNeighbor_in)):
+
+                    added_edges += 1
+
+                    proba = self.proba_trans(sp_desc, tl.get_in_frame(),
+                                             tl.get_in_label(), this_frame,
+                                             sp_gaze)
+                    w = -np.log(proba / (1 - proba))
+                    self.g_cxx.add_edge(*e, w, -1)
                     #self.g.add_edge(*this_e, weight=w, id_=-1)
 
-    def make_edges_from_tracklets(self,
-                                  tls,
-                                  sp_desc,
-                                  loc,
-                                  points_2d,
-                                  normNeighbor_in,
-                                  tau_u,
-                                  labels):
+        return added_edges
+
+    def make_edges_from_tracklets(self, tls, sp_desc, loc, points_2d,
+                                  normNeighbor_in, tau_u, labels):
 
         #Exit edges (time lapse)
         self.logger.info('Connecting exit edges')
@@ -505,14 +530,14 @@ class GraphTracking:
             self.sink,
             loglevel=self.cxx_loglevel,
             min_cost=True,
-            return_edges=self.cxx_return_edges
-        )
+            return_edges=self.cxx_return_edges)
 
         self.logger.info('Copying graph...')
         for e in self.g.edges():
             self.g_cxx.add_edge(
                 int(e[0]), int(e[1]), self.g[e[0]][e[1]]['weight'],
                 int(self.g[e[0]][e[1]]['id_']))
+        self.logger.info('done.')
 
     def save_graph(self, path):
         nx.write_gpickle(self.g, path)

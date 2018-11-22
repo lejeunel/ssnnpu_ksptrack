@@ -42,9 +42,9 @@ def main(arg_cfg):
     logger.info('---------------------------')
 
     # Make frame file names
-    conf.frameFileNames = utls.makeFrameFileNames(
-        conf.framePrefix, conf.frameDigits, conf.frameDir, conf.dataInRoot,
-        conf.dataSetDir, conf.frameExtension)
+    conf.frameFileNames = utls.get_images(os.path.join(conf.dataInRoot,
+                                                       conf.dataSetDir,
+                                                       conf.frameDir))
 
     if (conf.csvFileType == 'pandas'):
         locs2d = pd.read_csv(
@@ -103,6 +103,8 @@ def main(arg_cfg):
 
     dm.load_all_from_file()
 
+    # pm = dm.get_pm_array(frames=[10, 20, 30])
+
     gt = None
     if (conf.monitor_score):
         logger.info('Making ground-truth seeds for monitoring')
@@ -128,11 +130,16 @@ def main(arg_cfg):
         conf.lfda_n_samps,
         conf.lfda_dim,
         conf.lfda_k,
-        pca=conf.pca)
+        pca=conf.pca,
+        n_comps_pca=conf.n_comps_pca)
 
-    g_back.make_trans_transform(dm.sp_desc_df, dm.fg_pm_df,
-                                conf.thresh_aux_fix, conf.lfda_n_samps,
-                                conf.lfda_dim, conf.lfda_k, conf.pca)
+    g_back.make_trans_transform(dm.sp_desc_df,
+                                dm.fg_pm_df,
+                                conf.thresh_aux_fix,
+                                conf.lfda_n_samps,
+                                conf.lfda_dim,
+                                conf.lfda_k, conf.pca,
+                                n_comps_pca=conf.n_comps_pca)
 
     find_new_forward = True
     find_new_backward = True

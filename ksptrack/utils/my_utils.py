@@ -846,26 +846,51 @@ def getF1Score(gt_positives, seg_positives):
 
     return (f1)
 
+def get_images(path,
+               extension=('jpg', 'png')):
+    """ Generates list of (sorted) images
+    Returns List of paths to images
+    """
+
+    fnames = []
+
+    if(isinstance(extension, str)):
+        extension = [extension]
+
+    for ext in extension:
+        fnames += glob.glob(os.path.join(path, '*' + ext))
+
+    fnames = sorted(fnames)
+
+    return fnames
 
 def makeFrameFileNames(framePrefix,
                        frameDigits,
                        frameDir,
                        dataInRoot,
                        dataSetDir,
-                       frameExtension,
+                       extension=('jpg', 'png'),
                        seqStart=None,
                        seqEnd=None):
     """ Generates list of (sorted) images
     Returns List of paths to images
     """
 
-    frameFileNames = []
-    path = dataInRoot + dataSetDir + '/' + frameDir + '/'
+    fnames = []
+    path = os.path.join(dataInRoot, dataSetDir, frameDir)
+    # path = dataInRoot + dataSetDir + '/' + frameDir + '/'
 
-    frameFileNames = glob.glob(os.path.join(path, framePrefix + '*'))
-    frameFileNames = sorted(frameFileNames)
+    if(isinstance(extension, str)):
+        extension = [extension]
 
-    return frameFileNames
+    for ext in extension:
+        fnames += glob.glob(path, framePrefix + '*' + ext)
+
+
+    fnames = [item for sublist in fnames for item in sublist]
+    fnames = sorted(fnames)
+
+    return fnames
 
 
 def relabel(labels, map_dict):
