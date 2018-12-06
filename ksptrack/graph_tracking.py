@@ -532,7 +532,8 @@ class GraphTracking:
             min_cost=True,
             return_edges=self.cxx_return_edges)
 
-        self.logger.info('Copying graph...')
+        self.logger.info('Copying graph with {} edges...'.
+                         format(len(self.g.edges())))
         for e in self.g.edges():
             self.g_cxx.add_edge(
                 int(e[0]), int(e[1]), self.g[e[0]][e[1]]['weight'],

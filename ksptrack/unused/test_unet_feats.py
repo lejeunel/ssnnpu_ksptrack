@@ -25,7 +25,7 @@ import scipy as sp
 data = dict()
 
 arg_cfg = dict()
-arg_cfg["dataSetDir"] = "Dataset24"  # This is a test dataset
+arg_cfg["dataSetDir"] = "Dataset34"  # This is a test dataset
 arg_cfg["csvFileName_fg"] = "video1.csv"
 arg_cfg["feats_graph"] = "unet_gaze"
 
@@ -57,19 +57,21 @@ logger.info('---------------------------')
 #Make frame file names
 
 conf.frameFileNames = utls.get_images(os.path.join(conf.dataInRoot,
-                                                    conf.dataSetDir,
-                                                    conf.frameDir))
+                                                   conf.dataSetDir,
+                                                   conf.frameDir))
 
 conf.myGaze_fg = utls.readCsv(
-    os.path.join(conf.dataInRoot, conf.dataSetDir, conf.gazeDir,
-                    conf.csvFileName_fg))
+    os.path.join(conf.dataInRoot,
+                 conf.dataSetDir,
+                 conf.gazeDir,
+                 conf.csvFileName_fg))
 
 if (conf.labelMatPath != ''):
     conf.labelMatPath = os.path.join(conf.dataOutRoot, conf.dataSetDir,
-                                        conf.frameDir, conf.labelMatPath)
+                                     conf.frameDir, conf.labelMatPath)
 
 conf.precomp_desc_path = os.path.join(conf.dataOutRoot, conf.dataSetDir,
-                                        conf.feats_files_dir)
+                                      conf.feats_files_dir)
 
 # ---------- Descriptors/superpixel costs
 my_dataset = DataManager(conf)
@@ -90,37 +92,22 @@ labels = my_dataset.labels
 my_dataset.load_all_from_file()
 pm = my_dataset.fg_pm_df
 
-# sps_man = spm.SuperpixelManager(
-#     my_dataset, conf, with_flow=conf.use_hoof,
-#     init_mode=conf.sp_trans_init_mode)
-
-# my_dataset.load_pm_fg_from_file()
-# my_dataset.calc_pm(
-#     conf.myGaze_fg,
-#     save=True,
-#     marked_feats=None,
-#     all_feats_df=my_dataset.get_sp_desc_from_file(),
-#     in_type='csv_normalized',
-#     mode='foreground',
-#     feat_fields=['desc'])
-
-conf.myGaze_fg = utls.readCsv(
-    os.path.join(conf.dataInRoot, conf.dataSetDir, conf.gazeDir,
-                    conf.csvFileName_fg))
-
 my_thresh = 0.8
 lfda_n_samps = 1000
 
-frame_1 = 1
+frame_1 = 62
 
 label_2 = 268
 
-gaze_1 = conf.myGaze_fg[frame_1, 3:5]
+gaze_1 = conf.myGaze_fg[conf.myGaze_fg[:, 0] == frame_1, 3:5]
 g1_i, g1_j = utls.norm_to_pix(
-    gaze_1[0], gaze_1[1], labels[..., 0].shape[1], labels[..., 0].shape[0])
+    gaze_1[0, 0],
+    gaze_1[0, 1],
+    labels[..., 0].shape[1],
+    labels[..., 0].shape[0])
 label_1 = labels[g1_i, g1_j, frame_1]
 
-frame_2 = 2
+frame_2 = 63
 
 pm_scores_fg = my_dataset.get_pm_array(mode='foreground', frames=[frame_2])
 
@@ -129,8 +116,8 @@ feat_1 = descs.loc[(descs['frame'] == frame_1) &
                     (descs['sp_label'] == label_1), 'desc'].as_matrix()[0]
 
 
-feat_2 = descs.loc[(descs['frame'] == frame_1) &
-                    (descs['sp_label'] == label_2), 'desc'].as_matrix()[0]
+# feat_2 = descs.loc[(descs['frame'] == frame_2) &
+#                     (descs['sp_label'] == label_2), 'desc'].as_matrix()[0]
 
 descs_from = [feat_1] * df.shape[0]
 df.loc[:, 'descs_from'] = pd.Series(descs_from, index=df.index)
@@ -141,7 +128,7 @@ y = pm['proba'].values
 
 lfda = myLFDA(num_dims=5, k=7, embedding_type='orthonormalized')
 
-n_comps_pca = 2
+n_comps_pca = 5
 
 # from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 # from sklearn.decomposition import PCA
@@ -172,8 +159,8 @@ f2 = pca.transform(descs_2)
 diff_norm = np.linalg.norm(f2 - np.tile(f1, (f2.shape[0], 1)), axis=1)
 
 dists = np.zeros(labels[..., frame_2].shape)
-for l in np.unique(labels[..., frame_2]):
-    dists[labels[..., frame_2] == l] = np.exp(-diff_norm[l]**2)
+for i, l in enumerate(np.unique(labels[..., frame_2])):
+    dists[labels[..., frame_2] == l] = np.exp(-diff_norm[i]**2)
     #dists[labels[...,frame_2]==l] = -diff_norm[l]
 
 im1 = utls.imread(conf.frameFileNames[frame_1])
@@ -231,10 +218,10 @@ plt.imshow(pm_scores_fg[..., frame_2])
 plt.title('f2. pm > thresh (' + str(my_thresh) + ')')
 plt.show()
 
-plt.subplot(131)
-plt.stem(feat_1)
-plt.subplot(132)
-plt.stem(feat_2)
-plt.subplot(133)
-plt.stem(feat_1 - feat_2)
-plt.show()
+# plt.subplot(131)
+# plt.stem(feat_1)
+# plt.subplot(132)
+# plt.stem(feat_2)
+# plt.subplot(133)
+# plt.stem(feat_1 - feat_2)
+# plt.show()

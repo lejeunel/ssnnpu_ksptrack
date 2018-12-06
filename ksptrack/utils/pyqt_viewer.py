@@ -5,7 +5,7 @@ from pyqtgraph.Qt import QtCore, QtGui
 from skimage.draw import (circle, set_color)
 from skimage import color
 from skimage.io import imsave
-from skimage import transform
+from skimage import (transform, segmentation)
 import csv
 import sys, getopt
 import os.path
@@ -66,7 +66,12 @@ class Window(QtGui.QMainWindow):
 
         super(Window, self).__init__(parent)
         self.setWindowTitle(frame_dir)
-        self.window = pg.ImageView(view=pg.PlotItem())
+        self.plot_item = pg.PlotItem()
+        # self.plot_item.clear()
+        self.window = pg.ImageView(view=self.plot_item)
+        # self.window.ui.histogram.hide()
+        # self.window.ui.roiBtn.hide()
+        # self.window.ui.menuBtn.hide()
         self.slider_text = SliderWithText()
         self.label_contours = label_contours
         self.labels = labels
@@ -83,16 +88,30 @@ class Window(QtGui.QMainWindow):
 
         self.frame_dir = frame_dir
 
+        print('Reading frames...')
+        self.frames = [utls.imread(os.path.join(self.frame_dir, f))
+                       for f in frames]
+
+        truth_colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]
+
         if(gts is not None):
             print('Reading gts...')
-            self.gts = [utls.imread(os.path.join(self.frame_dir, f)) for f in gts]
-            print('done.')
+            self.gts = [utls.imread(os.path.join(self.frame_dir, f))
+                        for f in gts]
+            print('Overlaying to frames...')
+            for f, t in zip(self.frames, self.gts):
+                # for i, l in enumerate(np.unique(t)):
+                #     if(l != 0):
+                #         print(l)
+                # color = truth_colors[i % len(truth_colors)]
+                color = truth_colors[0]
+                contour = np.where(
+                    segmentation.find_boundaries(t > 0, mode='thick'))
+                f[contour[0], contour[1], :] = color
         else:
             self.gts = None
         self.dir_clicks = dir_clicks
 
-        print('Reading frames...')
-        self.frames = [utls.imread(os.path.join(self.frame_dir, f)) for f in frames]
         print('done.')
         self.curr_img = self.frames[0]
         self.gaze_ = gaze_array
@@ -322,19 +341,19 @@ class Window(QtGui.QMainWindow):
 
     def drawFrame(self, idx):
         img = self.frames[idx]
-        if (img.shape[2] > 3): img = img[:, :, 0:3]
-        if (self.label_contours is not None):
-            idx_contours = np.where(self.label_contours[idx, :, :])
-            img[idx_contours[0], idx_contours[1], :] = (255, 255, 255)
+        # if (img.shape[2] > 3): img = img[:, :, 0:3]
+        # if (self.label_contours is not None):
+        #     idx_contours = np.where(self.label_contours[idx, :, :])
+        #     img[idx_contours[0], idx_contours[1], :] = (255, 255, 255)
 
-        if (self.gts is not None):
-            gt = color.rgb2gray(self.gts[idx]) > 0
+        # if (self.gts is not None):
+        #     gt = color.rgb2gray(self.gts[idx]) > 0
 
         if (len(self.mouse_clicks) > 0):
             img = csv.draw2DPoint(
                 np.asarray(self.mouse_clicks), idx, img, radius=7)
-        if (self.gts is not None):
-            img = color.label2rgb(gt, img, alpha=0.1)
+        # if (self.gts is not None):
+        #     img = color.label2rgb(gt, img, alpha=0.1)
 
         #Draw set of tracked labels
         if ((self.labels is not None) & (len(self.labels_clicked) > 0)):
@@ -364,14 +383,18 @@ def main():
 
     #Get frame file names
     csvFileNum = 1
-    dataset_dir = 'Dataset24'
+    dataset_dir = 'Dataset50'
     frame_dir = os.path.expanduser(
         os.path.join('/home/laurent.lejeune', 'medical-labeling', dataset_dir,
                      'input-frames'))
-    #gt_dir = os.path.expanduser(os.path.join('/home/laurent.lejeune',
-    #                                         'medical-labeling',
-    #                                         dataset_dir,
-    #                                         'ground_truth-frames'))
+    gt_dir = os.path.expanduser(os.path.join('/home/laurent.lejeune',
+                                             'medical-labeling',
+                                             dataset_dir,
+                                             'ground_truth-frames'))
+
+    sorted_gts = utls.get_images(gt_dir)
+    # sorted_gts = None
+
     #gazeFileName = 'video' + str(csvFileNum) + '.csv'
     #gazeFileName = 'framePositions' + str(csvFileNum) + '.csv'
     #csvFile = os.path.expanduser(os.path.join('~',
@@ -383,7 +406,7 @@ def main():
     dir_clicks = os.path.join('.')
 
     sorted_frames = utls.get_images(frame_dir)
-                                            
+    # sorted_frames = None
 
     #Tweezer
     label_fname = 'sp_labels_tsp'
@@ -397,7 +420,7 @@ def main():
     my_window = Window(
         frame_dir,
         sorted_frames,
-        None,
+        sorted_gts,
         dir_clicks,
         gaze_,
         labelContourMask,

@@ -259,7 +259,7 @@ class DataManager:
             os.path.join(self.conf.precomp_desc_path,
                          'bg_marked_feats.npz'))['bg_marked_feats']
 
-    def calc_superpix(self, save=True):
+    def calc_superpix(self, do_save=True):
         """
         Makes centroids and contours
         """
@@ -274,8 +274,12 @@ class DataManager:
         #            save = False):
         self.labels = spix_extr.extract(
             self.conf.frameFileNames,
-            os.path.join(self.conf.precomp_desc_path, 'sp_labels.npz'),
-            self.conf.compactness, self.conf.numreqdsupervoxels, save)
+            self.conf.precomp_desc_path,
+            'sp_labels.npz',
+            self.conf.compactness,
+            self.conf.numreqdsupervoxels,
+            save_labels=do_save,
+            save_previews=do_save)
 
         self.logger.info("Loading npz label map")
 
@@ -304,11 +308,10 @@ class DataManager:
         self.logger.info('Getting centroids...')
         self.centroids_loc = spix.getLabelCentroids(self.labels)
 
-        if (save):
+        if (do_save):
 
             self.centroids_loc.to_pickle(
-                os.path.join(self.conf.dataInRoot, self.conf.dataSetDir,
-                             self.conf.precomp_desc_path,
+                os.path.join(self.conf.precomp_desc_path,
                              'centroids_loc_df.p'))
 
         return self.labels, self.labelContourMask
@@ -447,8 +450,8 @@ class DataManager:
         from pytorch_utils.dataset import Dataset
         from pytorch_utils import utils as unet_utls
 
-        orig_shape = utls.imread(self.conf.frameFileNames[0]).shape
-
+        orig_shape = utls.imread(self.conf.frameFileNames[50]).shape
+        in_shape = (640, 640)
 
         params = {
             'batch_size': self.conf.unet_batchsize,
@@ -476,8 +479,6 @@ class DataManager:
 
             model = UNetFeatExtr(params)
             model.model.train()
-            in_shape = unet_utls.comp_unet_input_shape(
-                orig_shape, model.model.depth, max_shape=(600, 600))
 
             dl = Dataset(
                 in_shape,
@@ -513,9 +514,6 @@ class DataManager:
         # Do forward pass on images and retrieve features
         if (forward_pass):
             model = UNetFeatExtr(params)
-
-            in_shape = unet_utls.comp_unet_input_shape(
-                orig_shape, model.model.depth, max_shape=(600, 600))
 
             self.logger.info(
                 "Downsampled feature file {} does not exist...".format(
@@ -563,98 +561,6 @@ class DataManager:
             self.logger.info('Saving  features to {}.'.format(df_path))
             feats_df.to_pickle(os.path.join(df_path))
 
-    def calc_entrance(self, save=False):
-        """
-        Histogram intersections of seen superpixels with others (unused)
-        """
-
-        self.load_seen_if_not_exist()
-        labels = self.load_labels_if_not_exist()
-        sp_desc_df = self.get_sp_desc_from_file()
-
-        im_shape = labels[0, ...].shape
-
-        self.logger.info(
-            "Calculating entrance (seen-to-sp) histogram intersections")
-        sp_entr = []
-        seen_feats_mat = self.seen_feats_df.as_matrix()
-        with pbar(maxval=sp_desc_df.shape[0]) as bar:
-            for i in range(sp_desc_df.shape[0]):
-                bar.update(i)
-                this_sp_inters = []
-                this_sp_color_dists = []
-                this_desc = sp_desc_df['desc'][sp_desc_df.index[i]]
-                for j in range(self.seen_feats_df.shape[0]):
-                    this_frame = sp_desc_df['frame'][sp_desc_df.index[i]]
-                    this_label = sp_desc_df['sp_label'][sp_desc_df.index[i]]
-                    this_inter = utls.hist_inter(this_desc,
-                                                 self.seen_feats_df['scp'][j])
-                    this_sp_inters.append(this_inter)
-                sp_entr.append((this_frame, this_label, this_sp_inters))
-
-        self.sp_entr_df = pd.DataFrame(
-            sp_entr, columns=['frame', 'sp_labels', 'inters'])
-
-        #Sort by frame, sp_label
-        self.sp_entr_df.sort_values(['frame', 'sp_labels'], inplace=True)
-
-        if (save):
-            self.sp_entr_df.to_pickle(
-                os.path.join(self.conf.precomp_desc_path, 'sp_entr_df.p'))
-
-    def calc_linking(self, save=False):
-        """ 
-        Computes linking costs of neighboring superpixels
-        """
-
-        self.load_superpix_from_file()
-        sp_desc_df = self.get_sp_desc_from_file()
-
-        self.logger.info("Calculating linking histogram intersections")
-        sp_link = []
-        self.centroids_loc = pd.read_pickle(
-            os.path.join(self.conf.dataInRoot, self.conf.dataSetDir,
-                         self.conf.precomp_desc_path, 'centroids_loc_df.p'))
-        self.loc_mat = self.centroids_loc.as_matrix()
-        self.sp_desc_mat = sp_desc_df.as_matrix()
-        with pbar(maxval=np.unique(sp_desc_df['frame'])[0:-1].shape[0]) as bar:
-            for i in np.unique(sp_desc_df['frame'])[0:-1]:
-                bar.update(i)
-                this_frame_labels = np.where(sp_desc_df['frame'] == i)[0]
-                next_frame_labels = np.where(sp_desc_df['frame'] == i + 1)[0]
-                for j in itertools.product(this_frame_labels,
-                                           next_frame_labels):
-                    idx_in = j[0]
-                    idx_out = j[1]
-                    loc1 = self.loc_mat[idx_in, :][2:]
-                    loc2 = self.loc_mat[idx_out, :][2:]
-                    this_loc_dist = np.linalg.norm(loc1 - loc2)
-
-                    if (this_loc_dist < .18):
-
-                        sp_link.append([
-                            i,
-                            sp_desc_df['sp_label'][sp_desc_df.index[idx_in]],
-                            i + 1,
-                            sp_desc_df['sp_label'][sp_desc_df.index[idx_out]],
-                            0.5, loc1, loc2, this_loc_dist
-                        ])
-
-        self.sp_link_df = pd.DataFrame(
-            sp_link,
-            columns=[
-                'input frame', 'input label', 'output frame', 'output label',
-                'hist_inter', 'loc_in', 'loc_out', 'loc_dist'
-            ])
-        if (save):
-            self.sp_link_df.to_pickle(
-                os.path.join(self.conf.dataInRoot, self.conf.dataSetDir,
-                             self.conf.precomp_desc_path, 'sp_link_df.p'))
-
-    def load_seen_if_not_exist(self):
-
-        if (self.seen_feats_df is None):
-            self.load_seen_desc_from_file()
 
     def get_pm_array(self, mode='foreground', save=False, frames=None):
         """ Returns array same size as labels with probabilities of bagging model

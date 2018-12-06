@@ -2,12 +2,12 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import ndimage
-from skimage import io
-from skimage import color
+from skimage import (io, segmentation)
 import sys
 import os
 import progressbar
 from . import csv_utils as csv
+
 
 def getLabelCentroids(labels):
     """
@@ -24,35 +24,25 @@ def getLabelCentroids(labels):
     with progressbar.ProgressBar(maxval=nFrames) as bar:
         for i in range(nFrames):
             bar.update(i)
-            idxLabels = np.unique(labels[:,:,i])
+            idxLabels = np.unique(labels[:, :, i])
             for j in range(len(idxLabels)):
                 thisMask = (labels[..., i] == idxLabels[j])
                 pos = np.asarray(ndimage.measurements.center_of_mass(thisMask))
-                pos_norm = csv.pix2Norm(pos[1],
-                                            pos[0],
-                                            labels.shape[1],
-                                            labels.shape[0])
-                centroid_list.append([i,
-                                      int(idxLabels[j]),
-                                      pos_norm[0],
-                                      pos_norm[1]])
-    centroids = pd.DataFrame(centroid_list,
-                             columns=['frame',
-                                      'sp_label',
-                                      'pos_norm_x',
-                                      'pos_norm_y'])
+                pos_norm = csv.pix2Norm(pos[1], pos[0], labels.shape[1],
+                                        labels.shape[0])
+                centroid_list.append(
+                    [i, int(idxLabels[j]), pos_norm[0], pos_norm[1]])
+    centroids = pd.DataFrame(
+        centroid_list,
+        columns=['frame', 'sp_label', 'pos_norm_x', 'pos_norm_y'])
 
-    return(centroids)
+    return (centroids)
 
-def drawLabelContourMask(img,
-                         label):
 
-    red_img = np.zeros((img.shape[0],img.shape[1],3), np.uint8)
-    mask_inv = np.invert(label)
-    i_mask,j_mask = np.where(label)
-    i_mask_inv,j_mask_inv = np.where(mask_inv)
-    result = img.copy()
-    result[i_mask,j_mask,:] = 0
-    result[i_mask,j_mask,0] = 255
+def drawLabelContourMask(img, labels, color=(255, 0, 0)):
 
-    return result
+    cont = segmentation.find_boundaries(labels, mode='thick')
+    idx_cont = np.where(cont)
+    img[idx_cont[0], idx_cont[1], :] = color
+
+    return img

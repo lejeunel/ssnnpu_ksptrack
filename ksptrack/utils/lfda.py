@@ -1,9 +1,8 @@
 from metric_learn import LFDA
 import numpy as np
 
-class myLFDA(LFDA):
 
-    
+class myLFDA(LFDA):
     def __init__(self, num_dims=None, k=None, embedding_type='weighted'):
 
         super(myLFDA, self).__init__(num_dims, k, embedding_type)
@@ -17,7 +16,9 @@ class myLFDA(LFDA):
         clean_zeros: remove feature that are zeros on all samples
         """
 
-        if(clean_zeros):
+        n_samp = min((np.sum(y > thresh), n_samp))
+
+        if (clean_zeros):
             X, unq_idx = np.unique(X, axis=0, return_index=True)
             y = (y > thresh).astype(int)[unq_idx]
         else:
@@ -31,8 +32,7 @@ class myLFDA(LFDA):
         rand_X_neg = X[rand_idx_neg, :]
         rand_y_pos = y[rand_idx_pos]
         rand_y_neg = y[rand_idx_neg]
-        rand_descs = np.concatenate((rand_X_pos, rand_X_neg),
-                                    axis=0)
+        rand_descs = np.concatenate((rand_X_pos, rand_X_neg), axis=0)
 
         # Check for samples with all zeros
         inds_ = np.where(np.sum(rand_descs, axis=1) != 0)[0]

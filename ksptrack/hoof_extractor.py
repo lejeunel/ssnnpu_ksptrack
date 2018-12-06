@@ -37,7 +37,6 @@ class HOOFExtractor:
         self.logger = logging.getLogger('HOOFExtractor')
         self.flows_path = flows_path
 
-
         self.grid = self.make_grid_array(self.labels[..., 0].shape,
                                          grid_size_ratio,
                                          self.conf.precomp_desc_path)

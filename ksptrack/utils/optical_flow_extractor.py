@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pickle as pk
 import progressbar
+from ksptrack.utils import my_utils as utls
 from skimage import (color, io, segmentation)
 from sklearn import (mixture, metrics, preprocessing, decomposition)
 from scipy import (ndimage)
@@ -49,8 +50,8 @@ class OpticalFlowExtractor:
             self.logger.info('Precomputing the optical flows...')
             for f in np.arange(1, len(im_paths)):
                 self.logger.info('{}/{}'.format(f, len(im_paths)))
-                im1 = io.imread(im_paths[f-1]).astype(float) / 255.
-                im2 = io.imread(im_paths[f]).astype(float) / 255.
+                im1 = utls.imread(im_paths[f-1]) / 255.
+                im2 = utls.imread(im_paths[f]) / 255.
                 fvx, fvy, _ = pyflow.coarse2fine_flow(im1,
                                                       im2,
                                                       self.alpha,

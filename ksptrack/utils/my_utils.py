@@ -716,6 +716,10 @@ def score_path_sets(kspSet,
 def imread(fname):
 
     img = io.imread(fname)
+
+    if(img.dtype == np.uint16):
+        img = ((img / (2**16))*(2**8)).astype(np.uint8)
+
     if (len(img.shape) > 2):
         nchans = img.shape[2]
         if (nchans > 3):

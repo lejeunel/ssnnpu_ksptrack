@@ -32,14 +32,14 @@ def main(arg_cfg):
 
     logger = logging.getLogger('ksp_' + conf.dataSetDir)
 
-    logger.info('---------------------------')
+    logger.info('-'*70)
     logger.info('starting experiment on: ' + conf.dataSetDir)
     logger.info('type of sequence: ' + conf.seq_type)
     logger.info('gaze filename: ' + conf.csvFileName_fg)
     logger.info('features type for graph: ' + conf.feats_graph)
     logger.info('Result dir:')
     logger.info(conf.dataOutDir)
-    logger.info('---------------------------')
+    logger.info('-'*70)
 
     # Make frame file names
     conf.frameFileNames = utls.get_images(os.path.join(conf.dataInRoot,
@@ -70,9 +70,9 @@ def main(arg_cfg):
     dm = DataManager(conf)
     dm.locs2d = locs2d
     if (conf.calc_superpix):
-        dm.calc_superpix(save=True)
-    #if(conf.use_hoof):
-    #    dm.calc_oflow(save=True)
+        dm.calc_superpix(do_save=True)
+    # if(conf.use_hoof):
+    #     dm.calc_oflow(save=True)
 
     dm.load_superpix_from_file()
     if (conf.force_relabel):
@@ -103,7 +103,7 @@ def main(arg_cfg):
 
     dm.load_all_from_file()
 
-    # pm = dm.get_pm_array(frames=[10, 20, 30])
+    pm = dm.get_pm_array(frames=[10, 30, 60, 90])
 
     gt = None
     if (conf.monitor_score):
@@ -277,7 +277,7 @@ def main(arg_cfg):
                     conf.lfda_dim,
                     conf.lfda_k,
                     pca=conf.pca,
-                    n_comps_pca=conf.n_comp_pca)
+                    n_comps_pca=conf.n_comps_pca)
 
                 g_back.make_trans_transform(
                     dm.sp_desc_df,
@@ -287,7 +287,7 @@ def main(arg_cfg):
                     conf.lfda_dim,
                     conf.lfda_k,
                     pca=conf.pca,
-                    n_comps_pca=conf.n_comp_pca)
+                    n_comps_pca=conf.n_comps_pca)
 
             i += 1
 
