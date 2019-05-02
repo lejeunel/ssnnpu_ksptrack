@@ -5,8 +5,13 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 #Install basic tools
 RUN apt-get update && \
-    apt-get install -y build-essential curl tmux git htop cmake vim python3-pip python3-tk libsm6 libxext6 libboost-all-dev psmisc zsh rake libssl-dev zlib1g-dev libbz2-dev libffi-dev libdb-dev libexpat-dev libreadline-dev libsqlite3-dev wget libncurses5-dev libncursesw5-dev xz-utils&&\
+    apt-get install -y build-essential curl tmux git htop cmake vim python3-pip python3-tk libsm6 libxext6 libboost-all-dev psmisc zsh rake libssl-dev zlib1g-dev libbz2-dev libffi-dev libdb-dev libexpat-dev libreadline-dev libsqlite3-dev wget libncurses5-dev libncursesw5-dev xz-utils ranger&&\
     rm -rf /var/lib/apt/lists/*
+
+# zsh stuff
+RUN cd /usr/local/share/zsh && \
+chmod -R 755 ./site-functions&&\
+chown -R root:root ./site-functions
 
 #Install boost_ksp
 RUN cd /home && git clone https://github.com/lejeunel/boost_ksp.git \
