@@ -1,21 +1,13 @@
-FROM tensorflow/tensorflow:latest-gpu-py3
+FROM nvidia/cuda:9.2-runtime-ubuntu18.04
 MAINTAINER Laurent Lejeune <laurent.lejeune@artorg.unibe.ch>
+
+ARG DEBIAN_FRONTEND=noninteractive
+
 #Install basic tools
 RUN apt-get update && \
-    apt-get install -y git libbz2-dev cmake vim python3-tk wget libsm6 libxext6 &&\
+    apt-get install -y tmux git htop libbz2-dev cmake vim python3-pip python3-tk wget libsm6 libxext6 libboost-all-dev psmisc zsh rake&&\
     rm -rf /var/lib/apt/lists/*
 
-
-# Download boost, untar, setup install with bootstrap 
-# and then install
-RUN cd /home && wget http://downloads.sourceforge.net/project/boost/boost/1.68.0/boost_1_68_0.tar.gz \
-  && tar xfz boost_1_68_0.tar.gz \
-  && rm boost_1_68_0.tar.gz \
-  && cd boost_1_68_0 \
-  && sh bootstrap.sh --with-libraries=python,log --with-python=/usr/local/bin/python3 --with-python-version=3.5 --with-python-root=/usr/local/lib/python3.5 \
-  && ./b2 -j 4 install \
-  && cd /home \
-&& rm -rf boost_1_68_0
 
 #Install boost_ksp
 RUN cd /home && git clone https://github.com/lejeunel/boost_ksp.git \
