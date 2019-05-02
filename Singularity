@@ -49,15 +49,3 @@ apt-get install -y gnuplot-x11
 # Clean up
 apt-get -y autoremove
 rm -rvf /var/lib/apt/lists/*
-
-
-# Install boost_ksp
-cd /home && git clone https://github.com/lejeunel/boost_ksp.git
-cd boost_ksp
-mkdir build
-cd build
-cmake ..
-make -j 4
-python3 src/setup.py install
-python3 ../demo/demo.py
-rm -rf /home/boost_ksp
