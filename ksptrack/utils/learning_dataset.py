@@ -1,6 +1,5 @@
 import glob
 import warnings, itertools, _pickle, progressbar, sys, os, datetime, yaml, hashlib, json
-from ksptrack.cfgs import cfg
 from ksptrack.utils import my_utils as utls
 from ksptrack.utils import superpixel_utils as spix
 from ksptrack.utils.data_manager import DataManager
@@ -50,11 +49,17 @@ class LearningDataset(DataManager):
 
     @property
     def gt(self):
-        gt_dir = os.path.join(self.conf.dataInRoot, self.conf.dataSetDir, self.conf.gtFrameDir)
+        gt_dir = os.path.join(self.conf.root_path,
+                              self.conf.ds_dir,
+                              self.conf.truth_dir)
         gtFileNames = utls.makeFrameFileNames(
-            self.conf.framePrefix, self.conf.frameDigits, self.conf.gtFrameDir,
-            self.conf.dataInRoot, self.conf.dataSetDir, self.conf.frameExtension)
-
+            self.conf.frame_prefix,
+            self.conf.frameDigits,
+            self.conf.truth_dir,
+            self.conf.root_path,
+            self.conf.ds_dir,
+            extension=self.conf.frame_extension)
+        
         return utls.getPositives(gtFileNames)
 
     def make_y_map_true(self,map_):

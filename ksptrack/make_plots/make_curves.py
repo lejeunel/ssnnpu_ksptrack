@@ -30,15 +30,15 @@ def downsample(s, n_samps):
 
     return s
 
-def make_res_dict(y, y_true, method_name=None, max_samples=2000, store_y=True):
+def make_res_dict(y, y_true, method_name=None, bag_max_samples=2000, store_y=True):
 
     out = dict()
     pr, rc, _ = precision_recall_curve(y_true.ravel(), y.ravel())
-    pr = downsample(pr, max_samples)
-    rc = downsample(rc, max_samples)
+    pr = downsample(pr, bag_max_samples)
+    rc = downsample(rc, bag_max_samples)
     tpr, fpr, _ = roc_curve(y_true.ravel(), y.ravel())
-    tpr = downsample(tpr, max_samples)
-    fpr = downsample(fpr, max_samples)
+    tpr = downsample(tpr, bag_max_samples)
+    fpr = downsample(fpr, bag_max_samples)
     if ((tpr.size == 1) and (fpr.size == 1)):  # binary case
         auc_ = None
     else:
@@ -98,7 +98,7 @@ for key in rd.types:
 
             # Get config
             conf = cfg.load_and_convert(os.path.join(dir_, 'cfg.yml'))
-            conf.dataInRoot = rd.root_dir
+            conf.root_path = rd.root_dir
             conf.dataOutRoot = rd.root_dir
             conf.precomp_desc_path = os.path.join(conf.dataOutRoot,
                                                   'precomp_desc_path')
@@ -146,7 +146,7 @@ for key in rd.types:
             # Get config
             conf = cfg.load_and_convert(os.path.join(dir_, 'cfg.yml'))
 
-            conf.dataInRoot = rd.root_dir
+            conf.root_path = rd.root_dir
             conf.dataOutDir = os.path.join(rd.root_dir, conf.dataOutDir)
             l_dataset = learning_dataset.LearningDataset(conf, pos_thr=0.5)
             gt = l_dataset.gt
@@ -193,7 +193,7 @@ for key in rd.types:
             # Get config
             conf = cfg.load_and_convert(os.path.join(dir_, 'cfg.yml'))
 
-            conf.dataInRoot = rd.root_dir
+            conf.root_path = rd.root_dir
             conf.dataOutDir = os.path.join(rd.root_dir, conf.dataOutDir)
             l_dataset = learning_dataset.LearningDataset(conf, pos_thr=0.5)
             gt = l_dataset.gt
@@ -240,7 +240,7 @@ for key in rd.types:
             #                    rd.res_dirs_dict_ksp[key][i][0])
             conf = cfg.load_and_convert(os.path.join(dir_, 'cfg.yml'))
 
-            conf.dataInRoot = rd.root_dir
+            conf.root_path = rd.root_dir
             conf.dataOutDir = os.path.join(rd.root_dir, conf.dataOutDir)
             l_dataset = learning_dataset.LearningDataset(conf, pos_thr=0.5)
             gt = l_dataset.gt
@@ -282,7 +282,7 @@ for key in rd.types:
             # Get config
             conf = cfg.load_and_convert(os.path.join(dir_, 'cfg.yml'))
 
-            conf.dataInRoot = rd.root_dir
+            conf.root_path = rd.root_dir
             conf.dataOutDir = os.path.join(rd.root_dir, conf.dataOutDir)
             l_dataset = learning_dataset.LearningDataset(conf, pos_thr=0.5)
             gt = l_dataset.gt
@@ -325,7 +325,7 @@ for key in rd.types:
             # Get config
             conf = cfg.load_and_convert(os.path.join(dir_, 'cfg.yml'))
 
-            conf.dataInRoot = rd.root_dir
+            conf.root_path = rd.root_dir
             conf.dataOutDir = os.path.join(rd.root_dir, conf.dataOutDir)
             l_dataset = learning_dataset.LearningDataset(conf, pos_thr=0.5)
             gt = l_dataset.gt

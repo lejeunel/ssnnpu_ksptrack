@@ -148,15 +148,15 @@ def main(confs, out_dir=None):
             y_test = datasets[pred_fold].y_true[:,2]
 
             logger.info('Fitting...')
-            max_n_feats = confs[0].max_n_feats_rf
-            max_depth = confs[0].max_depth_rf
-            logger.info('max_n_feats: ' + str(max_n_feats))
-            logger.info('max_depth: ' + str(max_depth))
+            bag_n_feats = confs[0].bag_n_feats_rf
+            bag_max_depth = confs[0].bag_max_depth_rf
+            logger.info('bag_n_feats: ' + str(bag_n_feats))
+            logger.info('bag_max_depth: ' + str(bag_max_depth))
             n_trees = datasets[0].conf.T
-            clf_my = RandomForestClassifier(max_features=max_n_feats,
+            clf_my = RandomForestClassifier(max_features=bag_n_feats,
                                             class_weight='balanced',
                                             n_estimators=n_trees)
-            clf_true = RandomForestClassifier(max_features=max_n_feats,
+            clf_true = RandomForestClassifier(max_features=bag_n_feats,
                                               class_weight='balanced',
                                               n_estimators=n_trees)
             clf_my.fit(X_train, y_train_my)

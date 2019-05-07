@@ -4,7 +4,6 @@ import networkx as nx
 import numpy as np
 import matplotlib.pyplot as plt
 import itertools as it
-import cvxopt
 from scipy.optimize import minimize
 from ksptrack.utils import csv_utils as csv
 from ksptrack import tr
@@ -19,7 +18,7 @@ from skimage.draw import circle
 from ksptrack.utils.lfda import myLFDA
 from sklearn.decomposition import PCA
 from boostksp import libksp
-
+from collections import Counter
 
 class GraphTracking:
     """
@@ -27,10 +26,11 @@ class GraphTracking:
     """
 
     def __init__(self,
+                 entrance_agent,
                  sps_man=None,
                  tol=0,
                  mode='edge',
-                 tau_u=-1,
+                 hoof_tau_u=-1,
                  cxx_loglevel="info",
                  cxx_return_edges=True):
         self.logger = logging.getLogger('GraphTracking')
@@ -49,7 +49,7 @@ class GraphTracking:
         self.direction = None
         self.thr = 0.05  #For bernoulli costs
         self.tol = tol
-        self.tau_u = tau_u  # Threshold for HOOF, set to -1 to disable constraint
+        self.hoof_tau_u = hoof_tau_u  # Threshold for HOOF, set to -1 to disable constraint
 
         self.PCAs = []
         self.trans_transform = None
@@ -59,6 +59,8 @@ class GraphTracking:
 
         # This holds the networkx graph
         self.g = None
+
+        self.entrance_agent = entrance_agent
 
     def make_tracklets(self, sp_pm):
         #Loop through existing tracklets and add edges.
@@ -218,7 +220,6 @@ class GraphTracking:
                                     labels,
                                     radius=0.2):
         #Enters if centroid is in gaze "radius"
-
         centroid_sp = centroids.loc[
             (centroids['frame'] == tracklet.get_in_frame())
             & (centroids['sp_label'] == tracklet.get_in_label())]
@@ -310,9 +311,9 @@ class GraphTracking:
                       sp_pom,
                       centroid_locs,
                       points_2d,
-                      normNeighbor_in,
+                      norm_neighbor_in,
                       thresh_aux,
-                      tau_u=0,
+                      hoof_tau_u=0,
                       direction='forward',
                       labels=None):
 
@@ -334,7 +335,7 @@ class GraphTracking:
         tls = [t for t in self.tracklets if (t.blocked == False)]
 
         self.make_edges_from_tracklets(tls, sp_desc, centroid_locs, points_2d,
-                                       normNeighbor_in, tau_u, labels)
+                                       norm_neighbor_in, hoof_tau_u, labels)
 
         self.orig_weights = nx.get_edge_attributes(self.g, 'weight')
 
@@ -373,7 +374,7 @@ class GraphTracking:
             self.trans_transform.fit(descs_cat)
 
     def connect_sources_cxx_dqn(self, loc2d, centroid_locs, labels, sp_desc,
-                                normNeighbor_in):
+                                norm_neighbor_in):
         # tls = [t for t in self.tracklets if (t.blocked == False)]
         # frames = locs2d['frame']
         tls = [self.tls_man.dict_in[f] for f in np.unique(loc2d['frame'])]
@@ -396,7 +397,7 @@ class GraphTracking:
 
             if (self.is_linkable_entrance_radius(centroid_locs,
                                                  (loc2d['x'], loc2d['y']), tl,
-                                                 labels, normNeighbor_in)):
+                                                 labels, norm_neighbor_in)):
                 got_bg = False
                 if ((e not in edges_from_src)):
 
@@ -408,10 +409,11 @@ class GraphTracking:
                     w = -np.log(proba / (1 - proba))
                     self.g_cxx.add_edge(*e, w, -1)
 
+        del tls, edges_from_src
         return added_edges, got_bg
 
     def connect_sources_cxx(self, locs2d, centroid_locs, labels, sp_desc,
-                            normNeighbor_in):
+                            norm_neighbor_in):
         # tls = [t for t in self.tracklets if (t.blocked == False)]
         # frames = locs2d['frame']
         tls = [self.tls_man.dict_in[f] for f in np.unique(locs2d['frame'])]
@@ -434,7 +436,7 @@ class GraphTracking:
 
                 if (self.is_linkable_entrance_radius(centroid_locs,
                                                      (l['x'], l['y']), tl,
-                                                     labels, normNeighbor_in)):
+                                                     labels, norm_neighbor_in)):
 
                     added_edges += 1
 
@@ -447,8 +449,14 @@ class GraphTracking:
 
         return added_edges
 
-    def make_edges_from_tracklets(self, tls, sp_desc, loc, points_2d,
-                                  normNeighbor_in, tau_u, labels):
+    def make_edges_from_tracklets(self,
+                                  tls,
+                                  sp_desc,
+                                  loc,
+                                  points_2d,
+                                  norm_neighbor_in,
+                                  hoof_tau_u,
+                                  labels):
 
         #Exit edges (time lapse)
         self.logger.info('Connecting exit edges')
@@ -471,8 +479,9 @@ class GraphTracking:
                 sp_gaze = labels[i_gaze, j_gaze, this_frame]
 
                 #if(self.is_linkable_entrance_sp(loc_2d,tls[i],labels)):
-                if (self.is_linkable_entrance_radius(loc, loc_2d, tls[i],
-                                                     labels, normNeighbor_in)):
+                # if(self.entrance_agent.is_entrance())
+                if (self.entrance_agent.is_entrance(loc, loc_2d, tls[i],
+                                                    labels, norm_neighbor_in)):
 
                     this_e = (int(self.source), int(tls[i].in_id))
 
@@ -485,10 +494,8 @@ class GraphTracking:
         # Transition edges
         self.logger.info('Connecting transition edges')
 
-        #if(self.direction == 'forward'):
         mode = 'head'
-        #else:
-        #    mode = 'tail'
+
         with progressbar.ProgressBar(maxval=len(tls)) as bar:
             for i in range(len(tls)):
                 bar.update(i)
@@ -496,7 +503,7 @@ class GraphTracking:
 
                 linkable_tracklets = self.tls_man.get_linkables(
                     this_tracklet,
-                    tau_u=tau_u,
+                    hoof_tau_u=hoof_tau_u,
                     mode=mode,
                     direction=self.direction)
 
@@ -519,8 +526,8 @@ class GraphTracking:
         return self.kspSet
 
     def run_nocopy(self):
-        self.kspSet = self.g_cxx.run()
-        return self.kspSet
+        res = self.g_cxx.run()
+        return res
 
     def copy_cxx(self):
         # This holds the c++ graph
@@ -531,6 +538,12 @@ class GraphTracking:
             loglevel=self.cxx_loglevel,
             min_cost=True,
             return_edges=self.cxx_return_edges)
+
+        # e_ids = [self.g[e[0]][e[1]]['id_'] for e in self.g.edges()]
+        # duplicates = [item
+        #               for item, count in Counter(e_ids).items() if count > 1]
+        # if(len(duplicates) > 0):
+        #     raise Exception('graph has duplicate edge ids: {}'.format(duplicates))
 
         self.logger.info('Copying graph with {} edges...'.
                          format(len(self.g.edges())))

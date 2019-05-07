@@ -400,21 +400,17 @@ def readCsv(csvName, seqStart=None, seqEnd=None):
 
 
 def getDataOutDir(dataOutRoot,
-                  dataSetDir,
+                  ds_dir,
                   resultDir,
-                  fileOutPrefix,
-                  testing,
-                  make_datetime_dir=True):
+                  out_dir_prefix,
+                  testing):
 
     now = datetime.datetime.now()
     dateTime = now.strftime("%Y-%m-%d_%H-%M-%S")
 
-    dataOutDir = os.path.join(dataOutRoot, dataSetDir, resultDir)
-    if (make_datetime_dir):
-        dataOutResultDir = os.path.join(dataOutDir,
-                                        dateTime + '_' + fileOutPrefix)
-    else:
-        dataOutResultDir = dataOutDir
+    dataOutDir = os.path.join(dataOutRoot, ds_dir, resultDir)
+    dataOutResultDir = os.path.join(dataOutDir,
+                                    dateTime + '_' + out_dir_prefix)
 
     #print(dataOutResultDir)
     if (not os.path.exists(dataOutResultDir)) and (not testing):
@@ -717,8 +713,8 @@ def imread(fname):
 
     img = io.imread(fname)
 
-    if(img.dtype == np.uint16):
-        img = ((img / (2**16))*(2**8)).astype(np.uint8)
+    if (img.dtype == np.uint16):
+        img = ((img / (2**16)) * (2**8)).astype(np.uint8)
 
     if (len(img.shape) > 2):
         nchans = img.shape[2]
@@ -850,15 +846,15 @@ def getF1Score(gt_positives, seg_positives):
 
     return (f1)
 
-def get_images(path,
-               extension=('jpg', 'png')):
+
+def get_images(path, extension=('jpg', 'png')):
     """ Generates list of (sorted) images
     Returns List of paths to images
     """
 
     fnames = []
 
-    if(isinstance(extension, str)):
+    if (isinstance(extension, str)):
         extension = [extension]
 
     for ext in extension:
@@ -868,11 +864,11 @@ def get_images(path,
 
     return fnames
 
-def makeFrameFileNames(framePrefix,
-                       frameDigits,
-                       frameDir,
-                       dataInRoot,
-                       dataSetDir,
+
+def makeFrameFileNames(frame_prefix,
+                       frame_dir,
+                       root_path,
+                       ds_dir,
                        extension=('jpg', 'png'),
                        seqStart=None,
                        seqEnd=None):
@@ -881,15 +877,14 @@ def makeFrameFileNames(framePrefix,
     """
 
     fnames = []
-    path = os.path.join(dataInRoot, dataSetDir, frameDir)
-    # path = dataInRoot + dataSetDir + '/' + frameDir + '/'
+    path = os.path.join(root_path, ds_dir, frame_dir)
+    # path = root_path + ds_dir + '/' + frameDir + '/'
 
-    if(isinstance(extension, str)):
+    if (isinstance(extension, str)):
         extension = [extension]
 
     for ext in extension:
-        fnames += glob.glob(path, framePrefix + '*' + ext)
-
+        fnames.append(glob.glob(os.path.join(path, frame_prefix + '*' + ext)))
 
     fnames = [item for sublist in fnames for item in sublist]
     fnames = sorted(fnames)

@@ -38,20 +38,20 @@ class Bunch(object):
 def cfg():
 
     #Paths, dirs, names ...
-    dataInRoot = '/home/laurent.lejeune/otlShare/laurent.lejeune/medical-labeling/data/'
+    root_path = '/home/laurent.lejeune/otlShare/laurent.lejeune/medical-labeling/data/'
     dataOutRoot = '/home/laurent.lejeune/otlShare/laurent.lejeune/medical-labeling/data/'
     dataOutResultDir = ''
     resultDir = 'results'
-    gazeDir = 'gaze-measurements'
-    gtFrameDir = 'ground_truth-frames'
-    dataSetDir = 'Dataset12'
-    fileOutPrefix = 'exp'
-    framePrefix = 'frame_'
-    frameExtension = '.png'
+    locs_dir = 'gaze-measurements'
+    truth_dir = 'ground_truth-frames'
+    ds_dir = 'Dataset12'
+    out_dir_prefix = 'exp'
+    frame_prefix = 'frame_'
+    frame_extension = '.png'
     frameDigits = 4
     frameDir = 'input-frames'
     csvFileName = 'video1.csv'
-    csvName = os.path.join(dataInRoot,dataSetDir,gazeDir, csvFileName)
+    csvName = os.path.join(root_path,ds_dir,locs_dir, csvFileName)
 
     comment = 'Comment of experiment'
 
@@ -78,7 +78,7 @@ def cfg():
     #feat_descriptorMethod = 'overfeat'
 
     #Descriptors/codebooks ready-to-load.
-    feats_files_dir = 'precomp_descriptors'
+    feats_dir = 'precomp_descriptors'
     feats_compute = True #This value should not be changed here.
 
     #Segmentation SEEDS
@@ -115,8 +115,8 @@ def cfg():
     max_paths = 40
 
     #Graph parameters
-    normNeighbor = 0.2 #Cut edges outside neighborhood
-    normNeighbor_in = 0.5 #Cut edges outside neighborhood
+    norm_neighbor = 0.2 #Cut edges outside neighborhood
+    norm_neighbor_in = 0.5 #Cut edges outside neighborhood
 
     testing = False #Won't save results if True
 
@@ -136,29 +136,29 @@ def get_scores_rates(sets,winInd,frameInd,gt_dir,frameFileNames,Kmax=None,mode='
 
     return scores
 
-def makeFrameFileNames(framePrefix,seqStart,seqEnd,frameDigits,frameDir,dataInRoot,dataSetDir,frameExtension):
+def makeFrameFileNames(frame_prefix,seqStart,seqEnd,frameDigits,frameDir,root_path,ds_dir,frame_extension):
 
     frameFileNames = []
-    path = dataInRoot+dataSetDir+'/'+frameDir+'/'
+    path = root_path+ds_dir+'/'+frameDir+'/'
     idx = np.arange(seqStart,seqEnd+1)
     frameFileNames = []
-    formatStr =  path + framePrefix + '%0' + str(frameDigits) + 'd'
+    formatStr =  path + frame_prefix + '%0' + str(frameDigits) + 'd'
 
     for i in range(idx.shape[0]):
-        frameFileNames.append(str(formatStr%idx[i])+frameExtension)
+        frameFileNames.append(str(formatStr%idx[i])+frame_extension)
 
     return frameFileNames
 
 def readCsv(csvName,seqStart,seqEnd):
     return np.loadtxt(open(csvName,"rb"),delimiter=";",skiprows=5)[seqStart:seqEnd+1,:]
 
-def getDataOutDir(dataOutRoot,dataSetDir,resultDir,fileOutPrefix,testing):
+def getDataOutDir(dataOutRoot,ds_dir,resultDir,out_dir_prefix,testing):
 
     now = datetime.datetime.now()
     dateTime = now.strftime("%Y-%m-%d_%H-%M-%S")
 
-    dataOutDir = os.path.join(dataOutRoot,dataSetDir,resultDir)
-    dataOutResultDir = os.path.join(dataOutDir,dateTime+'_' + fileOutPrefix)
+    dataOutDir = os.path.join(dataOutRoot,ds_dir,resultDir)
+    dataOutResultDir = os.path.join(dataOutDir,dateTime+'_' + out_dir_prefix)
 
     print(dataOutResultDir)
     if (not os.path.exists(dataOutResultDir)) and (not testing):
@@ -173,18 +173,18 @@ cfg_dict = cfg()
 c = Bunch(cfg_dict)
 
 #Write config to result dir
-dataOutDir =  getDataOutDir(c.dataOutRoot,c.dataSetDir,c.resultDir,c.fileOutPrefix,c.testing)
+dataOutDir =  getDataOutDir(c.dataOutRoot,c.ds_dir,c.resultDir,c.out_dir_prefix,c.testing)
 
 #Make frame file names from seqStart and seqEnd
-gtFileNames = makeFrameFileNames(c.framePrefix,c.seqStart,c.seqEnd,c.frameDigits,c.gtFrameDir,c.dataInRoot,c.dataSetDir,c.frameExtension)
+gtFileNames = makeFrameFileNames(c.frame_prefix,c.seqStart,c.seqEnd,c.frameDigits,c.truth_dir,c.root_path,c.ds_dir,c.frame_extension)
 
-frameFileNames = makeFrameFileNames(c.framePrefix,c.seqStart,c.seqEnd,c.frameDigits,c.frameDir,c.dataInRoot,c.dataSetDir,c.frameExtension)
+frameFileNames = makeFrameFileNames(c.frame_prefix,c.seqStart,c.seqEnd,c.frameDigits,c.frameDir,c.root_path,c.ds_dir,c.frame_extension)
 
 myGaze = readCsv(c.csvName,c.seqStart-1,c.seqEnd)
 gt_positives = tb.getPositives(gtFileNames)
 
-precomp_desc_path = os.path.join(c.dataInRoot,c.dataSetDir,'precomp_descriptors')
-labelMatPath = os.path.join(c.dataInRoot,c.dataSetDir,c.frameDir,'TSP_flows')
+precomp_desc_path = os.path.join(c.root_path,c.ds_dir,'precomp_descriptors')
+labelMatPath = os.path.join(c.root_path,c.ds_dir,c.frameDir,'TSP_flows')
 
 print('loading data (labels,descriptors,...)')
 centroids_loc = pd.read_pickle(os.path.join(precomp_desc_path,'centroids_loc_df.p'))
@@ -212,8 +212,8 @@ pom_mat = np.load(os.path.join(precomp_desc_path,'pom_mat.npz'))['pom_mat']
 
 #Test plots
 frameInd = np.arange(0,len(frameFileNames))
-gtFileNames = makeFrameFileNames(c.framePrefix,c.seqStart,c.seqEnd,c.frameDigits,c.gtFrameDir,c.dataInRoot,c.dataSetDir,c.frameExtension)
-gt_dir = os.path.join(c.dataInRoot,c.dataSetDir,c.gtFrameDir)
+gtFileNames = makeFrameFileNames(c.frame_prefix,c.seqStart,c.seqEnd,c.frameDigits,c.truth_dir,c.root_path,c.ds_dir,c.frame_extension)
+gt_dir = os.path.join(c.root_path,c.ds_dir,c.truth_dir)
 #Extract ground-truth files
 gt = np.zeros((len(frameFileNames),labels.shape[0],labels.shape[1]))
 for i in range(len(frameFileNames)):

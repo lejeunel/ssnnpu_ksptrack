@@ -29,24 +29,24 @@ def main(arg_cfg):
 
     #Update config
     cfg_dict = cfg.cfg()
-    arg_cfg['seq_type'] = cfg.datasetdir_to_type(arg_cfg['dataSetDir'])
+    arg_cfg['seq_type'] = cfg.datasetdir_to_type(arg_cfg['ds_dir'])
     cfg_dict.update(arg_cfg)
     conf = cfg.Bunch(cfg_dict)
 
     #Set logger
 
-    conf.myGaze_fg = utls.readCsv(os.path.join(conf.dataInRoot,
-                                                conf.dataSetDir,
-                                                conf.gazeDir,
+    conf.myGaze_fg = utls.readCsv(os.path.join(conf.root_path,
+                                                conf.ds_dir,
+                                                conf.locs_dir,
                                                 conf.csvFileName_fg))
 
 
     if (conf.labelMatPath != ''):
-        conf.labelMatPath = os.path.join(conf.dataOutRoot, conf.dataSetDir, conf.frameDir,
+        conf.labelMatPath = os.path.join(conf.dataOutRoot, conf.ds_dir, conf.frameDir,
                                     conf.labelMatPath)
 
-    conf.precomp_desc_path = os.path.join(conf.dataOutRoot, conf.dataSetDir,
-                                    conf.feats_files_dir)
+    conf.precomp_desc_path = os.path.join(conf.dataOutRoot, conf.ds_dir,
+                                    conf.feats_dir)
 
     # ---------- Descriptors/superpixel costs
     my_dataset = ds.Dataset(conf)
@@ -57,7 +57,7 @@ def main(arg_cfg):
                        marked_feats=None,
                        all_feats_df=my_dataset.get_sp_desc_from_file(),
                        in_type='csv_normalized',
-                       max_n_feats=conf.max_n_feats,
+                       bag_n_feats=conf.bag_n_feats,
                        mode='foreground',
                        feat_fields=['desc'],
                        n_jobs=8)
@@ -70,7 +70,7 @@ def main(arg_cfg):
                        marked_feats=None,
                        all_feats_df=my_dataset.get_sp_desc_from_file(),
                        in_type='csv_normalized',
-                       max_n_feats=conf.max_n_feats,
+                       bag_n_feats=conf.bag_n_feats,
                        mode='foreground',
                        feat_fields=['desc'],
                        n_jobs=1)

@@ -12,8 +12,6 @@ from ksptrack.utils import my_utils as utls
 from ksptrack.utils import learning_dataset
 from ksptrack.utils import csv_utils as csv
 from ksptrack.utils import data_manager as ds
-#from ksptrack.exps import results_dirs as rd
-from ksptrack.cfgs import cfg
 from ksptrack.tr import Tracklet
 
 

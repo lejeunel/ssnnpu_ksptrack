@@ -51,9 +51,9 @@ ims = [utls.imread(f) for f in conf.frameFileNames]
 cont_gts = [segmentation.find_boundaries(gt[..., i])
             for i in range(gt.shape[-1])]
 idx_cont_gts = [np.where(g) for g in cont_gts]
-path_csv = os.path.join(conf.dataInRoot,
-                        conf.dataSetDir,
-                        conf.gazeDir,
+path_csv = os.path.join(conf.root_path,
+                        conf.ds_dir,
+                        conf.locs_dir,
                         conf.csvFileName_fg)
 
 labels = dataset.get_labels()

@@ -57,7 +57,7 @@ def inters_mask_labels(labels, mask_, val):
 
     return np.sum(tmp)/np.sum(labels==val)
 
-def get_feats(ims, n_bins=30, square_mask=True):
+def get_feats(ims, bag_n_bins=30, square_mask=True):
 
     ims_1c = ims[:, :, -1, :]
     mask = np.zeros(ims[...,0].shape[0:2], dtype=np.uint8)

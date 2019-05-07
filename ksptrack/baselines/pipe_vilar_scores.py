@@ -33,7 +33,7 @@ for key in rd.types:
         # Get config
         conf = cfg.load_and_convert(os.path.join(path_, 'cfg.yml'))
 
-        conf.dataInRoot = rd.root_dir
+        conf.root_path = rd.root_dir
         l_dataset = learning_dataset.LearningDataset(conf, pos_thr=0.5)
         gt = l_dataset.gt
         path_preds_im = os.path.join(path_,

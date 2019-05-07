@@ -64,16 +64,16 @@ desc_list = list()
 img = my.imread(frameFileNames[0])
 desc_file_path = '/home/laurent.lejeune/server/medical-labeling/data/Dataset2/daisy_desc/'
 
-n_bins = 10
+bag_n_bins = 10
 chans = 3
-seen_hist = np.array([]).reshape(0,chans*n_bins)
+seen_hist = np.array([]).reshape(0,chans*bag_n_bins)
 for i in range(len(frameFileNames)):
     print('Frame ' + str(i))
     img = my.imread(frameFileNames[i])
     #img = color.rgb2hsv(img)
 
     _,this_vals = spix.getMeanColorInCircle(img,(myGaze[i,3],myGaze[i,4]),gaze_radius,normCst=1)
-    this_hist = np.asarray([np.histogram(this_vals[:,i],bins=n_bins,density=True)[0] for i in range(chans)])
+    this_hist = np.asarray([np.histogram(this_vals[:,i],bins=bag_n_bins,density=True)[0] for i in range(chans)])
     this_hist = this_hist.ravel().reshape(1,-1)
 
     #this_vals = np.append(this_vals,desc_center,axis=1)
@@ -92,7 +92,7 @@ for i in range(2):
         idx_mask = np.where(this_mask)
         x = this_img[idx_mask[0],idx_mask[1],:]
         import pdb; pdb.set_trace()
-        this_hist = np.asarray([np.histogram(x[:,i],bins=n_bins,density=True)[0] for i in range(chans)])
+        this_hist = np.asarray([np.histogram(x[:,i],bins=bag_n_bins,density=True)[0] for i in range(chans)])
         this_hist = this_hist.ravel().reshape(1,-1)
         max_coeff = 0
         for k in range(seen_hist.shape[0]):

@@ -28,7 +28,7 @@ all_seq_types = ['Tweezer']
 
 # Run KSP on all
 for d in all_datasets:
-        extra_cfg['dataSetDir'] = d
+        extra_cfg['ds_dir'] = d
         print("dset: " + d)
         for k in np.arange(1,6):
             extra_cfg['csvFileName_fg'] = 'video' + str(k) + '.csv'

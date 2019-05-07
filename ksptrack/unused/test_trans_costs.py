@@ -27,22 +27,22 @@ def main(arg_cfg):
 
     #Update config
     cfg_dict = cfg.cfg()
-    arg_cfg['seq_type'] = cfg.datasetdir_to_type(arg_cfg['dataSetDir'])
+    arg_cfg['seq_type'] = cfg.datasetdir_to_type(arg_cfg['ds_dir'])
     cfg_dict.update(arg_cfg)
     conf = cfg.dict_to_munch(cfg_dict)
 
     #Write config to result dir
-    conf.dataOutDir = utls.getDataOutDir(conf.dataOutRoot, conf.dataSetDir,
-                                         conf.resultDir, conf.fileOutPrefix,
+    conf.dataOutDir = utls.getDataOutDir(conf.dataOutRoot, conf.ds_dir,
+                                         conf.resultDir, conf.out_dir_prefix,
                                          conf.testing)
 
     #Set logger
     utls.setup_logging(conf.dataOutDir)
 
-    logger = logging.getLogger('iterative_ksp')
 
+    logger = logging.getLogger('iterative_ksp')
     logger.info('---------------------------')
-    logger.info('starting experiment on: ' + conf.dataSetDir)
+    logger.info('starting experiment on: ' + conf.in_path)
     logger.info('type of sequence: ' + conf.seq_type)
     logger.info('gaze filename: ' + conf.csvFileName_fg)
     logger.info('features type: ' + conf.feat_extr_algorithm)
@@ -52,20 +52,20 @@ def main(arg_cfg):
 
     #Make frame file names
 
-    conf.frameFileNames = utls.get_images(os.path.join(conf.dataInRoot,
-                                                       conf.dataSetDir,
+    conf.frameFileNames = utls.get_images(os.path.join(conf.root_path,
+                                                       conf.ds_dir,
                                                        conf.frameDir))
 
     conf.myGaze_fg = utls.readCsv(
-        os.path.join(conf.dataInRoot, conf.dataSetDir, conf.gazeDir,
+        os.path.join(conf.root_path, conf.ds_dir, conf.locs_dir,
                      conf.csvFileName_fg))
 
     if (conf.labelMatPath != ''):
-        conf.labelMatPath = os.path.join(conf.dataOutRoot, conf.dataSetDir,
+        conf.labelMatPath = os.path.join(conf.dataOutRoot, conf.ds_dir,
                                          conf.frameDir, conf.labelMatPath)
 
-    conf.precomp_desc_path = os.path.join(conf.dataOutRoot, conf.dataSetDir,
-                                          conf.feats_files_dir)
+    conf.precomp_desc_path = os.path.join(conf.dataOutRoot, conf.ds_dir,
+                                          conf.feats_dir)
 
     # ---------- Descriptors/superpixel costs
     my_dataset = DataManager(conf)
@@ -101,7 +101,7 @@ def main(arg_cfg):
     #     feat_fields=['desc'])
 
     conf.myGaze_fg = utls.readCsv(
-        os.path.join(conf.dataInRoot, conf.dataSetDir, conf.gazeDir,
+        os.path.join(conf.root_path, conf.ds_dir, conf.locs_dir,
                      conf.csvFileName_fg))
 
     my_thresh = 0.8
@@ -178,7 +178,7 @@ def main(arg_cfg):
     io.imsave('conts.png', label_cont_im)
 
     rr, cc = draw.circle_perimeter(g1_i, g1_j,
-                                   int(conf.normNeighbor_in * im1.shape[1]))
+                                   int(conf.norm_neighbor_in * im1.shape[1]))
 
     im1[rr, cc, 0] = 0
     im1[rr, cc, 1] = 255
@@ -226,7 +226,7 @@ def main(arg_cfg):
 
 
 extra_cfg = dict()
-extra_cfg["dataSetDir"] = "Dataset24"  # This is a test dataset
+extra_cfg["ds_dir"] = "Dataset24"  # This is a test dataset
 extra_cfg["csvFileName_fg"] = "video1.csv"
 extra_cfg["feats_graph"] = "unet_gaze"
 main(extra_cfg)

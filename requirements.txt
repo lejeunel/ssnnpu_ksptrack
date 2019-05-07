@@ -6,7 +6,6 @@ pandas
 munch
 ruamel.yaml
 cvxopt
-tensorflow==1.5
 torch
 torchvision
 networkx==1.10

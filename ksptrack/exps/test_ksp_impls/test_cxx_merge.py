@@ -23,7 +23,7 @@ extra_cfg['calc_pm'] = False  # Calculate probability maps from marked SPs
 extra_cfg['calc_seen_feats'] = True
 extra_cfg['calc_ss'] = False
 extra_cfg['calc_desc_means'] = False
-extra_cfg['n_iter_ksp'] = 10
+extra_cfg['n_iters_ksp'] = 10
 #extra_cfg['feat_extr_algorithm'] = 'unet'      # set unet as feature extractor algorithm
 extra_cfg['feats_graph'] = 'unet_gaze'      # set unet as feature extractor algorithm
 #extra_cfg['feats_graph'] = 'unet'      # set unet as feature extractor algorithm
@@ -32,12 +32,12 @@ extra_cfg['thresh_aux'] = 0.5
 extra_cfg['calc_sp_feats_unet_gaze_rec'] = False
 extra_cfg['calc_sp_feats_unet_rec'] = False
 
-extra_cfg['fileOutPrefix'] = 'exp'
+extra_cfg['out_dir_prefix'] = 'exp'
 extra_cfg['csvFileName_fg'] = 'video1.csv'
-extra_cfg['dataSetDir'] = 'Dataset00'
-extra_cfg['seq_type'] = cfg.datasetdir_to_type(extra_cfg['dataSetDir'])
+extra_cfg['ds_dir'] = 'Dataset00'
+extra_cfg['seq_type'] = cfg.datasetdir_to_type(extra_cfg['ds_dir'])
 
-extra_cfg['dataInRoot'] = '/home/krakapwa/Desktop/data/'
+extra_cfg['root_path'] = '/home/krakapwa/Desktop/data/'
 extra_cfg['dataOutRoot'] = '/home/krakapwa/Desktop/data/'
 
 # Get path of this dir
@@ -47,14 +47,14 @@ cfg_dict = cfg.cfg()
 cfg_dict.update(extra_cfg)
 conf = cfg.dict_to_munch(cfg_dict)
 
-conf.myGaze_fg = utls.readCsv(os.path.join(conf.dataInRoot,
-                                           conf.dataSetDir,
-                                           conf.gazeDir,
+conf.myGaze_fg = utls.readCsv(os.path.join(conf.root_path,
+                                           conf.ds_dir,
+                                           conf.locs_dir,
                                            conf.csvFileName_fg))
 
 conf.precomp_desc_path = os.path.join(conf.dataOutRoot,
-                                        conf.dataSetDir,
-                                        conf.feats_files_dir)
+                                        conf.ds_dir,
+                                        conf.feats_dir)
 
 my_dataset = DataManager(conf)
 
@@ -96,9 +96,9 @@ g_for_cxx.makeFullGraph(
     my_dataset.fg_pm_df,
     my_dataset.centroids_loc,
     utls.pandas_to_std_csv(my_dataset.conf.myGaze_fg),
-    my_dataset.conf.normNeighbor_in,
+    my_dataset.conf.norm_neighbor_in,
     my_dataset.conf.thresh_aux,
-    my_dataset.conf.tau_u,
+    my_dataset.conf.hoof_tau_u,
     direction='forward',
     labels=my_dataset.labels)
 
@@ -112,9 +112,9 @@ g_for_cxx.merge_tracklets_temporally(my_dataset.centroids_loc,
                                     my_dataset.sp_desc_df,
                                     utls.pandas_to_std_csv(
                                         my_dataset.conf.myGaze_fg),
-                                    my_dataset.conf.normNeighbor_in,
+                                    my_dataset.conf.norm_neighbor_in,
                                     my_dataset.conf.thresh_aux,
                                     my_dataset.get_labels(),
-my_dataset.conf.tau_u)
+my_dataset.conf.hoof_tau_u)
 
 g_for_cxx.run()

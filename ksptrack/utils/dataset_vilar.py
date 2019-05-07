@@ -244,6 +244,6 @@ class DatasetVilar(LearningDataset):
 
         if(self.labels is None):
 
-            self.labels = np.load(os.path.join(self.conf.dataInRoot,                                      self.conf.dataSetDir,                                           self.conf.frameDir,'sp_labels.npz'))['sp_labels']
+            self.labels = np.load(os.path.join(self.conf.root_path,                                      self.conf.ds_dir,                                           self.conf.frameDir,'sp_labels.npz'))['sp_labels']
 
         return self.labels

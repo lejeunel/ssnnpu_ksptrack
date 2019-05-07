@@ -1,6 +1,7 @@
 import scipy
 from sklearn.tree import DecisionTreeClassifier
 import os
+from os.path import join as pjoin
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -9,14 +10,12 @@ from ksptrack.utils import my_utils as utls
 from ksptrack.utils import bagging as bag
 from ksptrack.utils import csv_utils as csv
 from ksptrack.utils import superpixel_extractor as svx
-from ksptrack.cfgs import cfg
 import pickle as pk
 from progressbar import ProgressBar as pbar
 from skimage import (color, io, segmentation)
 from sklearn import (mixture, metrics, preprocessing, decomposition)
 from scipy import (ndimage, io, misc)
 import glob, itertools
-from ksptrack.cfgs import cfg
 import logging
 from sklearn.ensemble import RandomForestClassifier
 from imgaug import augmenters as iaa
@@ -114,11 +113,11 @@ class DataManager:
 
             label_dict_out = dict()
             label_dict_out['sp_labels'] = self.labels
-            mat_file_out = os.path.join(self.conf.dataInRoot,
-                                        self.conf.dataSetDir,
+            mat_file_out = os.path.join(self.conf.root_path,
+                                        self.conf.ds_dir,
                                         self.conf.frameDir, 'sp_labels.mat')
-            np_file_out = os.path.join(self.conf.dataInRoot,
-                                       self.conf.dataSetDir,
+            np_file_out = os.path.join(self.conf.root_path,
+                                       self.conf.ds_dir,
                                        self.conf.frameDir, 'sp_labels.npz')
             io.savemat(mat_file_out, label_dict_out)
             np.savez(np_file_out, **label_dict_out)
@@ -145,7 +144,7 @@ class DataManager:
         if (self.labels is None):
 
             self.labels = np.load(
-                os.path.join(self.conf.dataInRoot, self.conf.dataSetDir,
+                os.path.join(self.conf.root_path, self.conf.ds_dir,
                              self.conf.frameDir, 'sp_labels.npz'))['sp_labels']
 
         return self.labels
@@ -267,55 +266,46 @@ class DataManager:
         self.labelContourMask = list()
         spix_extr = svx.SuperpixelExtractor()
 
-        #def extract(self, im_paths,
-        #            save_path,
-        #            compactness = 10.0,
-        #            reqdsupervoxelsize = 2500,
-        #            save = False):
-        self.labels = spix_extr.extract(
-            self.conf.frameFileNames,
-            self.conf.precomp_desc_path,
-            'sp_labels.npz',
-            self.conf.compactness,
-            self.conf.numreqdsupervoxels,
-            save_labels=do_save,
-            save_previews=do_save)
+        if(not os.path.exists(pjoin(self.conf.precomp_desc_path, 'sp_labels.npz'))):
+            self.labels = spix_extr.extract(
+                self.conf.frameFileNames,
+                self.conf.precomp_desc_path,
+                'sp_labels.npz',
+                self.conf.slic_compactness,
+                self.conf.slic_n_sp,
+                save_labels=do_save,
+                save_previews=do_save)
 
-        self.logger.info("Loading npz label map")
+            labelContourMask = list()
+            self.logger.info("Generating label contour maps")
 
-        labelContourMask = list()
-        self.logger.info("Generating label contour maps")
-
-        for im in range(self.labels.shape[2]):
-            # labels values are not always "incremental" (values are skipped).
-            labelContourMask.append(
-                segmentation.find_boundaries(self.labels[:, :, im]))
-            #labels[:,:,im] = fixedLabels
-        self.logger.info("Saving label contour maps")
-        data = dict()
-        data['labelContourMask'] = labelContourMask
-        np.savez(
-            os.path.join(self.conf.precomp_desc_path,
-                         'sp_labels_tsp_contours.npz'), **data)
-        self.labelContourMask = np.load(
-            os.path.join(self.conf.precomp_desc_path,
-                         'sp_labels_tsp_contours.npz'))['labelContourMask']
-
-        #self.labels = self.labels[:, :, np.arange(self.conf.seqStart, self.conf.seqEnd+1)]
-        self.labelContourMask = np.asarray(self.labelContourMask)
-        #labelContourMask = np.transpose(labelContourMask,(1,2,0))
-
-        self.logger.info('Getting centroids...')
-        self.centroids_loc = spix.getLabelCentroids(self.labels)
-
-        if (do_save):
-
-            self.centroids_loc.to_pickle(
+            for im in range(self.labels.shape[2]):
+                # labels values are not always "incremental" (values are skipped).
+                labelContourMask.append(
+                    segmentation.find_boundaries(self.labels[:, :, im]))
+            self.logger.info("Saving label contour maps")
+            data = dict()
+            data['labelContourMask'] = labelContourMask
+            np.savez(
                 os.path.join(self.conf.precomp_desc_path,
-                             'centroids_loc_df.p'))
+                            'sp_labels_tsp_contours.npz'), **data)
+            self.labelContourMask = np.load(
+                os.path.join(self.conf.precomp_desc_path,
+                            'sp_labels_tsp_contours.npz'))['labelContourMask']
 
-        return self.labels, self.labelContourMask
-        # End superpixelization--------------------------------------------------
+            self.labelContourMask = np.asarray(self.labelContourMask)
+
+            self.logger.info('Getting centroids...')
+            self.centroids_loc = spix.getLabelCentroids(self.labels)
+
+            if (do_save):
+
+                self.centroids_loc.to_pickle(
+                    os.path.join(self.conf.precomp_desc_path,
+                                'centroids_loc_df.p'))
+        else:
+            self.logger.info("Superpixels were already computer. Delete to re-run.")
+            self.load_superpix_from_file()
 
     def calc_bagging(self,
                      marked_arr,
@@ -324,9 +314,9 @@ class DataManager:
                      mode='foreground',
                      feat_fields=['desc'],
                      T=100,
-                     max_n_feats=0.25,
-                     max_depth=5,
-                     max_samples=2000,
+                     bag_n_feats=0.25,
+                     bag_max_depth=5,
+                     bag_max_samples=2000,
                      n_jobs=1):
         """
         Computes "Bagging" transductive probabilities using marked_arr as positives.
@@ -334,12 +324,12 @@ class DataManager:
 
         this_marked_feats, this_pm_df = bag.calc_bagging(
             T,
-            max_depth,
-            max_n_feats,
+            bag_max_depth,
+            bag_n_feats,
             marked_arr,
             all_feats_df=all_feats_df,
             feat_fields=['desc'],
-            max_samples=max_samples,
+            bag_max_samples=bag_max_samples,
             n_jobs=n_jobs)
 
         if (mode == 'foreground'):
@@ -470,12 +460,16 @@ class DataManager:
 
         train_net = not os.path.exists(bm_path)
         forward_pass = not os.path.exists(feats_path)
-        assign_feats_to_sps = not os.path.exists(df_path)
+        # assign_feats_to_sps = not os.path.exists(df_path)
+        assign_feats_to_sps = True
 
         if (train_net):
             self.logger.info(
                 "Network weights file {} does not exist. Training...".format(
                     bm_path))
+            self.logger.info(
+                "Parameters: \n {}".format(
+                    params))
 
             model = UNetFeatExtr(params)
             model.model.train()
@@ -650,9 +644,9 @@ class DataManager:
                 mode='foreground',
                 feat_fields=['desc'],
                 T=100,
-                max_n_feats=0.25,
-                max_depth=5,
-                max_samples=2000,
+                bag_n_feats=0.25,
+                bag_max_depth=5,
+                bag_max_samples=2000,
                 n_jobs=1):
         """ Main function that extracts or updates gaze coordinates and computes transductive learning model (bagging)
             Inputs:
@@ -665,7 +659,7 @@ class DataManager:
 
         self.logger.info('--- Generating probability map foreground')
         self.logger.info("T: " + str(self.conf.T))
-        self.logger.info("n_bins: " + str(self.conf.n_bins))
+        self.logger.info("bag_n_bins: " + str(self.conf.bag_n_bins))
 
         # Convert input to marked (if necessary). This is used only once (from csv gaze file)
         if (in_type == 'csv_normalized'):
@@ -697,9 +691,9 @@ class DataManager:
             mode=mode,
             feat_fields=feat_fields,
             T=self.conf.T,
-            max_n_feats=max_n_feats,
-            max_depth=max_depth,
-            max_samples=max_samples,
+            bag_n_feats=bag_n_feats,
+            bag_max_depth=bag_max_depth,
+            bag_max_samples=bag_max_samples,
             n_jobs=n_jobs)
 
         if (save):

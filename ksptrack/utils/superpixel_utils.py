@@ -5,8 +5,8 @@ from scipy import ndimage
 from skimage import (io, segmentation)
 import sys
 import os
-import progressbar
 from . import csv_utils as csv
+import tqdm
 
 
 def getLabelCentroids(labels):
@@ -21,17 +21,18 @@ def getLabelCentroids(labels):
     #normFactor = np.linalg.norm((labels.shape[0],labels.shape[1]))
 
     centroid_list = []
-    with progressbar.ProgressBar(maxval=nFrames) as bar:
-        for i in range(nFrames):
-            bar.update(i)
-            idxLabels = np.unique(labels[:, :, i])
-            for j in range(len(idxLabels)):
-                thisMask = (labels[..., i] == idxLabels[j])
-                pos = np.asarray(ndimage.measurements.center_of_mass(thisMask))
-                pos_norm = csv.pix2Norm(pos[1], pos[0], labels.shape[1],
-                                        labels.shape[0])
-                centroid_list.append(
-                    [i, int(idxLabels[j]), pos_norm[0], pos_norm[1]])
+    pbar = tqdm.tqdm(total=nFrames)
+
+    for i in range(nFrames):
+        idxLabels = np.unique(labels[:, :, i])
+        for j in range(len(idxLabels)):
+            thisMask = (labels[..., i] == idxLabels[j])
+            pos = np.asarray(ndimage.measurements.center_of_mass(thisMask))
+            pos_norm = csv.pix2Norm(pos[1], pos[0], labels.shape[1],
+                                    labels.shape[0])
+            centroid_list.append(
+                [i, int(idxLabels[j]), pos_norm[0], pos_norm[1]])
+        pbar.update(1)
     centroids = pd.DataFrame(
         centroid_list,
         columns=['frame', 'sp_label', 'pos_norm_x', 'pos_norm_y'])

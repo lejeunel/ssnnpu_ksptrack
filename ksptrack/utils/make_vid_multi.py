@@ -52,9 +52,9 @@ for key in rd.types:
             im = utls.imread(conf.frameFileNames[f])
             im[idx_cont_gt[0], idx_cont_gt[1], :] = (255, 0, 0)
 
-            myGaze_fg = utls.readCsv(os.path.join(conf.dataInRoot,
-                                                    conf.dataSetDir,
-                                                    conf.gazeDir,
+            myGaze_fg = utls.readCsv(os.path.join(conf.root_path,
+                                                    conf.ds_dir,
+                                                    conf.locs_dir,
                                                     conf.csvFileName_fg))
             im = csv.draw2DPoint(myGaze_fg,
                                     f,

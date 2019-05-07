@@ -16,13 +16,13 @@ import progressbar
 import my_utils as utls
 
 
-dataInRoot = '/home/laurent.lejeune/medical-labeling/'
-dataSetDir = 'Dataset2'
+root_path = '/home/laurent.lejeune/medical-labeling/'
+ds_dir = 'Dataset2'
 frameDir = 'input-frames'
 im_name = 'frame_0140.png'
 out_dir = 'results'
 
-image = os.path.join(dataInRoot,dataSetDir,frameDir,im_name)
+image = os.path.join(root_path,ds_dir,frameDir,im_name)
 
 color = 'rgb'
 feature = ['texture','fill','color']
@@ -32,7 +32,7 @@ alpha = 1.0
 import pdb; pdb.set_trace()
 img = skimage.io.imread(image)
 
-label = io.loadmat(os.path.join(dataInRoot,                                      dataSetDir,                                          frameDir,'sp_labels.mat'))['sp_labels'][...,0]
+label = io.loadmat(os.path.join(root_path,                                      ds_dir,                                          frameDir,'sp_labels.mat'))['sp_labels'][...,0]
 
 
 if len(img.shape) == 2:

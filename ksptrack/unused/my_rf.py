@@ -49,7 +49,7 @@ def run(X_train, y_train, X_test, T):
                 (X_train_pos[bootstrap_sample_p,:], X_train_neg[bootstrap_sample_n, :]), axis=0)
             # Train model
             model = DecisionTreeClassifier(
-                max_depth=15,
+                bag_max_depth=15,
                 max_features='sqrt',
                 #max_features=50,
                 #max_features=None,

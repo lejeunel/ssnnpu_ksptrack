@@ -2,12 +2,17 @@ README.md
 ksptrack/__init__.py
 ksptrack/graph_tracking.py
 ksptrack/graph_tracking_cxx.py
+ksptrack/hoof_extractor.py
 ksptrack/iterative_ksp.py
 ksptrack/main.py
 ksptrack/single_ksp.py
 ksptrack/single_ksp_gpu.py
+ksptrack/single_ksp_plot.py
 ksptrack/sp.py
 ksptrack/sp_manager.py
+ksptrack/test_block_mat.py
+ksptrack/test_duplicate.py
+ksptrack/test_feats_unets.py
 ksptrack/test_sp_scales.py
 ksptrack/test_sp_scales_plots.py
 ksptrack/test_tl.py
@@ -17,7 +22,6 @@ ksptrack/tr_manager.py
 ksptrack.egg-info/PKG-INFO
 ksptrack.egg-info/SOURCES.txt
 ksptrack.egg-info/dependency_links.txt
-ksptrack.egg-info/requires.txt
 ksptrack.egg-info/top_level.txt
 ksptrack/cfgs/__init__.py
 ksptrack/cfgs/cfg.py
@@ -44,6 +48,7 @@ ksptrack/make_plots/make_fig_iters.py
 ksptrack/make_plots/make_fig_learning.py
 ksptrack/make_plots/make_fig_paths.py
 ksptrack/make_plots/make_fig_unet.py
+ksptrack/make_plots/make_frames_truth.py
 ksptrack/make_plots/make_plots_coverage.py
 ksptrack/make_plots/make_plots_for_intro.py
 ksptrack/make_plots/make_plots_for_pipeline.py
@@ -81,6 +86,7 @@ ksptrack/utils/csv_utils.py
 ksptrack/utils/data_manager.py
 ksptrack/utils/dataset_vilar.py
 ksptrack/utils/detect_peaks.py
+ksptrack/utils/export_itk.py
 ksptrack/utils/extract_mha.py
 ksptrack/utils/extract_overfeat.py
 ksptrack/utils/feat_extr.py
@@ -88,6 +94,7 @@ ksptrack/utils/fix_sp_labels.py
 ksptrack/utils/generate_missing_2d_locs.py
 ksptrack/utils/generate_noise_2d_locs.py
 ksptrack/utils/learning_dataset.py
+ksptrack/utils/lfda.py
 ksptrack/utils/make_vid_multi.py
 ksptrack/utils/match_mha.py
 ksptrack/utils/merge_truths.py
@@ -105,5 +112,7 @@ ksptrack/utils/pyqt_coverage_viewer.py
 ksptrack/utils/pyqt_viewer.py
 ksptrack/utils/superpixel_extractor.py
 ksptrack/utils/superpixel_utils.py
+ksptrack/utils/test_torch_multiply.py
 ksptrack/utils/viewer_utls.py
 ksptrack/utils/write_frames_results.py
+ksptrack/utils/write_frames_results_truth.py

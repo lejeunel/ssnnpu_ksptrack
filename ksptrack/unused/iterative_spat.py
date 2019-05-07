@@ -29,10 +29,10 @@ extra_cfg['calc_pm'] = True
 extra_cfg['calc_seen_feats'] = True
 extra_cfg['calc_ss'] = False
 extra_cfg['calc_desc_means'] = False
-extra_cfg['n_iter_ksp'] = 10
+extra_cfg['n_iters_ksp'] = 10
 
 
-extra_cfg['dataSetDir'] = 'Dataset3'
+extra_cfg['ds_dir'] = 'Dataset3'
 data = dict()
 
 
@@ -41,34 +41,34 @@ cfg_dict.update(extra_cfg)
 conf = cfg.Bunch(cfg_dict)
 
 #Write config to result dir
-conf.dataOutDir = utls.getDataOutDir(conf.dataOutRoot, conf.dataSetDir, conf.resultDir,
-                                conf.fileOutPrefix, conf.testing)
-print('starting experiment on: ' + conf.dataSetDir)
+conf.dataOutDir = utls.getDataOutDir(conf.dataOutRoot, conf.ds_dir, conf.resultDir,
+                                conf.out_dir_prefix, conf.testing)
+print('starting experiment on: ' + conf.ds_dir)
 print('Result dir:')
 print(conf.dataOutDir)
 
 #Make frame file names
-gt_dir = os.path.join(conf.dataInRoot, conf.dataSetDir, conf.gtFrameDir)
+gt_dir = os.path.join(conf.root_path, conf.ds_dir, conf.truth_dir)
 gtFileNames = utls.makeFrameFileNames(
-    conf.framePrefix, conf.frameDigits, conf.gtFrameDir,
-    conf.dataInRoot, conf.dataSetDir, conf.frameExtension)
+    conf.frame_prefix, conf.frameDigits, conf.truth_dir,
+    conf.root_path, conf.ds_dir, conf.frame_extension)
 
 conf.frameFileNames = utls.makeFrameFileNames(
-    conf.framePrefix, conf.frameDigits, conf.frameDir,
-    conf.dataInRoot, conf.dataSetDir, conf.frameExtension)
+    conf.frame_prefix, conf.frameDigits, conf.frameDir,
+    conf.root_path, conf.ds_dir, conf.frame_extension)
 
 #conf.myGaze_fg = utls.readCsv(conf.csvName_fg)
-conf.myGaze_fg = utls.readCsv(os.path.join(conf.dataInRoot,conf.dataSetDir,conf.gazeDir,conf.csvFileName_fg))
+conf.myGaze_fg = utls.readCsv(os.path.join(conf.root_path,conf.ds_dir,conf.locs_dir,conf.csvFileName_fg))
 
 #conf.myGaze_bg = utls.readCsv(conf.csvName_bg)
 gt_positives = utls.getPositives(gtFileNames)
 
 if (conf.labelMatPath != ''):
-    conf.labelMatPath = os.path.join(conf.dataOutRoot, conf.dataSetDir, conf.frameDir,
+    conf.labelMatPath = os.path.join(conf.dataOutRoot, conf.ds_dir, conf.frameDir,
                                 conf.labelMatPath)
 
-conf.precomp_desc_path = os.path.join(conf.dataOutRoot, conf.dataSetDir,
-                                conf.feats_files_dir)
+conf.precomp_desc_path = os.path.join(conf.dataOutRoot, conf.ds_dir,
+                                conf.feats_dir)
 
 
 # ---------- Descriptors/superpixel costs
@@ -125,7 +125,7 @@ pos_sp_back = []
 #pm_scores_fg = my_dataset.get_pm_array(mode='foreground')
 
 
-while((find_new_forward or find_new_backward) and (i<conf.n_iter_ksp)):
+while((find_new_forward or find_new_backward) and (i<conf.n_iters_ksp)):
     dict_ksp = dict()
 
     print("i: " + str(i+1))
@@ -143,10 +143,10 @@ while((find_new_forward or find_new_backward) and (i<conf.n_iter_ksp)):
                 my_dataset.sp_link_df,
                 my_dataset.centroids_loc,
                 my_dataset.conf.myGaze_fg,
-                my_dataset.conf.normNeighbor,
-                my_dataset.conf.normNeighbor_in,
+                my_dataset.conf.norm_neighbor,
+                my_dataset.conf.norm_neighbor_in,
                 my_dataset.conf.thresh_aux,
-                my_dataset.conf.tau_u,
+                my_dataset.conf.hoof_tau_u,
                 direction='backward',
                 labels=my_dataset.labels)
 
@@ -161,17 +161,17 @@ while((find_new_forward or find_new_backward) and (i<conf.n_iter_ksp)):
                 my_dataset.sp_link_df,
                 my_dataset.centroids_loc,
                 my_dataset.conf.myGaze_fg,
-                my_dataset.conf.normNeighbor,
-                my_dataset.conf.normNeighbor_in,
+                my_dataset.conf.norm_neighbor,
+                my_dataset.conf.norm_neighbor_in,
                 my_dataset.conf.thresh_aux,
-                my_dataset.conf.tau_u,
+                my_dataset.conf.hoof_tau_u,
                 labels=my_dataset.labels)
     else:
         g_for.merge_tracklets_temporally(my_dataset.centroids_loc,
                                         my_dataset.fg_pm_df,
                                         my_dataset.sp_desc_df,
                                         my_dataset.conf.myGaze_fg,
-                                        my_dataset.conf.normNeighbor_in,
+                                        my_dataset.conf.norm_neighbor_in,
                                         my_dataset.conf.thresh_aux,
                                         my_dataset.get_labels())
         g_for.reset_paths()
@@ -180,7 +180,7 @@ while((find_new_forward or find_new_backward) and (i<conf.n_iter_ksp)):
                                         my_dataset.fg_pm_df,
                                         my_dataset.sp_desc_df,
                                         my_dataset.conf.myGaze_fg,
-                                        my_dataset.conf.normNeighbor_in,
+                                        my_dataset.conf.norm_neighbor_in,
                                         my_dataset.conf.thresh_aux,
                                         my_dataset.get_labels())
         g_back.reset_paths()
@@ -255,7 +255,7 @@ while((find_new_forward or find_new_backward) and (i<conf.n_iter_ksp)):
         np.savez(fileOut, **data)
 
         #Recompute PM values
-        if(i+1 < conf.n_iter_ksp):
+        if(i+1 < conf.n_iters_ksp):
             pass
             my_dataset.calc_pm(my_dataset.fg_marked,
                                 save=False,
@@ -272,7 +272,7 @@ while((find_new_forward or find_new_backward) and (i<conf.n_iter_ksp)):
 fileOut = os.path.join(conf.dataOutDir, 'results.npz')
 data = dict()
 data['frameFileNames'] = conf.frameFileNames
-data['n_iter_ksp'] = conf.n_iter_ksp
+data['n_iters_ksp'] = conf.n_iters_ksp
 data['ksp_scores_mat'] = ksp_scores_mat
 data['list_ksp'] = list_ksp
 print("Saving stuff to: ", fileOut)
@@ -356,10 +356,10 @@ g_for.makeFullGraphSPM(
     my_dataset.sp_link_df,
     my_dataset.centroids_loc,
     my_dataset.conf.myGaze_fg,
-    my_dataset.conf.normNeighbor,
-    my_dataset.conf.normNeighbor_in,
+    my_dataset.conf.norm_neighbor,
+    my_dataset.conf.norm_neighbor_in,
     my_dataset.conf.thresh_aux,
-    my_dataset.conf.tau_u,
+    my_dataset.conf.hoof_tau_u,
     direction='forward',
     labels=my_dataset.labels)
 
@@ -371,10 +371,10 @@ g_back.makeFullGraphSPM(
     my_dataset.sp_link_df,
     my_dataset.centroids_loc,
     my_dataset.conf.myGaze_fg,
-    my_dataset.conf.normNeighbor,
-    my_dataset.conf.normNeighbor_in,
+    my_dataset.conf.norm_neighbor,
+    my_dataset.conf.norm_neighbor_in,
     my_dataset.conf.thresh_aux,
-    my_dataset.conf.tau_u,
+    my_dataset.conf.hoof_tau_u,
     direction='backward',
     labels=my_dataset.labels)
 
@@ -403,10 +403,10 @@ while((find_new_forward or find_new_backward) and (i<conf.n_iter_lp)):
             my_dataset.sp_link_df,
             my_dataset.centroids_loc,
             my_dataset.conf.myGaze_fg,
-            my_dataset.conf.normNeighbor,
-            my_dataset.conf.normNeighbor_in,
+            my_dataset.conf.norm_neighbor,
+            my_dataset.conf.norm_neighbor_in,
             my_dataset.conf.thresh_aux,
-            my_dataset.conf.tau_u,
+            my_dataset.conf.hoof_tau_u,
             direction='forward',
             labels=my_dataset.labels)
 
@@ -466,10 +466,10 @@ while((find_new_forward or find_new_backward) and (i<conf.n_iter_lp)):
             my_dataset.sp_link_df,
             my_dataset.centroids_loc,
             my_dataset.conf.myGaze_fg,
-            my_dataset.conf.normNeighbor,
-            my_dataset.conf.normNeighbor_in,
+            my_dataset.conf.norm_neighbor,
+            my_dataset.conf.norm_neighbor_in,
             my_dataset.conf.thresh_aux,
-            my_dataset.conf.tau_u,
+            my_dataset.conf.hoof_tau_u,
             direction='backward',
             labels=my_dataset.labels)
 
@@ -502,14 +502,14 @@ while((find_new_forward or find_new_backward) and (i<conf.n_iter_lp)):
 
 
 #Saving data
-if(conf.n_iter_ksp > 0):
+if(conf.n_iters_ksp > 0):
     fileOut = os.path.join(conf.dataOutDir, 'results.npz')
     data = dict()
     data['labels'] = my_dataset.labels
     data['labelContourMask'] = my_dataset.labelContourMask
     data['myGaze_fg'] = conf.myGaze_fg
     data['frameFileNames'] = conf.frameFileNames
-    data['n_iter_ksp'] = conf.n_iter_ksp
+    data['n_iters_ksp'] = conf.n_iters_ksp
     data['ksp_scores_mat'] = ksp_scores_mat
     data['pm_scores_fg'] = pm_scores_fg
     data['list_ksp'] = list_ksp

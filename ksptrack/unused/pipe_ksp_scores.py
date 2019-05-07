@@ -18,5 +18,5 @@ for key in rd.confs_dict_ksp.keys():
         for gset in range(len(rd.confs_dict_ksp[key][dset])):
             conf = rd.confs_dict_ksp[key][dset][gset]
             utls.setup_logging(conf.dataOutDir)
-            logger = logging.getLogger('ksp_scoring_'+conf.dataSetDir)
+            logger = logging.getLogger('ksp_scoring_'+conf.ds_dir)
             pksp.main(conf, logger=logger)

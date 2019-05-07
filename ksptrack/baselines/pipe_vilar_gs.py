@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 
 extra_cfg = dict()
 extra_cfg['csvFileName_fg'] = 'video' + str(1) + '.csv'
-extra_cfg['dataSetDir'] = 'Dataset02'
+extra_cfg['ds_dir'] = 'Dataset02'
 extra_cfg['calc_training_patches'] = True
 extra_cfg['calc_pred_patches'] = True
 
@@ -40,7 +40,7 @@ out_dirs = [None, None]
 
 
 for i in range(len(all_datasets)):
-    extra_cfg['dataSetDir'] = all_datasets[i]
+    extra_cfg['ds_dir'] = all_datasets[i]
     conf, clf = vilar.make_training_patches_and_fit(extra_cfg)
     conf = vilar.predict(conf, clf, n_jobs=conf.vilar_jobs)
     out_dir = conf.dataOutDir

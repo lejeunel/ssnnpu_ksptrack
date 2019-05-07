@@ -26,7 +26,7 @@ for key in rd.types:
         conf = cfg.load_and_convert(os.path.join(path_, 'cfg.yml'))
 
 
-        conf.dataInRoot = rd.root_dir
+        conf.root_path = rd.root_dir
         conf.dataOutDir = os.path.join(rd.root_dir, conf.dataOutDir)
         l_dataset = learning_dataset.LearningDataset(conf, pos_thr=0.5)
         gt = l_dataset.gt

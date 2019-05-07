@@ -70,10 +70,10 @@ for i in iters:
                 plt.savefig(os.path.join(this_full_path),dpi=100)
 #plt.show()
 
-gt_dir = os.path.join(conf.dataInRoot, conf.dataSetDir, conf.gtFrameDir)
+gt_dir = os.path.join(conf.root_path, conf.ds_dir, conf.truth_dir)
 gtFileNames = utls.makeFrameFileNames(
-    conf.framePrefix, conf.frameDigits, conf.gtFrameDir,
-    conf.dataInRoot, conf.dataSetDir, conf.frameExtension)
+    conf.frame_prefix, conf.frameDigits, conf.truth_dir,
+    conf.root_path, conf.ds_dir, conf.frame_extension)
 
 gt_positives = utls.getPositives(gtFileNames)
 

@@ -7,7 +7,6 @@ from scipy import ndimage
 
 
 def draw2DPoint(locs2d, frame_num, img, radius=2, color=(0, 255, 0)):
-    #print self.gaze
     if (frame_num in locs2d[:, 0]):
         height, width, _ = img.shape
         frame_row = np.where(locs2d[:, 0] == frame_num)[0][0]

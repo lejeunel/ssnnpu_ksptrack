@@ -30,7 +30,7 @@ with open(os.path.join(dir_res, 'cfg.yml'), 'r') as outfile:
 
 
 list_ksp = np.load(os.path.join(conf.dataOutDir,'results.npz'))['list_ksp']
-#gt_dir = os.path.join(conf.dataInRoot, conf.dataSetDir, conf.gtFrameDir)
+#gt_dir = os.path.join(conf.root_path, conf.ds_dir, conf.truth_dir)
 my_dataset = ds.Dataset(conf)
 #my_dataset.conf.ss_feature = ['desc']
 #my_dataset.calc_sel_search(save=True)
@@ -52,7 +52,7 @@ my_dataset.calc_pm(my_dataset.fg_marked,
                     all_feats_df=my_dataset.sp_desc_df,
                     in_type='not csv',
                     mode='foreground',
-                max_n_feats=conf.max_feats_ratio,
+                bag_n_feats=conf.max_feats_ratio,
                     feat_fields=['desc'])
 pm_scores_ss = my_dataset.get_pm_array(mode='foreground')
 

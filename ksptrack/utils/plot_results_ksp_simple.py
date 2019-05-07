@@ -90,9 +90,9 @@ def main(conf, plot_fname='metrics.pdf', logger=None, skip_frames=False):
             all_feats_df=my_dataset.sp_desc_df,
             in_type='not csv',
             mode='foreground',
-            max_n_feats=conf.max_n_feats,
+            bag_n_feats=conf.bag_n_feats,
             feat_fields=['desc'],
-            n_jobs=conf.bagging_jobs)
+            n_jobs=conf.bag_jobs)
 
         pm = l_dataset.get_pm_array()
 
@@ -219,7 +219,7 @@ def main(conf, plot_fname='metrics.pdf', logger=None, skip_frames=False):
     plt.xlim(conf.pr_rc_xlim)
     plt.xlabel('recall')
     plt.ylabel('precision')
-    plt.suptitle(conf.seq_type + ', ' + conf.dataSetDir + '\n' + 'T: ' +
+    plt.suptitle(conf.seq_type + ', ' + conf.ds_dir + '\n' + 'T: ' +
                  str(conf.T))
     fig = plt.gcf()
     fig.set_size_inches(18.5, 10.5)
@@ -236,17 +236,17 @@ def main(conf, plot_fname='metrics.pdf', logger=None, skip_frames=False):
         logger.info('[!!!] Skipping saving of frames')
     else:
         logger.info('Saving KSP, PM...')
-        n_iter_ksp = len(list_paths_back)
+        n_iters_ksp = len(list_paths_back)
 
         if(conf.csvFileType == 'pandas'):
-            locs2d = pd.read_csv(os.path.join(conf.dataInRoot,
-                                                    conf.dataSetDir,
-                                                    conf.gazeDir,
+            locs2d = pd.read_csv(os.path.join(conf.root_path,
+                                                    conf.ds_dir,
+                                                    conf.locs_dir,
                                                     conf.csvFileName_fg))
         elif(conf.csvFileType == 'anna'):
-            locs2d = utls.readCsv(os.path.join(conf.dataInRoot,
-                                                    conf.dataSetDir,
-                                                    conf.gazeDir,
+            locs2d = utls.readCsv(os.path.join(conf.root_path,
+                                                    conf.ds_dir,
+                                                    conf.locs_dir,
                                                     conf.csvFileName_fg))
         os.mkdir(frame_path)
         with progressbar.ProgressBar(maxval=len(conf.frameFileNames)) as bar:
@@ -269,8 +269,8 @@ def main(conf, plot_fname='metrics.pdf', logger=None, skip_frames=False):
                 plt.subplot(223)
                 plt.imshow(im)
                 plt.title('image')
-                plt.suptitle('frame: ' + str(f) + ', n_iter_ksp: ' +
-                             str(n_iter_ksp))
+                plt.suptitle('frame: ' + str(f) + ', n_iters_ksp: ' +
+                             str(n_iters_ksp))
                 plt.savefig(
                     os.path.join(frame_path, 'f_' + str(f) + '.png'), dpi=200)
 

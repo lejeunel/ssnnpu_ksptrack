@@ -75,9 +75,9 @@ def main(conf, plot_fname='metrics.pdf', logger=None):
             all_feats_df=my_dataset.sp_desc_df,
             in_type='not csv',
             mode='foreground',
-            max_n_feats=conf.max_n_feats,
+            bag_n_feats=conf.bag_n_feats,
             feat_fields=['desc'],
-            n_jobs=conf.bagging_jobs)
+            n_jobs=conf.bag_jobs)
 
         probas = my_dataset.fg_pm_df['proba'].as_matrix()
         fpr, tpr, _ = roc_curve(l_dataset.y_true[:, 2], probas)
@@ -107,9 +107,9 @@ def main(conf, plot_fname='metrics.pdf', logger=None):
             all_feats_df=my_dataset.sp_desc_df,
             in_type='not csv',
             mode='foreground',
-            max_n_feats=conf.max_n_feats,
+            bag_n_feats=conf.bag_n_feats,
             feat_fields=['desc'],
-            n_jobs=conf.bagging_jobs)
+            n_jobs=conf.bag_jobs)
         pm_ksp = my_dataset.get_pm_array(mode='foreground')
 
         # Saving metrics
@@ -215,7 +215,7 @@ def main(conf, plot_fname='metrics.pdf', logger=None):
     plt.xlim(conf.pr_rc_xlim)
     plt.xlabel('recall')
     plt.ylabel('precision')
-    plt.suptitle(conf.seq_type + ', ' + conf.dataSetDir + '\n' + 'T: ' +
+    plt.suptitle(conf.seq_type + ', ' + conf.ds_dir + '\n' + 'T: ' +
                  str(conf.T))
     fig = plt.gcf()
     fig.set_size_inches(18.5, 10.5)
@@ -230,7 +230,7 @@ def main(conf, plot_fname='metrics.pdf', logger=None):
         logger.info('[!!!] Frame dir: ' + frame_path +
                     ' exists. Delete to rerun.')
     else:
-        n_iter_ksp = len(list_ksp)
+        n_iters_ksp = len(list_ksp)
         os.mkdir(frame_path)
         with progressbar.ProgressBar(maxval=len(conf.frameFileNames)) as bar:
             for f in range(len(conf.frameFileNames)):
@@ -252,8 +252,8 @@ def main(conf, plot_fname='metrics.pdf', logger=None):
                 plt.subplot(223)
                 plt.imshow(im)
                 plt.title('image')
-                plt.suptitle('frame: ' + str(f) + ', n_iter_ksp: ' +
-                             str(n_iter_ksp))
+                plt.suptitle('frame: ' + str(f) + ', n_iters_ksp: ' +
+                             str(n_iters_ksp))
                 plt.savefig(
                     os.path.join(frame_path, 'f_' + str(f) + '.png'), dpi=200)
 

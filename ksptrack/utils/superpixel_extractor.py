@@ -25,8 +25,8 @@ class SuperpixelExtractor:
                 im_paths,
                 save_dir,
                 fname,
-                compactness=10.0,
-                numreqdsupervoxels=1000,
+                slic_compactness=10.0,
+                slic_n_sp=1000,
                 save_labels=False,
                 save_previews=False):
 
@@ -39,11 +39,8 @@ class SuperpixelExtractor:
         ims_arr = np.asarray(ims_list).transpose(1, 2, 3, 0)
         dims = ims_arr.shape
 
-        #numrequiredsupervoxels = int(
-        #    reqdsupervoxelsize_relative**2 * dims[0] * dims[1])
-
-        labels, numlabels = self.my_svx.run(ims_arr, numreqdsupervoxels,
-                                            compactness)
+        labels, numlabels = self.my_svx.run(ims_arr, slic_n_sp,
+                                            slic_compactness)
 
         self.logger.info('Num. of labels: {}' \
                             .format(numlabels))

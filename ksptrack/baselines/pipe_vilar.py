@@ -44,7 +44,7 @@ datasets = ['Dataset12']
 #out_dirs = ['Dataset32/results/2017-10-29_15-34-05_exp_vilar']
 out_dirs = [None]
 for i in range(len(datasets)):
-    extra_cfg['dataSetDir'] = datasets[i]
+    extra_cfg['ds_dir'] = datasets[i]
     extra_cfg['gamma'] = 0.0005
     extra_cfg['C'] = 100
     if(extra_cfg['calc_training_patches']):

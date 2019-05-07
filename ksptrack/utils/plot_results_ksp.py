@@ -35,7 +35,7 @@ def main(conf,logger=None):
     if(not os.path.exists(os.path.join(conf.dataOutDir,'metrics.npz'))):
 
         list_ksp = np.load(os.path.join(conf.dataOutDir,'results.npz'))['list_ksp']
-        gt_dir = os.path.join(conf.dataInRoot, conf.dataSetDir, conf.gtFrameDir)
+        gt_dir = os.path.join(conf.root_path, conf.ds_dir, conf.truth_dir)
         my_dataset = ds.Dataset(conf)
         my_dataset.load_labels_if_not_exist()
         my_dataset.load_pm_fg_from_file()
@@ -59,8 +59,8 @@ def main(conf,logger=None):
                            mode='foreground',
                            feat_fields=['desc'],
                            T = conf.T,
-                           max_depth=conf.max_depth,
-                           max_n_feats=conf.max_n_feats)
+                           bag_max_depth=conf.bag_max_depth,
+                           bag_n_feats=conf.bag_n_feats)
 
         probas_ksp_ss_pm = my_dataset.fg_pm_df['proba'].as_matrix()
         fpr_pm_ss, tpr_pm_ss, _ = roc_curve(l_dataset.y_true[:,2],
@@ -162,7 +162,7 @@ def main(conf,logger=None):
                                 all_feats_df=my_dataset.sp_desc_df,
                                 in_type='not csv',
                                 mode='foreground',
-                        max_n_feats=conf.max_feats_ratio,
+                        bag_n_feats=conf.max_feats_ratio,
                                 feat_fields=['desc'])
 
             probas = my_dataset.fg_pm_df['proba'].as_matrix()
@@ -188,7 +188,7 @@ def main(conf,logger=None):
                             all_feats_df=my_dataset.sp_desc_df,
                             in_type='not csv',
                             mode='foreground',
-                        max_n_feats=conf.max_feats_ratio,
+                        bag_n_feats=conf.max_feats_ratio,
                             feat_fields=['desc'])
 
         probas = my_dataset.fg_pm_df['proba'].as_matrix()
@@ -214,7 +214,7 @@ def main(conf,logger=None):
                             all_feats_df=my_dataset.sp_desc_df,
                             in_type='not csv',
                             mode='foreground',
-                        max_n_feats=conf.max_feats_ratio,
+                        bag_n_feats=conf.max_feats_ratio,
                             feat_fields=['desc'])
         pm_ksp = my_dataset.get_pm_array(mode='foreground')
         my_dataset.fg_marked = new_seeds
@@ -224,7 +224,7 @@ def main(conf,logger=None):
                             all_feats_df=my_dataset.sp_desc_df,
                             in_type='not csv',
                             mode='foreground',
-                        max_n_feats=conf.max_feats_ratio,
+                        bag_n_feats=conf.max_feats_ratio,
                             feat_fields=['desc'])
         pm_ksp_ss = my_dataset.get_pm_array(mode='foreground')
 
@@ -247,7 +247,7 @@ def main(conf,logger=None):
                             all_feats_df=my_dataset.sp_desc_df,
                             in_type='not csv',
                             mode='foreground',
-                        max_n_feats=conf.max_feats_ratio,
+                        bag_n_feats=conf.max_feats_ratio,
                             feat_fields=['desc'])
         pm_ksp_ss_thr = my_dataset.get_pm_array(mode='foreground')
 
@@ -478,7 +478,7 @@ def main(conf,logger=None):
     plt.xlim(conf.pr_rc_xlim)
     plt.xlabel('recall')
     plt.ylabel('precision')
-    plt.suptitle(conf.seq_type + ', ' + conf.dataSetDir + '\n' + 'T: ' + str(conf.T))
+    plt.suptitle(conf.seq_type + ', ' + conf.ds_dir + '\n' + 'T: ' + str(conf.T))
     fig = plt.gcf()
     fig.set_size_inches(18.5, 10.5)
     fig.savefig(os.path.join(conf.dataOutDir,'metrics.eps'),dpi=200)
@@ -492,7 +492,7 @@ def main(conf,logger=None):
     if(os.path.exists(frame_path)):
         logger.info('[!!!] Frame dir: ' + frame_path + ' exists. Delete to rerun.')
     else:
-        n_iter_ksp = len(list_ksp)
+        n_iters_ksp = len(list_ksp)
         os.mkdir(frame_path)
         with progressbar.ProgressBar(maxval=len(conf.frameFileNames)) as bar:
             for f in range(len(conf.frameFileNames)):
@@ -515,7 +515,7 @@ def main(conf,logger=None):
                 plt.imshow(pm_ksp_ss_thr[...,f]); plt.title('KSP+SS -> PM -> (thr = %0.2f) -> PM'%(conf.pm_thr))
                 plt.subplot(236)
                 plt.imshow(im); plt.title('image')
-                plt.suptitle('frame: ' + str(f) + ', n_iter_ksp: ' + str(n_iter_ksp))
+                plt.suptitle('frame: ' + str(f) + ', n_iters_ksp: ' + str(n_iters_ksp))
                 plt.savefig(os.path.join(frame_path,'f_' + str(f) + '.png'),
                             dpi=200)
 

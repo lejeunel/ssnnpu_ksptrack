@@ -37,7 +37,7 @@ F = []
 color = 'rgb'
 feature = ['texture','fill','color']
 
-label = io.loadmat(os.path.join(conf.dataInRoot,                                      conf.dataSetDir,                                           conf.frameDir,'sp_labels.mat'))['sp_labels']
+label = io.loadmat(os.path.join(conf.root_path,                                      conf.ds_dir,                                           conf.frameDir,'sp_labels.mat'))['sp_labels']
 mask = features.SimilarityMask('size' in feature, 'color' in feature, 'texture' in feature, 'fill' in feature)
 
 frames = np.array([100])

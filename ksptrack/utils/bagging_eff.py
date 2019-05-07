@@ -15,15 +15,15 @@ import ctypes
 
 
 def calc_bagging(T,
-                 max_depth,
-                 max_n_feats,
+                 bag_max_depth,
+                 bag_n_feats,
                  marked_arr,
                  marked_feats=None,
                  all_feats_df=None,
                  mode='foreground',
                  feat_fields=['desc'],
                  remove_marked=False,
-                 max_samples=2000):
+                 bag_max_samples=2000):
     #marked_arr: has index of frame and corresponding superpixel label. Taken as positive samples
     #all_feats_df: Pandas frame with all samples (positive and unlabeled)
     #feat_fields: List of feature names as appearing in all_feats_df. Will be concatenated
@@ -68,10 +68,10 @@ def calc_bagging(T,
     data_P = marked_feats[~nan_idx,:]
 
     print('number of positives samples: ' + str(data_P.shape[0]))
-    #print('max features : ' + str(np.round(data_P.shape[1]*max_n_feats)))
-    #print('max depth: ' + str(max_depth))
+    #print('max features : ' + str(np.round(data_P.shape[1]*bag_n_feats)))
+    #print('max depth: ' + str(bag_max_depth))
 
-    NP = np.min((data_P.shape[0], max_samples))
+    NP = np.min((data_P.shape[0], bag_max_samples))
     NU = data_U.shape[0]
 
     np.random.seed(0)
@@ -86,7 +86,7 @@ def calc_bagging(T,
         for i in range(T):
             bar.update(i)
             # Bootstrap resample
-            if(data_P.shape[0] > max_samples):
+            if(data_P.shape[0] > bag_max_samples):
                 bootstrap_sample_p = np.random.choice(
                     np.arange(data_P.shape[0]), replace=True, size=NP)
             else:
@@ -98,11 +98,11 @@ def calc_bagging(T,
                 (data_P[bootstrap_sample_p,2:], data_U[bootstrap_sample, 2:]), axis=0)
             # Train model
             model = DecisionTreeClassifier(
-                max_depth=max_depth,
+                bag_max_depth=bag_max_depth,
                 criterion='gini',
                 splitter='best',
                 presort=True,
-                max_features = max_n_feats,
+                max_features = bag_n_feats,
                 class_weight='balanced')
             model.fit(data_bootstrap, train_label)
             # Index for the out of the bag (oob) samples

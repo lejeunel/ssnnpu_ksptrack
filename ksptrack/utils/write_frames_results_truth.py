@@ -36,14 +36,14 @@ def main(conf, logger=None):
 
     scores = (res['ksp_scores_mat'].astype('uint8'))*255
     imgs = [io.imread(f) for f in conf.frameFileNames]
-    truth_dir = os.path.join(conf.dataInRoot, conf.dataSetDir,
-                             conf.gtFrameDir)
+    truth_dir = os.path.join(conf.root_path, conf.ds_dir,
+                             conf.truth_dir)
     gts = [io.imread(f) for f in sorted(glob.glob(os.path.join(
         truth_dir, '*.png')))]
 
-    locs2d = csv.readCsv(os.path.join(conf.dataInRoot,
-                                      conf.dataSetDir,
-                                      conf.gazeDir,
+    locs2d = csv.readCsv(os.path.join(conf.root_path,
+                                      conf.ds_dir,
+                                      conf.locs_dir,
                                       conf.csvFileName_fg))
 
     for f in range(scores.shape[-1]):

@@ -8,13 +8,13 @@ import time
 from multiprocessing import Pool, Array
 
 def fit_trees(args):
-    #T, train_label, data_U, data_P, max_depth, max_n_feats, max_samples = args
-    T, train_label, max_depth, max_n_feats, max_samples = args
+    #T, train_label, data_U, data_P, bag_max_depth, bag_n_feats, bag_max_samples = args
+    T, train_label, bag_max_depth, bag_n_feats, bag_max_samples = args
 
     #print('started fit_trees on thread {}'.format(thread_id))
     NU = data_U.shape[0]
     #NP = data_P_shared.shape[0]
-    NP = np.min((data_P.shape[0], max_samples))
+    NP = np.min((data_P.shape[0], bag_max_samples))
     K = NP
 
     #bs_p_idx = np.arange(data_P_shared.shape[0])
@@ -32,11 +32,11 @@ def fit_trees(args):
             axis=0)
 
         model = DecisionTreeClassifier(
-            max_depth=max_depth,
+            bag_max_depth=bag_max_depth,
             criterion='gini',
             splitter='best',
             presort=True,
-            max_features=max_n_feats,
+            max_features=bag_n_feats,
             class_weight='balanced')
 
         model.fit(data_bootstrap, train_label)
@@ -53,15 +53,15 @@ def fit_trees(args):
     return predict_proba
 
 def calc_bagging(T,
-                 max_depth,
-                 max_n_feats,
+                 bag_max_depth,
+                 bag_n_feats,
                  marked_arr,
                  marked_feats=None,
                  all_feats_df=None,
                  mode='foreground',
                  feat_fields=['desc'],
                  remove_marked=False,
-                 max_samples=2000,
+                 bag_max_samples=2000,
                  n_jobs=4):
     #marked_arr: has index of frame and corresponding superpixel label. Taken as positive samples
     #all_feats_df: Pandas frame with all samples (positive and unlabeled)
@@ -109,7 +109,7 @@ def calc_bagging(T,
 
     print('number of positives samples: ' + str(data_P.shape[0]))
 
-    NP = np.min((data_P.shape[0], max_samples))
+    NP = np.min((data_P.shape[0], bag_max_samples))
     #NP = data_P.shape[0]
     NU = data_U.shape[0]
 
@@ -129,9 +129,9 @@ def calc_bagging(T,
     if(n_jobs > 1):
         args = (T_per_jobs,
                 train_label,
-                max_depth,
-                max_n_feats,
-                max_samples)
+                bag_max_depth,
+                bag_n_feats,
+                bag_max_samples)
         args = [args for i in range(n_jobs)]
         pool = Pool()
         predict_probas = pool.map(fit_trees, args)
@@ -141,9 +141,9 @@ def calc_bagging(T,
     else:
         predict_proba = fit_trees(T_per_jobs,
                                   train_label,
-                                  max_depth,
-                                  max_n_feats,
-                                  max_samples)
+                                  bag_max_depth,
+                                  bag_n_feats,
+                                  bag_max_samples)
 
     elapsed = time.time() - t_start
     print('Done estimation in {} seconds.'.format(elapsed))

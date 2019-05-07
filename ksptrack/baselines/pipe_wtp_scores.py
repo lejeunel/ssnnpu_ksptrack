@@ -37,7 +37,7 @@ for key in rd.types:
 
         conf.frameFileNames = [adjust_path(rd.root_dir, f) for f in conf.frameFileNames]
 
-        conf.dataInRoot = rd.root_dir
+        conf.root_path = rd.root_dir
         conf.dataOutDir = adjust_path(rd.root_dir, conf.dataOutDir)
         l_dataset = learning_dataset.LearningDataset(conf, pos_thr=0.5)
         gt = l_dataset.gt

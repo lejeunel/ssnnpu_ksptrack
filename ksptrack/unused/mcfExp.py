@@ -25,29 +25,29 @@ cfg_dict = cfg.cfg()
 conf = cfg.Bunch(cfg_dict)
 
 #Write config to result dir
-conf.dataOutDir = utls.getDataOutDir(conf.dataOutRoot, conf.dataSetDir, conf.resultDir,
-                                  conf.fileOutPrefix, conf.testing)
+conf.dataOutDir = utls.getDataOutDir(conf.dataOutRoot, conf.ds_dir, conf.resultDir,
+                                  conf.out_dir_prefix, conf.testing)
 
 #Make frame file names from seqStart and seqEnd
-gt_dir = os.path.join(conf.dataInRoot, conf.dataSetDir, conf.gtFrameDir)
+gt_dir = os.path.join(conf.root_path, conf.ds_dir, conf.truth_dir)
 gtFileNames = utls.makeFrameFileNames(
-    conf.framePrefix, conf.seqStart, conf.seqEnd, conf.frameDigits, conf.gtFrameDir,
-    conf.dataInRoot, conf.dataSetDir, conf.frameExtension)
+    conf.frame_prefix, conf.seqStart, conf.seqEnd, conf.frameDigits, conf.truth_dir,
+    conf.root_path, conf.ds_dir, conf.frame_extension)
 
 conf.frameFileNames = utls.makeFrameFileNames(
-    conf.framePrefix, conf.seqStart, conf.seqEnd, conf.frameDigits, conf.frameDir,
-    conf.dataInRoot, conf.dataSetDir, conf.frameExtension)
+    conf.frame_prefix, conf.seqStart, conf.seqEnd, conf.frameDigits, conf.frameDir,
+    conf.root_path, conf.ds_dir, conf.frame_extension)
 
 conf.myGaze_fg = utls.readCsv(conf.csvName_fg, conf.seqStart, conf.seqEnd+1)
 conf.myGaze_bg = utls.readCsv(conf.csvName_bg, conf.seqStart, conf.seqEnd+1)
 gt_positives = utls.getPositives(gtFileNames)
 
 if (conf.labelMatPath != ''):
-    conf.labelMatPath = os.path.join(conf.dataOutRoot, conf.dataSetDir, conf.frameDir,
+    conf.labelMatPath = os.path.join(conf.dataOutRoot, conf.ds_dir, conf.frameDir,
                                   conf.labelMatPath)
 
-conf.precomp_desc_path = os.path.join(conf.dataOutRoot, conf.dataSetDir,
-                                   conf.feats_files_dir)
+conf.precomp_desc_path = os.path.join(conf.dataOutRoot, conf.ds_dir,
+                                   conf.feats_dir)
 
 #Enable steps
 comp_feats = False
@@ -87,9 +87,9 @@ pm_mat_bg = np.load(os.path.join(conf.precomp_desc_path, 'pm_mat_bg.npz'))['pm_m
 
 #Test plots
 #frameInd = np.arange(0,len(frameFileNames))
-#gtFileNames = makeFrameFileNames(conf.framePrefix,conf.seqStart,conf.seqEnd,conf.frameDigits,conf.gtFrameDir,
-#                                 conf.dataInRoot,conf.dataSetDir,conf.frameExtension)
-#gt_dir = os.path.join(conf.dataInRoot,conf.dataSetDir,conf.gtFrameDir)
+#gtFileNames = makeFrameFileNames(conf.frame_prefix,conf.seqStart,conf.seqEnd,conf.frameDigits,conf.truth_dir,
+#                                 conf.root_path,conf.ds_dir,conf.frame_extension)
+#gt_dir = os.path.join(conf.root_path,conf.ds_dir,conf.truth_dir)
 
 
 #Extract ground-truth files
@@ -127,8 +127,8 @@ gaze_points = np.delete(conf.myGaze_fg, (0, 1, 2, 5), axis=1)
 conf.sig_r_in = 0.1
 conf.sig_a_g = 0.5
 conf.sig_a_t = 0.5
-conf.normNeighbor_in = .1
-conf.normNeighbor = .1
+conf.norm_neighbor_in = .1
+conf.norm_neighbor = .1
 #conf.max_paths = 400
 print("Making forward graph")
 gfor, sourcefor, sinkfor = fn.makeFullGraphSPM(
@@ -140,8 +140,8 @@ gfor, sourcefor, sinkfor = fn.makeFullGraphSPM(
     conf.sig_r_in,
     conf.sig_a_t,
     conf.sig_a_g,
-    conf.normNeighbor,
-    conf.normNeighbor_in,
+    conf.norm_neighbor,
+    conf.norm_neighbor_in,
     mode='forward',
     labels=labels)
 print("Making backward graph")
@@ -154,8 +154,8 @@ gback, sourceback, sinkback = fn.makeFullGraphSPM(
     conf.sig_r_in,
     conf.sig_a_t,
     conf.sig_a_g,
-    conf.normNeighbor,
-    conf.normNeighbor_in,
+    conf.norm_neighbor,
+    conf.norm_neighbor_in,
     mode='backward',
     labels=labels)
 

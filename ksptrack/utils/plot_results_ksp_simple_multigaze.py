@@ -239,7 +239,7 @@ def plot_curves(out_dir, confs, plot_fname, metrics_fname, logger):
     plt.xlim(confs[0].pr_rc_xlim)
     plt.xlabel('recall')
     plt.ylabel('precision')
-    plt.suptitle(confs[0].seq_type + '(' + confs[0].dataSetDir + ')' + ' Num. gaze sets: ' + str(len(confs)))
+    plt.suptitle(confs[0].seq_type + '(' + confs[0].ds_dir + ')' + ' Num. gaze sets: ' + str(len(confs)))
     fig = plt.gcf()
     fig.set_size_inches(18.5, 10.5)
     plt.savefig(os.path.join(out_dir, plot_fname+'_all.pdf'), dpi=200)

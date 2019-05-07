@@ -15,7 +15,7 @@ extra_cfg['calc_pm'] = True  # Calculate probability maps from marked SPs
 extra_cfg['calc_seen_feats'] = False # Unused
 extra_cfg['calc_ss'] = False # Unused
 extra_cfg['calc_desc_means'] = False # Unused
-extra_cfg['n_iter_ksp'] = 10
+extra_cfg['n_iters_ksp'] = 10
 extra_cfg['feats_graph'] = 'unet_gaze'      # set unet as feature extractor algorithm
 extra_cfg['thresh_aux'] = []
 extra_cfg['calc_sp_feats_unet_gaze_rec'] = False
@@ -32,12 +32,13 @@ locs_fnames = ['video1_neigh_ratio_5_dist_5.csv']
 locs_fnames = sorted(locs_fnames)
 n_chunks = 4
 
-def chunkify(lst,n):
+def chunkify(lst, n):
+
   return [lst[i::n] for i in range(n)]
 
 chunks = chunkify(locs_fnames, n_chunks)
 
-extra_cfg['dataSetDir'] = dataset
+extra_cfg['ds_dir'] = dataset
 
 ind = 0
 #ind = 1

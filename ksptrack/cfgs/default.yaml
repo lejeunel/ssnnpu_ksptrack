@@ -1,0 +1,64 @@
+precomp-dir : '.'
+in-path : '/home/laurent.lejeune/medical-labeling/'
+out-path : '/home/laurent.lejeune/medical-labeling/'
+locs-dir : 'gaze-measurements'
+truth-dir : 'ground_truth-frames'
+out-dir-prefix : 'exp'
+frame-prefix : 'frame_'
+frame-extension : '.png'
+frame-dir : 'input-frames'
+csv-fname : 'video1.csv'
+
+#Descriptors/codebooks ready-to-load.
+feats-dir : 'precomp_descriptors'
+
+use-hoof : False
+
+#Superpixel segmentation
+slic-compactness : 10.0
+slic-size : 1000
+slic-n-sp : 900
+slic-rel-size : 0.1
+
+# Superpixel transitions
+sp-trans-init-mode : 'overlap'
+
+#Optical flow
+oflow-alpha : 0.012
+oflow-ratio : 0.75
+oflow-min-width : 50.
+oflow-outer-iters : 7
+oflow-inner-iters : 1
+oflow-sor-iters : 30
+
+n-iter-ksp : 10
+
+monitor-score : False
+
+# Bagging---------------
+bag-t : 500
+bag-n-bins : 100
+bag-n-feats : 0.013
+bag-max-samples : 2000
+bag-max-depth : 5
+bag-jobs : 4
+#-----------------------
+
+hoof-tau-u : 0.45
+hoof-n-bins: 100
+
+# Metric learning
+n-comp-pca : 5
+lfda-k : 7
+lfda-dim : 5
+lfda-n-samps : 1000
+lfda-thresh : 0.8
+pca : False  #Overrides LFDA and computes PCA with n-components:lfda-dims
+
+#Graph parameters
+norm-neighbor : 0.08  #Cut edges outside neighborhood
+norm-neighbor-in : 0.05  #Cut edges outside neighborhood
+
+
+pm-thr : 0.8  #Threshold on KSP+SS PM for positives selection
+

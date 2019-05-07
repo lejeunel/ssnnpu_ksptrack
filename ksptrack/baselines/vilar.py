@@ -49,23 +49,23 @@ def make_training_patches_and_fit(arg_cfg, out_dir=None):
 
     # Update config
     cfg_dict = cfg.cfg()
-    arg_cfg['seq_type'] = cfg.datasetdir_to_type(arg_cfg['dataSetDir'])
+    arg_cfg['seq_type'] = cfg.datasetdir_to_type(arg_cfg['ds_dir'])
     cfg_dict.update(arg_cfg)
     conf = cfg.Bunch(cfg_dict)
-    conf.fileOutPrefix = 'exp_vilar'
+    conf.out_dir_prefix = 'exp_vilar'
 
     # Write config to result dir
     if(out_dir is None):
         if('dataOutDir' not in arg_cfg):
-            conf.dataOutDir = utls.getDataOutDir(conf.dataOutRoot, conf.dataSetDir,
-                                                conf.resultDir, conf.fileOutPrefix,
+            conf.dataOutDir = utls.getDataOutDir(conf.dataOutRoot, conf.ds_dir,
+                                                conf.resultDir, conf.out_dir_prefix,
                                                 conf.testing)
     else:
         conf.dataOutDir = out_dir
 
 
     conf.myGaze_fg = utls.readCsv(
-        os.path.join(conf.dataInRoot, conf.dataSetDir, conf.gazeDir,
+        os.path.join(conf.root_path, conf.ds_dir, conf.locs_dir,
                      conf.csvFileName_fg))
 
     # Set logger
@@ -74,7 +74,7 @@ def make_training_patches_and_fit(arg_cfg, out_dir=None):
     logger = logging.getLogger('vilar')
 
     logger.info('---------------------------')
-    logger.info('Extracting training a patches and fit on: ' + conf.dataSetDir)
+    logger.info('Extracting training a patches and fit on: ' + conf.ds_dir)
     logger.info('type of sequence: ' + conf.seq_type)
     logger.info('gaze filename: ' + conf.csvFileName_fg)
     logger.info('Result dir:')
@@ -85,25 +85,25 @@ def make_training_patches_and_fit(arg_cfg, out_dir=None):
     logger.info('---------------------------')
 
     # Make frame file names
-    gt_dir = os.path.join(conf.dataInRoot, conf.dataSetDir, conf.gtFrameDir)
-    gtFileNames = utls.makeFrameFileNames(conf.framePrefix, conf.frameDigits,
-                                          conf.gtFrameDir, conf.dataInRoot,
-                                          conf.dataSetDir, conf.frameExtension)
+    gt_dir = os.path.join(conf.root_path, conf.ds_dir, conf.truth_dir)
+    gtFileNames = utls.makeFrameFileNames(conf.frame_prefix, conf.frameDigits,
+                                          conf.truth_dir, conf.root_path,
+                                          conf.ds_dir, conf.frame_extension)
 
     conf.frameFileNames = utls.makeFrameFileNames(
-        conf.framePrefix, conf.frameDigits, conf.frameDir, conf.dataInRoot,
-        conf.dataSetDir, conf.frameExtension)
+        conf.frame_prefix, conf.frameDigits, conf.frameDir, conf.root_path,
+        conf.ds_dir, conf.frame_extension)
 
     # conf.myGaze_fg = utls.readCsv(conf.csvName_fg)
     conf.myGaze_fg = utls.readCsv(
-        os.path.join(conf.dataInRoot, conf.dataSetDir, conf.gazeDir,
+        os.path.join(conf.root_path, conf.ds_dir, conf.locs_dir,
                      conf.csvFileName_fg))
 
     # conf.myGaze_bg = utls.readCsv(conf.csvName_bg)
     gt_positives = utls.getPositives(gtFileNames)
 
-    conf.precomp_desc_path = os.path.join(conf.dataOutRoot, conf.dataSetDir,
-                                          conf.feats_files_dir)
+    conf.precomp_desc_path = os.path.join(conf.dataOutRoot, conf.ds_dir,
+                                          conf.feats_dir)
 
     my_dataset = ds.DatasetVilar(conf)
 
@@ -166,7 +166,7 @@ def predict(conf, clf, out_dir=None, n_jobs=1):
     logger = logging.getLogger('vilar (predict)')
 
     logger.info('---------------------------')
-    logger.info('Predicting on: ' + conf.dataSetDir)
+    logger.info('Predicting on: ' + conf.ds_dir)
     logger.info('type of sequence: ' + conf.seq_type)
     logger.info('gaze filename: ' + conf.csvFileName_fg)
     logger.info('Result dir:')

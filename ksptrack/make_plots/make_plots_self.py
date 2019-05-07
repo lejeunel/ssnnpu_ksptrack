@@ -65,9 +65,9 @@ for key in rd.types: # Types
         idx_cont_gt = np.where(cont_gt)
         im = utls.imread(confs[0].frameFileNames[f])
         im[idx_cont_gt[0], idx_cont_gt[1], :] = (255, 0, 0)
-        locs2d = csv.readCsv(os.path.join(confs[0].dataInRoot,
-                                          confs[0].dataSetDir,
-                                          confs[0].gazeDir,
+        locs2d = csv.readCsv(os.path.join(confs[0].root_path,
+                                          confs[0].ds_dir,
+                                          confs[0].locs_dir,
                                           confs[0].csvFileName_fg))
         im =  csv.draw2DPoint(locs2d,
                                 f,

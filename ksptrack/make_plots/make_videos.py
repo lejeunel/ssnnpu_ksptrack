@@ -47,7 +47,7 @@ for key in ['Slitlamp']:
                                                  'cfg.yml'))
 
 
-        print('Type: {}. Dset: {}'.format(key, conf.dataSetDir))
+        print('Type: {}. Dset: {}'.format(key, conf.ds_dir))
 
 
         # Load config
@@ -78,9 +78,9 @@ for key in ['Slitlamp']:
                 idx_cont_gt = np.where(cont_gt)
                 im = utls.imread(f)
                 im[idx_cont_gt[0], idx_cont_gt[1], :] = (255, 0, 0)
-                locs2d = csv.readCsv(os.path.join(conf.dataInRoot,
-                                                conf.dataSetDir,
-                                                conf.gazeDir,
+                locs2d = csv.readCsv(os.path.join(conf.root_path,
+                                                conf.ds_dir,
+                                                conf.locs_dir,
                                                 conf.csvFileName_fg))
                 im =  csv.draw2DPoint(locs2d,
                                         i,

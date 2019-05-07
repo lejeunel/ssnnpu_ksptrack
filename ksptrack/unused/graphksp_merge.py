@@ -67,10 +67,10 @@ class GraphKSP:
                          sp_inters,
                          loc,
                          gaze_points,
-                         normNeighbor,
-                         normNeighbor_in,
+                         norm_neighbor,
+                         norm_neighbor_in,
                          thresh_aux,
-                         tau_u,
+                         hoof_tau_u,
                          direction='forward',
                          labels=None):
         #Constructs graph from pre-computed costs
@@ -99,9 +99,9 @@ class GraphKSP:
                 bar.update(i)
                 loc1 = gaze_points[loc['frame'][i],3:5]
                 loc2 = np.asarray([loc['pos_norm_x'][i], loc['pos_norm_y'][i]])
-                #if( isInNeighborhood(loc1,loc2,normNeighbor_in)):
+                #if( isInNeighborhood(loc1,loc2,norm_neighbor_in)):
                 #print((loc['frame'][i],loc['sp_label'][i],np.linalg.norm(loc1-loc2)))
-                if (np.linalg.norm(loc1 - loc2) < normNeighbor_in):
+                if (np.linalg.norm(loc1 - loc2) < norm_neighbor_in):
                     if (direction is not 'forward'):
                         this_e = ('s', ((loc['frame'][i], loc['sp_label'][i]),
                                         1))
@@ -123,9 +123,9 @@ class GraphKSP:
                     w = -np.log(inter / (1 - inter))
                     self.g.add_edge(*this_e, weight=w)
 
-        #tau_u = .55
+        #hoof_tau_u = .55
         #Transition edges
-        sp_inters = sp_inters.loc[sp_inters['loc_dist'] < normNeighbor]
+        sp_inters = sp_inters.loc[sp_inters['loc_dist'] < norm_neighbor]
         sp_inters = sp_inters.reset_index()
         with progressbar.ProgressBar(maxval=sp_inters.shape[0]) as bar:
             for i in range(sp_inters.shape[0]):
@@ -143,9 +143,9 @@ class GraphKSP:
                                 sp_inters['output label'][i]), 0))
                     #inters = 1-link_mat[i,4]
                     hoof_inter = sp_inters['hoof_inter_f'][i]
-                if ((sp_inters['loc_dist'][i] < normNeighbor) &
-                    (hoof_inter > tau_u)):
-                #if ((sp_inters['loc_dist'][i] < normNeighbor)):
+                if ((sp_inters['loc_dist'][i] < norm_neighbor) &
+                    (hoof_inter > hoof_tau_u)):
+                #if ((sp_inters['loc_dist'][i] < norm_neighbor)):
                     inters = sp_inters['hist_inter'][i]
                     if (np.isnan(inters)): inters = 0.5
                     else:

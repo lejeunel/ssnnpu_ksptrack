@@ -35,9 +35,9 @@ for key in rd.types: # Types
         os.makedirs(save_dir)
 
     dataset = learning_dataset.LearningDataset(conf)
-    gts_fname = sorted(glob.glob(os.path.join(conf.dataInRoot,
-                                              conf.dataSetDir,
-                                              conf.gtFrameDir,
+    gts_fname = sorted(glob.glob(os.path.join(conf.root_path,
+                                              conf.ds_dir,
+                                              conf.truth_dir,
                                               '*.png')))
     gts = [utls.imread(f) for f in gts_fname]
     imgs = [utls.imread(f) for f in conf.frameFileNames]

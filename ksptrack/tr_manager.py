@@ -54,7 +54,7 @@ class TrackletManager:
         self.dict_in = dict_in
         self.dict_out = dict_out
 
-    def get_linkables(self, t_arg, tau_u, mode='head', direction='forward'):
+    def get_linkables(self, t_arg, hoof_tau_u, mode='head', direction='forward'):
         """
         t_arg: Tracklet for which we want linkable tracklets
         mode:
@@ -86,7 +86,7 @@ class TrackletManager:
         labels_filt = []
         for s, val in sps.items():
             if(direction in val.keys()):
-                if(val[direction] > tau_u):
+                if(val[direction] > hoof_tau_u):
                     labels_filt.append(s[1])
 
         # Get tracklet

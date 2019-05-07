@@ -48,7 +48,6 @@ class SuperpixelManager:
         #self.dict_init = self.make_init_dicts()
         if (self.with_flow):
             self.graph = self.make_init_constraint()
-            import pdb; pdb.set_trace()
             flows_path = os.path.join(self.conf.precomp_desc_path, 'flows.npz')
 
             hoof_extr = HOOFExtractor(self.conf, flows_path, self.labels,
@@ -235,7 +234,7 @@ class SuperpixelManager:
 
                 hoof_ = dict()
                 bins_hoof = np.linspace(-np.pi / 2, np.pi / 2,
-                                        self.conf.n_bins_hoof + 1)
+                                        self.conf.hoof_n_bins + 1)
 
                 self.logger.info('Getting optical flows')
                 flows = self.dataset.get_flows()

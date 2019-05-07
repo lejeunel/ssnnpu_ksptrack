@@ -39,7 +39,7 @@ for key in rd.types:
             f1 = f1_score(gt.ravel(), (sp_gt >= r).ravel())
             f1s.append(f1)
 
-        res[key][cfg_.dataSetDir] = f1s
+        res[key][cfg_.ds_dir] = f1s
 
 data = {'res': res, 'ratios': ratios}
 np.savez(save_path, **data)

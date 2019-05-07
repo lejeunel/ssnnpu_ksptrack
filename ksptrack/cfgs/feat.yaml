@@ -1,0 +1,40 @@
+#Feat config-------
+feat-path : 'feats'
+
+#{feat, feat_gaze, scp}
+feat-extr-algorithm : 'feat_2dlocs'  
+
+# depending on your data size and GPU memory
+feat-batchsize : 2  
+
+# depending on your data size and GPU memory
+feat-feats-upsamp-size : 600  
+
+# number of epochs to train
+feat-n-epochs : 75  
+
+feat-loss : 'mse'  
+
+# do not use validation for training
+feat-validation-split : 0  
+
+feat-optimizer : 'adam'  
+
+feat-adam-learning-rate : 0.01
+feat-adam-beta1 : 0.9
+feat-adam-beta2 : 0.999
+feat-adam-epsilon : 1e-8
+feat-adam-decay : 0.0
+feat-data-gaussian-noise-std : 13 
+feat-data-rot-range : 11.25 
+feat-data-width-shift : 0.2
+feat-data-height-shift : 0.2
+feat-data-shear-range : 22.5
+feat-data-sometimes-rate : 0.5
+feat-interp-n-jobs : 1 
+
+feat-gaze-gaussian-std : 30  # std dev for creating 2D Gaussian map
+
+feat-in-shape: 512
+batch-size : 16
+cuda : False

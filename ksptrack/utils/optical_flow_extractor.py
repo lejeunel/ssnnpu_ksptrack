@@ -96,7 +96,7 @@ class OpticalFlowExtractor:
     def flows_mat_to_np(self):
 
         self.logger.info('Converting MATLAB flows to Numpy')
-        flows_mat_path = sorted(glob.glob(os.path.join(self.conf.dataInRoot, self.conf.dataSetDir,self.conf.frameDir,'TSP_flows','*flow.mat')))
+        flows_mat_path = sorted(glob.glob(os.path.join(self.conf.root_path, self.conf.ds_dir,self.conf.frameDir,'TSP_flows','*flow.mat')))
 
         flows_mat = [io.loadmat(flows_mat_path[i]) for i in range(len(flows_mat_path))]
         flows_bvx = [flows_mat[i]['flow'][0][0][0] for i in range(len(flows_mat))]

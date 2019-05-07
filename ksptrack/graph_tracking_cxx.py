@@ -26,7 +26,7 @@ class GraphTracking:
     Connects, merges and add edges to graph. Also has KSP algorithm.
     """
 
-    def __init__(self,sps_mans, tol=0, mode='edge', tau_u = -1):
+    def __init__(self,sps_mans, tol=0, mode='edge', hoof_tau_u = -1):
         self.logger = logging.getLogger('GraphTracking')
 
         self.nodeTypes = ['virtual', 'input', 'output', 'none']
@@ -41,7 +41,7 @@ class GraphTracking:
         self.direction = None
         self.thr = 0.05 #For bernoulli costs
         self.tol = tol
-        self.tau_u = tau_u # Threshold for HOOF, set to -1 to disable constraint
+        self.hoof_tau_u = hoof_tau_u # Threshold for HOOF, set to -1 to disable constraint
 
         self.means_feats = []
         self.covs_inv_feats = []
@@ -198,10 +198,10 @@ class GraphTracking:
                                    sp_pm,
                                    sp_desc,
                                    points_2d,
-                                   normNeighbor_in,
+                                   norm_neighbor_in,
                                    thresh,
                                    labels,
-                                   tau_u):
+                                   hoof_tau_u):
 
         #Get id of last tracklet
         curr_ids = np.asarray([self.tracklets[i].id_ for i in range(len(self.tracklets))])
@@ -311,7 +311,7 @@ class GraphTracking:
                                                 loc_2d,
                                                 new_tracklets[i],
                                                 labels,
-                                                normNeighbor_in)):
+                                                norm_neighbor_in)):
 
                 this_e = (int(self.source), int(new_tracklets[i].in_id))
 
@@ -340,7 +340,7 @@ class GraphTracking:
                                                 loc_2d,
                                                 tls_unblocked[i],
                                                 labels,
-                                                normNeighbor_in)):
+                                                norm_neighbor_in)):
 
                 this_e = (int(self.source), int(tls_unblocked[i].in_ind))
 
@@ -370,7 +370,7 @@ class GraphTracking:
                 bar.update(i)
                 linkable_tracklets = self.tls_man.get_linkables(
                     tl,
-                    tau_u=tau_u,
+                    hoof_tau_u=hoof_tau_u,
                     direction=self.direction,
                     mode='head')
 
@@ -388,7 +388,7 @@ class GraphTracking:
 
                 linkable_tracklets = self.tls_man.get_linkables(
                     tl,
-                    tau_u=tau_u,
+                    hoof_tau_u=hoof_tau_u,
                     direction=self.direction,
                     mode='tail')
                 for j in range(len(linkable_tracklets)):
@@ -503,9 +503,9 @@ class GraphTracking:
                       sp_pom,
                       loc,
                       points_2d,
-                      normNeighbor_in,
+                      norm_neighbor_in,
                       thresh_aux,
-                      tau_u = 0,
+                      hoof_tau_u = 0,
                       direction='forward',
                       labels=None):
 
@@ -528,8 +528,8 @@ class GraphTracking:
                                        sp_desc,
                                        loc,
                                        points_2d,
-                                       normNeighbor_in,
-                                       tau_u,
+                                       norm_neighbor_in,
+                                       hoof_tau_u,
                                        labels)
 
         #self.orig_weights = nx.get_edge_attributes(self.g, 'weight')
@@ -567,8 +567,8 @@ class GraphTracking:
                                   sp_desc,
                                   loc,
                                   points_2d,
-                                  normNeighbor_in,
-                                  tau_u,
+                                  norm_neighbor_in,
+                                  hoof_tau_u,
                                   labels):
 
         # get max id of tracklets (will increment)
@@ -599,7 +599,7 @@ class GraphTracking:
                                                 loc_2d,
                                                 tls[i],
                                                 labels,
-                                                normNeighbor_in)):
+                                                norm_neighbor_in)):
 
                 this_e = (int(self.source), int(tls[i].in_id))
 
@@ -626,7 +626,7 @@ class GraphTracking:
                 this_tracklet = tls[i]
 
                 linkable_tracklets = self.tls_man.get_linkables(this_tracklet,
-                                                                tau_u=tau_u,
+                                                                hoof_tau_u=hoof_tau_u,
                                                                 mode=mode,
                                                                 direction=self.direction)
 

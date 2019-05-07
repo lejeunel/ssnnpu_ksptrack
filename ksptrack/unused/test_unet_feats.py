@@ -25,19 +25,19 @@ import scipy as sp
 data = dict()
 
 arg_cfg = dict()
-arg_cfg["dataSetDir"] = "Dataset34"  # This is a test dataset
+arg_cfg["ds_dir"] = "Dataset00"  # This is a test dataset
 arg_cfg["csvFileName_fg"] = "video1.csv"
 arg_cfg["feats_graph"] = "unet_gaze"
 
 #Update config
 cfg_dict = cfg.cfg()
-arg_cfg['seq_type'] = cfg.datasetdir_to_type(arg_cfg['dataSetDir'])
+arg_cfg['seq_type'] = cfg.datasetdir_to_type(arg_cfg['ds_dir'])
 cfg_dict.update(arg_cfg)
 conf = cfg.dict_to_munch(cfg_dict)
 
 #Write config to result dir
-conf.dataOutDir = utls.getDataOutDir(conf.dataOutRoot, conf.dataSetDir,
-                                        conf.resultDir, conf.fileOutPrefix,
+conf.dataOutDir = utls.getDataOutDir(conf.dataOutRoot, conf.ds_dir,
+                                        conf.resultDir, conf.out_dir_prefix,
                                         conf.testing)
 
 #Set logger
@@ -46,7 +46,7 @@ utls.setup_logging(conf.dataOutDir)
 logger = logging.getLogger('iterative_ksp')
 
 logger.info('---------------------------')
-logger.info('starting experiment on: ' + conf.dataSetDir)
+logger.info('starting experiment on: ' + conf.ds_dir)
 logger.info('type of sequence: ' + conf.seq_type)
 logger.info('gaze filename: ' + conf.csvFileName_fg)
 logger.info('features type: ' + conf.feat_extr_algorithm)
@@ -56,22 +56,22 @@ logger.info('---------------------------')
 
 #Make frame file names
 
-conf.frameFileNames = utls.get_images(os.path.join(conf.dataInRoot,
-                                                   conf.dataSetDir,
+conf.frameFileNames = utls.get_images(os.path.join(conf.root_path,
+                                                   conf.ds_dir,
                                                    conf.frameDir))
 
 conf.myGaze_fg = utls.readCsv(
-    os.path.join(conf.dataInRoot,
-                 conf.dataSetDir,
-                 conf.gazeDir,
+    os.path.join(conf.root_path,
+                 conf.ds_dir,
+                 conf.locs_dir,
                  conf.csvFileName_fg))
 
 if (conf.labelMatPath != ''):
-    conf.labelMatPath = os.path.join(conf.dataOutRoot, conf.dataSetDir,
+    conf.labelMatPath = os.path.join(conf.dataOutRoot, conf.ds_dir,
                                      conf.frameDir, conf.labelMatPath)
 
-conf.precomp_desc_path = os.path.join(conf.dataOutRoot, conf.dataSetDir,
-                                      conf.feats_files_dir)
+conf.precomp_desc_path = os.path.join(conf.dataOutRoot, conf.ds_dir,
+                                      conf.feats_dir)
 
 # ---------- Descriptors/superpixel costs
 my_dataset = DataManager(conf)
@@ -176,7 +176,7 @@ label_cont_im[label_cont_i, label_cont_j, :] = 255
 io.imsave('conts.png', label_cont_im)
 
 rr, cc = draw.circle_perimeter(g1_i, g1_j,
-                                int(conf.normNeighbor_in * im1.shape[1]))
+                                int(conf.norm_neighbor_in * im1.shape[1]))
 
 im1[rr, cc, 0] = 0
 im1[rr, cc, 1] = 255
@@ -211,10 +211,10 @@ plt.imshow(labels[..., frame_2])
 plt.title('labels frame_2')
 plt.subplot(325)
 plt.imshow(dists)
-plt.title('dists')
+plt.title('proba trans')
 plt.subplot(326)
-#plt.imshow(pm_scores_fg[...,frame_2] > my_thresh)
-plt.imshow(pm_scores_fg[..., frame_2])
+plt.imshow(pm_scores_fg[...,frame_2] > my_thresh)
+# plt.imshow(pm_scores_fg[..., frame_2] )
 plt.title('f2. pm > thresh (' + str(my_thresh) + ')')
 plt.show()
 

@@ -25,8 +25,8 @@ neigh_dists = [.05, .1]
 # Run KSP on all seqs with first gaze-set and make prediction experiment
 for i in range(len(all_datasets)):
     set_confs = []
-    extra_cfg['dataSetDir'] = all_datasets[i]
-    extra_cfg['seq_type'] = cfg.datasetdir_to_type(extra_cfg['dataSetDir'])
+    extra_cfg['ds_dir'] = all_datasets[i]
+    extra_cfg['seq_type'] = cfg.datasetdir_to_type(extra_cfg['ds_dir'])
     cfg_dict = cfg.cfg()
     cfg_dict.update(extra_cfg)
     conf = cfg.dict_to_munch(cfg_dict)
@@ -47,26 +47,26 @@ for i in range(len(all_datasets)):
                                                     mode,
                                                     int(100*r),
                                                     int(100*dist))
-                save_out_path = os.path.join(conf.dataInRoot,
-                                            conf.dataSetDir,
-                                            conf.gazeDir,
+                save_out_path = os.path.join(conf.root_path,
+                                            conf.ds_dir,
+                                            conf.locs_dir,
                                             save_out_csv)
-                save_out_path_cands = os.path.join(conf.dataInRoot,
-                                                conf.dataSetDir,
-                                                conf.gazeDir,
+                save_out_path_cands = os.path.join(conf.root_path,
+                                                conf.ds_dir,
+                                                conf.locs_dir,
                                                 save_out_cands)
 
                 extra_cfg['csvFileName_fg'] = 'video' + str(k) + '.csv'
 
-                orig_2dlocs = utls.readCsv(os.path.join(conf.dataInRoot,
-                                                        conf.dataSetDir,
-                                                        conf.gazeDir,
+                orig_2dlocs = utls.readCsv(os.path.join(conf.root_path,
+                                                        conf.ds_dir,
+                                                        conf.locs_dir,
                                                         conf.csvFileName_fg))
                 noised_2dlocs = orig_2dlocs.copy()
 
                 conf.frameFileNames = utls.makeFrameFileNames(
-                    conf.framePrefix, conf.frameDigits, conf.frameDir,
-                    conf.dataInRoot, conf.dataSetDir, conf.frameExtension)
+                    conf.frame_prefix, conf.frameDigits, conf.frameDir,
+                    conf.root_path, conf.ds_dir, conf.frame_extension)
 
 
                 imgs = [utls.imread(f) for f in conf.frameFileNames]
