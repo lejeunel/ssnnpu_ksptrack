@@ -8,6 +8,7 @@ import pickle as pk
 import matplotlib.pyplot as plt
 import networkx as nx
 import pandas as pd
+import tqdm
 
 
 class SuperpixelManager:
@@ -138,23 +139,26 @@ class SuperpixelManager:
             dict_ = dict()
 
             self.logger.info('Building SP overlap dictionary')
-            with progressbar.ProgressBar(maxval=len(frames_tup)) as bar:
-                for i in range(len(frames_tup)):
-                    bar.update(i)
 
-                    # Find overlapping labels between consecutive frames
-                    l_0 = self.labels[..., frames_tup[i][0]][..., np.newaxis]
-                    l_1 = self.labels[..., frames_tup[i][1]][..., np.newaxis]
-                    f0 = frames_tup[i][0]
-                    f1 = frames_tup[i][1]
-                    concat_ = np.concatenate((l_0, l_1), axis=-1)
-                    concat_ = concat_.reshape((-1, 2))
-                    ovl = np.asarray(list(set(list(map(tuple, concat_)))))
-                    ovl_list = list()
-                    for l0 in np.unique(ovl[:, 0]):
-                        ovl_ = ovl[ovl[:, 0] == l0, 1].tolist()
-                        edges = [((f0, l0), (f1, l1)) for l1 in ovl_]
-                        g.add_edges_from(edges)
+            bar = tqdm.tqdm(total=len(frames_tup))
+            for i in range(len(frames_tup)):
+                bar.update(1)
+
+                # Find overlapping labels between consecutive frames
+                l_0 = self.labels[..., frames_tup[i][0]][..., np.newaxis]
+                l_1 = self.labels[..., frames_tup[i][1]][..., np.newaxis]
+                f0 = frames_tup[i][0]
+                f1 = frames_tup[i][1]
+                concat_ = np.concatenate((l_0, l_1), axis=-1)
+                concat_ = concat_.reshape((-1, 2))
+                ovl = np.asarray(list(set(list(map(tuple, concat_)))))
+                ovl_list = list()
+                for l0 in np.unique(ovl[:, 0]):
+                    ovl_ = ovl[ovl[:, 0] == l0, 1].tolist()
+                    edges = [((f0, l0), (f1, l1)) for l1 in ovl_]
+                    g.add_edges_from(edges)
+
+            bar.close()
 
             self.logger.info('Saving overlap graph to ' + file_graph)
             with open(file_graph, 'wb') as f:

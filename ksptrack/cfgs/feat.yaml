@@ -11,7 +11,7 @@ feat-batchsize : 2
 feat-feats-upsamp-size : 600  
 
 # number of epochs to train
-feat-n-epochs : 75  
+feat-n-epochs : 1
 
 feat-loss : 'mse'  
 
@@ -25,16 +25,21 @@ feat-adam-beta1 : 0.9
 feat-adam-beta2 : 0.999
 feat-adam-epsilon : 1e-8
 feat-adam-decay : 0.0
-feat-data-gaussian-noise-std : 13 
+
+feat-interp-n-jobs : 1 
+
+# data augmentation
+feat-data-gaussian-noise-std : 0.05
 feat-data-rot-range : 11.25 
 feat-data-width-shift : 0.2
 feat-data-height-shift : 0.2
 feat-data-shear-range : 22.5
-feat-data-sometimes-rate : 0.5
-feat-interp-n-jobs : 1 
+feat-data-someof : 3
 
-feat-gaze-gaussian-std : 30  # std dev for creating 2D Gaussian map
+feat-n-workers: 0
+
+feat-locs-gaussian-std : 0.1  # std dev for creating 2D Gaussian map
 
 feat-in-shape: 512
-batch-size : 16
+batch-size : 4
 cuda : False

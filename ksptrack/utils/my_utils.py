@@ -2,7 +2,7 @@ import numpy as np
 import os, sys, yaml
 from skimage import io
 from skimage import color
-import progressbar
+import tqdm
 from skimage import (color, feature)
 from skimage.transform import resize
 from sklearn import (preprocessing, mixture, decomposition)
@@ -89,14 +89,14 @@ def make_y_array_true(map_, labels, pos_thr=0.5):
 
     #self.logger.info('Making Y vector (true groundtruths)')
     y = []
-    with progressbar.ProgressBar(maxval=labels.shape[-1]) as bar:
-        for i in range(labels.shape[-1]):
-            bar.update(i)
-            for j in np.unique(labels[..., i]):
-                this_mask = labels[..., i] == j
-                this_overlap = np.logical_and(map_[..., i], this_mask)
-                y.append((i, j,
-                          np.sum(this_overlap) / np.sum(this_mask) > pos_thr))
+    bar = tqdm.tqdm(total=labels.shape[-1])
+    for i in range(labels.shape[-1]):
+        bar.update(1)
+        for j in np.unique(labels[..., i]):
+            this_mask = labels[..., i] == j
+            this_overlap = np.logical_and(map_[..., i], this_mask)
+            y.append((i, j,
+                        np.sum(this_overlap) / np.sum(this_mask) > pos_thr))
 
     return np.asarray(y)
 
@@ -392,11 +392,13 @@ def get_scores_ksp(dict_ksp,
 
 
 def readCsv(csvName, seqStart=None, seqEnd=None):
+
     out = np.loadtxt(
         open(csvName, "rb"), delimiter=";", skiprows=5)[seqStart:seqEnd, :]
     if ((seqStart is not None) or (seqEnd is not None)):
         out[:, 0] = np.arange(0, seqEnd - seqStart)
-    return out
+
+    return pd.DataFrame(data=out, columns=['frame', 'time', 'visible', 'x', 'y'])
 
 
 def getDataOutDir(dataOutRoot,
@@ -944,13 +946,6 @@ def norm_to_pix(x, y, width, height):
 
     return i, j
 
-
-def pandas_to_std_csv(arr):
-
-    if isinstance(arr, pd.DataFrame):
-        return arr.as_matrix()[:, 1:]
-    else:
-        return arr
 
 
 def splitall(path):

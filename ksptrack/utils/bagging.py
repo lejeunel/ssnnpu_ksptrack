@@ -32,7 +32,7 @@ def fit_trees(args):
             axis=0)
 
         model = DecisionTreeClassifier(
-            bag_max_depth=bag_max_depth,
+            max_depth=bag_max_depth,
             criterion='gini',
             splitter='best',
             presort=True,
@@ -119,13 +119,11 @@ def calc_bagging(T,
     train_label = np.zeros(shape=(NP + K, ))
     train_label[:NP] = 1.0
 
-
     T_per_jobs = int(T / n_jobs)
     print('Will spawn {} jobs with {} trees each'.format(
         n_jobs, T_per_jobs))
 
     t_start = time.time()
-    #pool = ThreadPool(processes=n_jobs)
     if(n_jobs > 1):
         args = (T_per_jobs,
                 train_label,
@@ -139,11 +137,11 @@ def calc_bagging(T,
         #print(predict_probas)
         predict_proba = np.mean(np.asarray(predict_probas), axis=0)
     else:
-        predict_proba = fit_trees(T_per_jobs,
-                                  train_label,
-                                  bag_max_depth,
-                                  bag_n_feats,
-                                  bag_max_samples)
+        predict_proba = fit_trees((T_per_jobs,
+                                   train_label,
+                                   bag_max_depth,
+                                   bag_n_feats,
+                                   bag_max_samples))
 
     elapsed = time.time() - t_start
     print('Done estimation in {} seconds.'.format(elapsed))

@@ -52,8 +52,9 @@ def get_params():
     p.add('--frame-extension')
     p.add('--csv-fname')
     p.add('--feats-dir')
+    p.add('--entrance-masks-path')
 
-    p.add('--use-hoof', type=bool)
+    p.add('--use-hoof', type=bool, default=True)
     p.add('--hoof-tau-u', type=float)
     p.add('--hoof-n-bins', type=int)
 
@@ -64,7 +65,7 @@ def get_params():
     p.add('--slic-rel-size', type=float)
 
     # Superpixel transitions
-    p.add('--sp-trans-init-mode', type=bool)
+    p.add('--sp-trans-init-mode')
 
     #Optical flow
     p.add('--oflow-alpha', type=float)
@@ -76,7 +77,7 @@ def get_params():
 
     p.add('--n-iters-ksp', type=int)
 
-    p.add('--monitor-score', type=bool)
+    p.add('--monitor-score', default=False, action='store_true')
 
     # Bagging---------------
     p.add('--bag-t', type=int)
@@ -121,14 +122,17 @@ def get_params():
     p.add('--feat-data-width-shift', type=float)
     p.add('--feat-data-height-shift', type=float)
     p.add('--feat-data-shear-range', type=float)
-    p.add('--feat-data-sometimes-rate', type=float)
+    p.add('--feat-data-someof', type=float)
     p.add('--feat-interp-n-jobs', type=int)
 
     p.add('--feat-gaze-gaussian-std', type=int)
 
     p.add('--feat-in-shape', type=int)
     p.add('--batch-size', type=int)
-    p.add('--cuda', default=True, action='store_true')
+    p.add('--cuda', default=False, action='store_true')
 
+    p.add('--feat-n-workers', type=int)
+
+    p.add('--feat-locs-gaussian-std', type=float)
 
     return p

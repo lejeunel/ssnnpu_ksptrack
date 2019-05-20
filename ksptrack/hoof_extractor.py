@@ -7,10 +7,10 @@ import os
 import pickle as pk
 import matplotlib.pyplot as plt
 import networkx as nx
-import progressbar
 import collections
 import pandas as pd
 import networkx as nx
+import tqdm
 
 
 class HOOFExtractor:
@@ -79,8 +79,7 @@ class HOOFExtractor:
 
         if (not os.path.exists(file_hoof_grid)):
             for dir_ in self.directions:
-                self.logger.info('Computing HOOF\
-                in {} direction on grid of {} elements'\
+                self.logger.info('Computing HOOF in {} direction on grid of {} elements'\
                                 .format(dir_, np.unique(self.grid).size))
 
                 frames = np.arange(self.labels.shape[-1] - 1)
@@ -93,12 +92,13 @@ class HOOFExtractor:
 
                 hoof[dir_] = list()
 
-                with progressbar.ProgressBar(maxval=frames.size) as bar:
-                    for f in frames:
-                        bar.update(f)
-                        hoof[dir_].append(
-                            make_hoof_labels(vx[..., f], vy[..., f], self.grid,
-                                             self.bins_hoof))
+                bar = tqdm.tqdm(total=frames.size)
+                for f in frames:
+                    bar.update(1)
+                    hoof[dir_].append(
+                        make_hoof_labels(vx[..., f], vy[..., f], self.grid,
+                                            self.bins_hoof))
+                bar.close()
             self.logger.info('Saving HOOF on grid ...')
             np.savez(file_hoof_grid, **{'hoof': hoof, 'grid': self.grid})
             self.hoof_grid = hoof
@@ -130,26 +130,26 @@ class HOOFExtractor:
                 else:
                     keys = ['bvx', 'bvy']
 
-                with progressbar.ProgressBar(maxval=len(g.edges())) as bar:
-                    for i, e in enumerate(edges):
+                bar = tqdm.tqdm(total=len(g.edges()))
+                for i, e in enumerate(edges):
+                    i_0 = np.argmin((e[0][0], e[1][0]))
+                    i_1 = np.argmax((e[0][0], e[1][0]))
+                    f_0 = e[i_0][0]
+                    f_1 = e[i_1][0]
+                    s_0 = e[i_0][1]
+                    s_1 = e[i_1][1]
 
-                        i_0 = np.argmin((e[0][0], e[1][0]))
-                        i_1 = np.argmax((e[0][0], e[1][0]))
-                        f_0 = e[i_0][0]
-                        f_1 = e[i_1][0]
-                        s_0 = e[i_0][1]
-                        s_1 = e[i_1][1]
+                    hoof_0 = \
+                        self.hoof_grid[dir_][f_0]\
+                        [self.mapping[f_0][s_0]]
+                    hoof_1 = \
+                        self.hoof_grid[dir_][f_0]\
+                        [self.mapping[f_1][s_1]]
 
-                        hoof_0 = \
-                            self.hoof_grid[dir_][f_0]\
-                            [self.mapping[f_0][s_0]]
-                        hoof_1 = \
-                            self.hoof_grid[dir_][f_0]\
-                            [self.mapping[f_1][s_1]]
+                    g[e[0]][e[1]][dir_] = utls.hist_inter(hoof_0, hoof_1)
 
-                        g[e[0]][e[1]][dir_] = utls.hist_inter(hoof_0, hoof_1)
-
-                        bar.update(i)
+                    bar.update(1)
+                bar.close()
 
             self.logger.info('Saving HOOF on sps ...')
             with open(file_hoof_sps, 'wb') as f:
@@ -208,7 +208,7 @@ class HOOFExtractor:
 
         oflow_extractor = oflowx.OpticalFlowExtractor(
             save_path, self.conf.oflow_alpha, self.conf.oflow_ratio,
-            self.conf.oflow_min_width, self.conf.oflow_out_iters,
+            self.conf.oflow_min_width, self.conf.oflow_outer_iters,
             self.conf.oflow_inner_iters, self.conf.oflow_sor_iters)
         oflow_extractor.extract(self.conf.frameFileNames, save_path)
 

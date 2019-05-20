@@ -1,4 +1,4 @@
-import progressbar
+import tqdm
 import collections
 import numpy as np
 import logging
@@ -27,29 +27,30 @@ class TrackletManager:
         dict_in = collections.defaultdict(list)
         dict_out = collections.defaultdict(list)
 
-        #in_frames = np.unique([t.get_in_frame() for t in tls])
-        #head_frames = np.unique([t.get_head_frame(n_frames) for t in tls])
         frames = np.arange(0, n_frames)
 
         self.logger.info('Building input frames dictionary')
-        with progressbar.ProgressBar(maxval=n_frames) as bar:
-            for i in frames:
-                bar.update(i)
-                tls_i = [
-                    t for t in tls
-                    if ((t.get_in_frame() == i) and (t.blocked == False))
-                ]
-                dict_in[i] = tls_i
+
+        bar = tqdm.tqdm(total=n_frames)
+        for i in frames:
+            tls_i = [
+                t for t in tls
+                if ((t.get_in_frame() == i) and (t.blocked == False))
+            ]
+            dict_in[i] = tls_i
+            bar.update(1)
+        bar.close()
 
         self.logger.info('Building output frames dictionary')
-        with progressbar.ProgressBar(maxval=n_frames) as bar:
-            for i in frames:
-                bar.update(i)
-                tls_o = [
-                    t for t in tls
-                    if ((t.get_out_frame() == i) and (t.blocked == False))
-                ]
-                dict_out[i] = tls_o
+        bar = tqdm.tqdm(total=n_frames)
+        for i in frames:
+            tls_o = [
+                t for t in tls
+                if ((t.get_out_frame() == i) and (t.blocked == False))
+            ]
+            dict_out[i] = tls_o
+            bar.update(1)
+        bar.close()
 
         self.dict_in = dict_in
         self.dict_out = dict_out

@@ -11,7 +11,6 @@ from ksptrack.utils import bagging as bag
 from ksptrack.utils import csv_utils as csv
 from ksptrack.utils import superpixel_extractor as svx
 import pickle as pk
-from progressbar import ProgressBar as pbar
 from skimage import (color, io, segmentation)
 from sklearn import (mixture, metrics, preprocessing, decomposition)
 from scipy import (ndimage, io, misc)
@@ -22,7 +21,10 @@ from imgaug import augmenters as iaa
 from imgaug import parameters as iap
 from pytorch_utils.im_utils import upsample_sequence
 from pytorch_utils.utils import chunks
+from pytorch_utils.my_augmenters import rescale_augmenter
+import torch
 import shutil
+import tqdm
 
 
 class DataManager:
@@ -186,32 +188,32 @@ class DataManager:
 
     def get_sp_desc_from_file(self):
 
-        if (self.conf.feats_graph == 'overfeat'):
-            fname = 'overfeat.p'
-        elif (self.conf.feats_graph == 'unet'):
-            fname = 'sp_desc_unet_rec.p'
-        elif (self.conf.feats_graph == 'unet_gaze'):
-            fname = 'sp_desc_ung.p'
-        elif (self.conf.feats_graph == 'unet_gaze_cov'):
-            gaze_fname = os.path.splitext(self.conf.csvFileName_fg)[0]
-            fname = 'sp_desc_ung_' + gaze_fname + '.p'
-        elif (self.conf.feats_graph == 'scp'):
-            fname = 'sp_desc_df.p'
-        elif (self.conf.feats_graph == 'hsv'):
-            fname = 'sp_desc_hsv_df.p'
-        elif (self.conf.feats_graph == 'vgg16'):
-            fname = 'sp_desc_vgg16.p'
+        # if (self.conf.feats_graph == 'overfeat'):
+        #     fname = 'overfeat.p'
+        # elif (self.conf.feats_graph == 'unet'):
+        #     fname = 'sp_desc_unet_rec.p'
+        # elif (self.conf.feats_graph == 'unet_gaze'):
+        fname = 'sp_desc_ung.p'
+        # elif (self.conf.feats_graph == 'unet_gaze_cov'):
+        #     gaze_fname = os.path.splitext(self.conf.csvFileName_fg)[0]
+        #     fname = 'sp_desc_ung_' + gaze_fname + '.p'
+        # elif (self.conf.feats_graph == 'scp'):
+        #     fname = 'sp_desc_df.p'
+        # elif (self.conf.feats_graph == 'hsv'):
+        #     fname = 'sp_desc_hsv_df.p'
+        # elif (self.conf.feats_graph == 'vgg16'):
+        #     fname = 'sp_desc_vgg16.p'
 
         path = os.path.join(self.conf.precomp_desc_path, fname)
-        if (os.path.exists(path)):
-            out = pd.read_pickle(path)
+        # if (os.path.exists(path)):
 
-            self.logger.info("Loaded features: " + path)
-        else:
-            self.logger.info("Couldnt find features: {}".format(path))
-            self.logger.info("Will compute them now.")
-            self.calc_sp_feats_dispatch(self.conf.precomp_desc_path)
-            return self.get_sp_desc_from_file()
+        out = pd.read_pickle(path)
+
+        # else:
+        #     self.logger.info("Couldnt find features: {}".format(path))
+        #     self.logger.info("Will compute them now.")
+        #     self.calc_sp_feats_dispatch(self.conf.precomp_desc_path)
+        #     return self.get_sp_desc_from_file()
 
         return out
 
@@ -441,27 +443,27 @@ class DataManager:
         from pytorch_utils import utils as unet_utls
 
         orig_shape = utls.imread(self.conf.frameFileNames[50]).shape
-        in_shape = (640, 640)
+        in_shape = self.conf.feat_in_shape
 
         params = {
-            'batch_size': self.conf.unet_batchsize,
+            'batch_size': self.conf.batch_size,
             'cuda': self.conf.cuda,
-            'lr': self.conf.unet_adam_learning_rate,
+            'lr': self.conf.feat_adam_learning_rate,
             'momentum': 0.9,
-            'beta1': self.conf.unet_adam_beta1,
-            'beta2': self.conf.unet_adam_beta2,
-            'epsilon': self.conf.unet_adam_epsilon,
-            'weight_decay_adam': self.conf.unet_adam_decay,
-            'num_epochs': self.conf.unet_nbr_epochs,
+            'beta1': self.conf.feat_adam_beta1,
+            'beta2': self.conf.feat_adam_beta2,
+            'epsilon': self.conf.feat_adam_epsilon,
+            'weight_decay_adam': self.conf.feat_adam_decay,
+            'num_epochs': self.conf.feat_n_epochs,
             'out_dir': save_dir,
             'cp_fname': cp_fname,
-            'bm_fname': bm_fname
+            'bm_fname': bm_fname,
+            'n_workers': self.conf.feat_n_workers
         }
 
         train_net = not os.path.exists(bm_path)
         forward_pass = not os.path.exists(feats_path)
-        # assign_feats_to_sps = not os.path.exists(df_path)
-        assign_feats_to_sps = True
+        assign_feats_to_sps = not os.path.exists(df_path)
 
         if (train_net):
             self.logger.info(
@@ -474,86 +476,100 @@ class DataManager:
             model = UNetFeatExtr(params)
             model.model.train()
 
+            transf = iaa.Sequential([
+                iaa.SomeOf(self.conf.feat_data_someof,
+                           [iaa.Affine(
+                               scale={
+                                   "x": (1 - self.conf.feat_data_width_shift,
+                                         1 + self.conf.feat_data_width_shift),
+                                   "y": (1 - self.conf.feat_data_height_shift,
+                                         1 + self.conf.feat_data_height_shift)
+                               },
+                               rotate=(-self.conf.feat_data_rot_range,
+                                       self.conf.feat_data_rot_range),
+                               shear=(-self.conf.feat_data_shear_range,
+                                      self.conf.feat_data_shear_range)),
+                            iaa.AdditiveGaussianNoise(
+                                scale=self.conf.feat_data_gaussian_noise_std*255),
+                            iaa.Fliplr(p=0.5),
+                            iaa.Flipud(p=0.5)]),
+                iaa.Resize(self.conf.feat_in_shape),
+                rescale_augmenter])
+
             dl = Dataset(
                 in_shape,
                 im_paths=self.conf.frameFileNames,
-                truth_paths=self.conf.frameFileNames,
+                truth_paths=None,
                 locs2d=locs2d,
-                sig_prior=0.1,
-                sometimes_rate=self.conf.unet_data_sometimes_rate,
+                sig_prior=self.conf.feat_locs_gaussian_std,
+                augmentations=transf,
                 cuda=self.conf.cuda)
-
-            dl.set_aug_affine(
-                iaa.Sequential([
-                    iaa.Affine(
-                        scale={
-                            "x": (1 - self.conf.unet_data_width_shift,
-                                    1 + self.conf.unet_data_width_shift),
-                            "y": (1 - self.conf.unet_data_height_shift,
-                                    1 + self.conf.unet_data_height_shift)
-                        },
-                        rotate=(-self.conf.unet_data_rot_range,
-                                self.conf.unet_data_rot_range),
-                        shear=(-self.conf.unet_data_shear_range,
-                                self.conf.unet_data_shear_range)),
-                    iaa.Fliplr(self.conf.unet_data_sometimes_rate)
-                ]))
-
-            dl.set_aug_noise(
-                iaa.AdditiveGaussianNoise(
-                    scale=self.conf.unet_data_gaussian_noise_std))
 
             model.train(dl)
 
         # Do forward pass on images and retrieve features
         if (forward_pass):
-            model = UNetFeatExtr(params)
+            # load best model
+            dict_ = torch.load(bm_path)
+            model = UNetFeatExtr.from_state_dict(dict_)
 
-            self.logger.info(
-                "Downsampled feature file {} does not exist...".format(
-                    feats_path))
+            transf = iaa.Sequential([
+                iaa.Resize(self.conf.feat_in_shape),
+                rescale_augmenter])
 
-            model.model.eval()
-            feats_ds = model.calc_features(self.conf.frameFileNames,
-                                           in_shape,
-                                           bm_path)
-            self.logger.info(
-                'Saving (downsampled) features to {}.'.format(feats_path))
-            np.savez(feats_path, **{'feats': feats_ds})
+            dl = Dataset(
+                in_shape,
+                im_paths=self.conf.frameFileNames,
+                augmentations=transf,
+                cuda=self.conf.cuda)
+
+            if(not os.path.exists(feats_path)):
+                self.logger.info(
+                    "Downsampled feature file {} does not exist...".format(
+                        feats_path))
+
+                model.model.eval()
+                feats_ds = model.calc_features(dl)
+
+                self.logger.info(
+                    'Saving (downsampled) features to {}.'.format(feats_path))
+                np.savez(feats_path, **{'feats': feats_ds})
         else:
+            self.logger.info(
+                "Downsampled feature file {} exist. Delete to re-run.".format(
+                    feats_path))
             feats_ds = np.load(feats_path)['feats']
-
-        feats_ds = [f.transpose((1, 2, 0)) for f in feats_ds]
-        # feats_tmp_dir = os.path.join(save_dir, 'feats_tmp')
-        # feats_tmp_names = [
-        #     os.path.join(feats_tmp_dir, 'f_{0:04d}.npz'.format(i))
-        #     for i in range(len(feats_ds))
-        # ]
 
         if(assign_feats_to_sps):
             self.logger.info("Computing features on superpixels")
             self.load_superpix_from_file()
             feats_sp = list()
             frames = np.unique(self.centroids_loc['frame'].values)
-            with pbar(maxval=frames.shape[0]) as bar:
-                for f in frames:
-                    bar.update(f)
-                    feats_us = np.asarray([
-                        misc.imresize(feats_ds[f][..., i],
-                                      orig_shape[0:2], interp='bilinear')
-                        for i in range(feats_ds[f].shape[-1])
-                    ]).transpose((1, 2, 0))
-                    for index, row in self.centroids_loc[
-                            self.centroids_loc['frame'] == f].iterrows():
-                        x = row['pos_norm_x']
-                        y = row['pos_norm_y']
-                        ci, cj = csv.coord2Pixel(x, y, feats_us.shape[1],
-                                                 feats_us.shape[0])
-                        feats_sp.append(feats_us[ci, cj, :].copy())
+            bar = tqdm.tqdm(total=len(frames))
+            for f in frames:
+                feats_us = np.asarray([
+                    misc.imresize(feats_ds[..., i, f],
+                                    orig_shape[0:2], interp='bilinear')
+                    for i in range(feats_ds[..., f].shape[-1])
+                ]).transpose((1, 2, 0))
+                for index, row in self.centroids_loc[
+                        self.centroids_loc['frame'] == f].iterrows():
+                    x = row['pos_norm_x']
+                    y = row['pos_norm_y']
+                    ci, cj = csv.coord2Pixel(x, y, feats_us.shape[1],
+                                                feats_us.shape[0])
+                    feats_sp.append(feats_us[ci, cj, :].copy())
+                bar.update(1)
+            bar.close()
 
             feats_df = self.centroids_loc.assign(desc=feats_sp)
             self.logger.info('Saving  features to {}.'.format(df_path))
             feats_df.to_pickle(os.path.join(df_path))
+        else:
+            self.logger.info(
+                "feature file {} exist. Delete to re-run.".format(
+                    df_path))
+            feats_df = pd.read_pickle(df_path)
 
 
     def get_pm_array(self, mode='foreground', save=False, frames=None):
@@ -636,7 +652,7 @@ class DataManager:
                 self.bg_marked = marked
 
     def calc_pm(self,
-                coords_arr,
+                locs2d,
                 save=False,
                 marked_feats=None,
                 all_feats_df=None,
@@ -658,28 +674,20 @@ class DataManager:
         self.load_labels_if_not_exist()
 
         self.logger.info('--- Generating probability map foreground')
-        self.logger.info("T: " + str(self.conf.T))
+        self.logger.info("T: " + str(self.conf.bag_t))
         self.logger.info("bag_n_bins: " + str(self.conf.bag_n_bins))
 
         # Convert input to marked (if necessary). This is used only once (from csv gaze file)
-        if (in_type == 'csv_normalized'):
-            marked_arr = np.empty((coords_arr.shape[0], 2))
-            for i in range(coords_arr.shape[0]):
-                ci, cj = csv.coord2Pixel(coords_arr[i, 3], coords_arr[i, 4],
-                                         self.labels.shape[1],
-                                         self.labels.shape[0])
-                marked_arr[i, ...] = (
-                    coords_arr[i, 0],
-                    self.labels[ci, cj, int(coords_arr[i, 0])])
-        #elif(in_type == 'pandas'):
-        #    marked_arr = list()
-        #    for f in coords_arr['frame']:
-        #        ci, cj = gaze.gazeCoord2Pixel(coords_arr.loc[coords_arr['frame'] == f, 'x'], coords_arr.loc[coords_arr['frame'] == f, 'y'],
-        #                                    self.labels.shape[1], self.labels.shape[0])
-        #        marked_arr.append((f,self.labels[ci,cj,f]))
-        #    marked_arr = np.asarray(marked_arr)
-        else:
-            marked_arr = coords_arr
+        marked_arr = np.empty((locs2d.shape[0], 2))
+
+        for index, row in locs2d.iterrows():
+            ci, cj = csv.coord2Pixel(row['x'],
+                                        row['y'],
+                                        self.labels.shape[1],
+                                        self.labels.shape[0])
+            marked_arr[index, ...] = (
+                int(row['frame']),
+                self.labels[ci, cj, int(row['frame'])])
 
         if (mode == 'foreground'):
             self.fg_marked = marked_arr  #Set first marked sp array
@@ -690,7 +698,7 @@ class DataManager:
             all_feats_df=all_feats_df,
             mode=mode,
             feat_fields=feat_fields,
-            T=self.conf.T,
+            T=self.conf.bag_t,
             bag_n_feats=bag_n_feats,
             bag_max_depth=bag_max_depth,
             bag_max_samples=bag_max_samples,

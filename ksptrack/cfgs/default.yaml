@@ -1,6 +1,7 @@
 precomp-dir : '.'
 in-path : '/home/laurent.lejeune/medical-labeling/'
 out-path : '/home/laurent.lejeune/medical-labeling/'
+entrance-masks-path : 
 locs-dir : 'gaze-measurements'
 truth-dir : 'ground_truth-frames'
 out-dir-prefix : 'exp'
@@ -31,17 +32,17 @@ oflow-outer-iters : 7
 oflow-inner-iters : 1
 oflow-sor-iters : 30
 
-n-iter-ksp : 10
+n-iters-ksp : 10
 
 monitor-score : False
 
 # Bagging---------------
-bag-t : 500
+bag-t : 100
 bag-n-bins : 100
 bag-n-feats : 0.013
 bag-max-samples : 2000
 bag-max-depth : 5
-bag-jobs : 4
+bag-jobs : 8
 #-----------------------
 
 hoof-tau-u : 0.45

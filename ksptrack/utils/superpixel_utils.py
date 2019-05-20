@@ -18,8 +18,6 @@ def getLabelCentroids(labels):
     nFrames = labels.shape[2]
     centroids = []
 
-    #normFactor = np.linalg.norm((labels.shape[0],labels.shape[1]))
-
     centroid_list = []
     pbar = tqdm.tqdm(total=nFrames)
 
