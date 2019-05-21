@@ -20,13 +20,13 @@ def main(conf, logger=None):
     logger = logging.getLogger('plot_results_ksp')
 
     logger.info('--------')
-    logger.info('Writing result frames to: ' + conf.dataOutDir)
+    logger.info('Writing result frames to: ' + conf.out_path)
     logger.info('--------')
 
     res = np.load(
-        os.path.join(conf.dataOutDir, 'results.npz'))
+        os.path.join(conf.out_path, 'results.npz'))
 
-    frame_dir = os.path.join(conf.dataOutDir, conf.dataOutImageResultDir)
+    frame_dir = os.path.join(conf.out_path, 'results')
     if(not os.path.exists(frame_dir)):
         logger.info('Creating output frame dir: {}'.format(frame_dir))
         os.makedirs(frame_dir)

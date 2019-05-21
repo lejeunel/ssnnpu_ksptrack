@@ -19,6 +19,7 @@ import logging.config
 from scipy import interpolate
 import pandas as pd
 import ksptrack
+from . import csv_utils as csv
 
 
 def df_crossjoin(df1, df2, **kwargs):
@@ -981,3 +982,17 @@ def tracklet_set_to_sp_path(tls, set_):
         paths.append(np.concatenate(p_))
 
     return paths
+
+def locs2d_to_sps(locs2d, labels):
+    sps = list()
+    # Convert input to marked (if necessary).
+
+    for index, row in locs2d.iterrows():
+        ci, cj = csv.coord2Pixel(row['x'],
+                                 row['y'],
+                                 labels.shape[1],
+                                 labels.shape[0])
+        sps.append((int(row['frame']),
+                    labels[ci, cj, int(row['frame'])]))
+
+    return sps

@@ -13,7 +13,7 @@ csv-fname : 'video1.csv'
 #Descriptors/codebooks ready-to-load.
 feats-dir : 'precomp_descriptors'
 
-use-hoof : False
+use-hoof : True
 
 #Superpixel segmentation
 slic-compactness : 10.0
@@ -22,7 +22,9 @@ slic-n-sp : 900
 slic-rel-size : 0.1
 
 # Superpixel transitions
-sp-trans-init-mode : 'overlap'
+# sp-trans-init-mode : 'overlap'
+sp-trans-init-mode : 'radius'
+sp-trans-init-radius : 0.07
 
 #Optical flow
 oflow-alpha : 0.012
@@ -37,7 +39,7 @@ n-iters-ksp : 10
 monitor-score : False
 
 # Bagging---------------
-bag-t : 100
+bag-t : 500
 bag-n-bins : 100
 bag-n-feats : 0.013
 bag-max-samples : 2000
@@ -49,7 +51,7 @@ hoof-tau-u : 0.45
 hoof-n-bins: 100
 
 # Metric learning
-n-comp-pca : 5
+n-comp-pca : 3
 lfda-k : 7
 lfda-dim : 5
 lfda-n-samps : 1000

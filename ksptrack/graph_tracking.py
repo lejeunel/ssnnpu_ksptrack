@@ -66,20 +66,21 @@ class GraphTracking:
         #Loop through existing tracklets and add edges.
 
         tls = [t for t in self.tracklets if (t.blocked == False)]
-        with progressbar.ProgressBar(maxval=len(tls)) as bar:
-            for i, tl in enumerate(tls):
-                bar.update(i)
-                this_tracklet_probas = []
-                for df_ix in tl.df_ix:
-                    this_tracklet_probas.append(sp_pm['proba'][df_ix])
-                this_tracklet_probas = np.asarray(this_tracklet_probas)
-                this_tracklet_probas = np.clip(
-                    this_tracklet_probas, a_min=self.thr, a_max=1 - self.thr)
-                w = np.sum(-np.log(
-                    np.asarray(this_tracklet_probas) /
-                    (1 - np.asarray(this_tracklet_probas))))
-                this_e = (tl.in_id, tl.out_id)
-                self.g.add_edge(*this_e, weight=w, id_=tls[i].id_)
+        bar = tqdm.tqdm(total=len(tls))
+        for i, tl in enumerate(tls):
+            this_tracklet_probas = []
+            for df_ix in tl.df_ix:
+                this_tracklet_probas.append(sp_pm['proba'][df_ix])
+            this_tracklet_probas = np.asarray(this_tracklet_probas)
+            this_tracklet_probas = np.clip(
+                this_tracklet_probas, a_min=self.thr, a_max=1 - self.thr)
+            w = np.sum(-np.log(
+                np.asarray(this_tracklet_probas) /
+                (1 - np.asarray(this_tracklet_probas))))
+            this_e = (tl.in_id, tl.out_id)
+            self.g.add_edge(*this_e, weight=w, id_=tls[i].id_)
+            bar.update(1)
+        bar.close()
 
     def make_init_tracklets(self,
                             sp_pm,

@@ -29,7 +29,7 @@ class SuperpixelManager:
         self.dataset = dataset
         self.init_mode = init_mode
         self.init_radius = init_radius
-        self.labels = dataset.get_labels()
+        self.labels = dataset.labels
         self.c_loc = dataset.centroids_loc
         self.with_flow = with_flow
         self.logger = logging.getLogger('SuperpixelManager')
@@ -81,33 +81,35 @@ class SuperpixelManager:
             dict_ = dict()
 
             self.logger.info('Building SP radius dictionary')
-            with progressbar.ProgressBar(maxval=len(frames_tup)) as bar:
-                for i in range(len(frames_tup)):
-                    bar.update(i)
+            bar = tqdm.tqdm(total=len(frames_tup))
+            for i in range(len(frames_tup)):
+                bar.update(1)
 
-                    f0 = frames_tup[i][0]
-                    f1 = frames_tup[i][1]
-                    df0 = self.c_loc.loc[self.c_loc['frame'] == f0].copy(
-                        deep=False)
-                    df1 = self.c_loc.loc[self.c_loc['frame'] == f1].copy(
-                        deep=False)
-                    df0.columns = ['frame_0', 'sp_label_0', 'x0', 'y0']
-                    df1.columns = ['frame_1', 'sp_label_1', 'x1', 'y1']
-                    df0.loc[:, 'key'] = 1
-                    df1.loc[:, 'key'] = 1
-                    df_combs = pd.merge(df0, df1, on='key').drop('key', axis=1)
-                    df_combs['rx'] = df_combs['x0'] - df_combs['x1']
-                    df_combs['ry'] = df_combs['y0'] - df_combs['y1']
-                    r = np.concatenate((df_combs['rx'].values.reshape(-1, 1),
-                                        df_combs['ry'].values.reshape(-1, 1)),
-                                       axis=1)
-                    dists = np.linalg.norm(r, axis=1)
-                    df_combs['dist'] = dists
-                    df_combs = df_combs.loc[
-                        df_combs['dist'] < self.init_radius]
-                    edges = [((row[1], row[2]), (row[5], row[6]))
-                             for row in df_combs.itertuples()]
-                    g.add_edges_from(edges)
+                f0 = frames_tup[i][0]
+                f1 = frames_tup[i][1]
+                df0 = self.c_loc.loc[self.c_loc['frame'] == f0].copy(
+                    deep=False)
+                df1 = self.c_loc.loc[self.c_loc['frame'] == f1].copy(
+                    deep=False)
+                df0.columns = ['frame_0', 'sp_label_0', 'x0', 'y0']
+                df1.columns = ['frame_1', 'sp_label_1', 'x1', 'y1']
+                df0.loc[:, 'key'] = 1
+                df1.loc[:, 'key'] = 1
+                df_combs = pd.merge(df0, df1, on='key').drop('key', axis=1)
+                df_combs['rx'] = df_combs['x0'] - df_combs['x1']
+                df_combs['ry'] = df_combs['y0'] - df_combs['y1']
+                r = np.concatenate((df_combs['rx'].values.reshape(-1, 1),
+                                    df_combs['ry'].values.reshape(-1, 1)),
+                                    axis=1)
+                dists = np.linalg.norm(r, axis=1)
+                df_combs['dist'] = dists
+                df_combs = df_combs.loc[
+                    df_combs['dist'] < self.init_radius]
+                edges = [((row[1], row[2]), (row[5], row[6]))
+                            for row in df_combs.itertuples()]
+                g.add_edges_from(edges)
+
+            bar.close()
 
             self.logger.info('Saving radius graph to ' + file_graph)
             with open(file_graph, 'wb') as f:

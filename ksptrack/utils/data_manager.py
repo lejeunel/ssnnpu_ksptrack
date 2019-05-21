@@ -31,31 +31,15 @@ class DataManager:
     def __init__(self, conf):
         self.conf = conf  #Config Bunch object
 
-        #Foreground/Background models (baggin)
-        self.fg_marked = None  #(frame, SP_label)
-        self.bg_marked = None  #(frame, SP_label)
-        self.fg_pm_df = None  #(frame, SP_label, proba)
-        self.bg_pm_df = None  #(frame, SP_label, proba)
-        self.fg_marked_feats = None  #(frame, SP_label, feature)
-        self.bg_marked_feats = None  #(frame, SP_label, feature)
-        self.all_feats_df = None  #(frame, SP_label, feature)
-
         self.logger = logging.getLogger('Dataset')
 
-        self.labels = None
-        self.flows = None
-        self.labelContourMask = None  #Superpixel contours
-        self.centroids_loc = None  #Superpixel centroids pandas frame
-        self.loc_mat = None
-        self.seen_feats_df = None  #Descriptors of "seen" regions
-        #self.sp_desc_df = None #Descriptors of all superpixels
-        self.sp_entr_df = None  #Costs of entrance to graph
+        self.labels_ = None
+        self.labels_contours_ = None
+        self.centroids_loc_ = None
 
         if (not os.path.exists(self.conf.precomp_desc_path)):
             self.logger.info('Feature directory does not exist... creating')
             os.mkdir(self.conf.precomp_desc_path)
-
-        self.locs2d = None
 
     def relabel(self, save=False, who=[]):
         """ Relabel labels, sp_desc_df and sp_link_df to make labels contiguous
@@ -127,64 +111,41 @@ class DataManager:
         elif (save & ~has_changed):
             self.logger.info('Nothing to change')
 
-    def load_all_from_file(self):
-        self.load_superpix_from_file()
-        #self.load_seen_from_file()
-        self.get_sp_desc_from_file()
-        #self.load_spix_desc_from_file()
-        #self.load_link_data_from_file()
-        #self.load_entr_from_file()
-        #self.load_pm_bg_from_file()
-        self.load_pm_fg_from_file()
-        #self.load_pm_all_feats()
+    @property
+    def labels_contours(self):
 
-    def get_labels(self):
-        return self.load_labels_if_not_exist()
-
-    def load_centroids_if_not_exist(self):
-
-        if (self.labels is None):
-
-            self.labels = np.load(
-                os.path.join(self.conf.root_path, self.conf.ds_dir,
-                             self.conf.frameDir, 'sp_labels.npz'))['sp_labels']
-
-        return self.labels
-
-    def load_labels_contours_if_not_exist(self):
-
-        if (self.labelContourMask is None):
-            self.labelContourMask = np.load(
+        if (self.labels_contours_ is None):
+            self.labels_contours_ = np.load(
                 os.path.join(self.conf.precomp_desc_path,
                              'sp_labels_tsp_contours.npz')
-            )['labelContourMask'].transpose((1, 2, 0))
+            )['labels_contours'].transpose((1, 2, 0))
+        return self.labels_contours_
 
-    def load_labels_if_not_exist(self):
+    @property
+    def labels(self):
 
-        if (self.labels is None):
+        if (self.labels_ is None):
             path_ = os.path.join(self.conf.precomp_desc_path, 'sp_labels.npz')
             self.logger.info('loading superpixel labels: {}'.format(path_))
 
-            self.labels = np.load(path_)['sp_labels']
+            self.labels_ = np.load(path_)['sp_labels']
 
-        return self.labels
+        return self.labels_
 
     @property
     def sp_desc_df(self):
         return self.get_sp_desc_from_file()
 
     @property
-    def sp_desc_means(self):
-        return self.get_sp_desc_means_from_file()
+    def centroids_loc(self):
 
-    def load_superpix_from_file(self):
-
-        centroid_path = os.path.join(self.conf.precomp_desc_path,
-                                     'centroids_loc_df.p')
-        self.logger.info(
-            'loading superpixel centroids: {}'.format(centroid_path))
-        self.centroids_loc = pd.read_pickle(centroid_path)
-        self.load_labels_if_not_exist()
+        if(self.centroids_loc_ is None):
+            centroid_path = os.path.join(self.conf.precomp_desc_path,
+                                        'centroids_loc_df.p')
+            self.logger.info(
+                'loading superpixel centroids: {}'.format(centroid_path))
+            self.centroids_loc_ = pd.read_pickle(centroid_path)
+        return self.centroids_loc_
 
     def get_sp_desc_from_file(self):
 
@@ -248,27 +209,13 @@ class DataManager:
             os.path.join(self.conf.precomp_desc_path,
                          'fg_marked_feats.npz'))['fg_marked_feats']
 
-    def load_pm_bg_from_file(self):
-        self.logger.info("Loading PM background")
-        self.bg_marked = np.load(
-            os.path.join(self.conf.precomp_desc_path,
-                         'bg_marked.npz'))['bg_marked']
-
-        self.bg_pm_df = pd.read_pickle(
-            os.path.join(self.conf.precomp_desc_path, 'bg_pm_df.p'))
-        self.bg_marked_feats = np.load(
-            os.path.join(self.conf.precomp_desc_path,
-                         'bg_marked_feats.npz'))['bg_marked_feats']
-
     def calc_superpix(self, do_save=True):
         """
         Makes centroids and contours
         """
 
-        self.labelContourMask = list()
-        spix_extr = svx.SuperpixelExtractor()
-
         if(not os.path.exists(pjoin(self.conf.precomp_desc_path, 'sp_labels.npz'))):
+            spix_extr = svx.SuperpixelExtractor()
             self.labels = spix_extr.extract(
                 self.conf.frameFileNames,
                 self.conf.precomp_desc_path,
@@ -278,43 +225,35 @@ class DataManager:
                 save_labels=do_save,
                 save_previews=do_save)
 
-            labelContourMask = list()
+            self.labels_contours_ = list()
             self.logger.info("Generating label contour maps")
 
             for im in range(self.labels.shape[2]):
                 # labels values are not always "incremental" (values are skipped).
-                labelContourMask.append(
+                self.labels_contours_.append(
                     segmentation.find_boundaries(self.labels[:, :, im]))
+
+            self.labels_contours_ = np.array(self.labels_contours_)
             self.logger.info("Saving label contour maps")
             data = dict()
-            data['labelContourMask'] = labelContourMask
+            data['labels_contours'] = self.labels_contours
             np.savez(
                 os.path.join(self.conf.precomp_desc_path,
                             'sp_labels_tsp_contours.npz'), **data)
-            self.labelContourMask = np.load(
-                os.path.join(self.conf.precomp_desc_path,
-                            'sp_labels_tsp_contours.npz'))['labelContourMask']
-
-            self.labelContourMask = np.asarray(self.labelContourMask)
 
             self.logger.info('Getting centroids...')
-            self.centroids_loc = spix.getLabelCentroids(self.labels)
+            self.centroids_loc_ = spix.getLabelCentroids(self.labels)
 
-            if (do_save):
-
-                self.centroids_loc.to_pickle(
-                    os.path.join(self.conf.precomp_desc_path,
-                                'centroids_loc_df.p'))
+            self.centroids_loc_.to_pickle(
+                os.path.join(self.conf.precomp_desc_path,
+                            'centroids_loc_df.p'))
         else:
             self.logger.info("Superpixels were already computer. Delete to re-run.")
-            self.load_superpix_from_file()
 
     def calc_bagging(self,
                      marked_arr,
-                     marked_feats=None,
                      all_feats_df=None,
                      mode='foreground',
-                     feat_fields=['desc'],
                      T=100,
                      bag_n_feats=0.25,
                      bag_max_depth=5,
@@ -342,15 +281,6 @@ class DataManager:
             self.bg_pm_df = this_pm_df
 
         return self.fg_pm_df
-
-    def calc_sp_feats_dispatch(self, save_dir=None):
-
-        if (self.conf.feats_graph == 'unet'):
-            self.calc_sp_feats_unet_rec(self, save_dir)
-        elif (self.conf.feats_graph == 'unet_gaze'):
-            self.calc_sp_feats_unet_gaze_rec(self.locs2d, save_dir)
-        elif (self.conf.feats_graph == 'vgg16'):
-            self.calc_sp_feats_vgg16(save_dir)
 
     def calc_sp_feats_vgg16(self, save_dir):
         """ Computes VGG16 features
@@ -542,7 +472,6 @@ class DataManager:
 
         if(assign_feats_to_sps):
             self.logger.info("Computing features on superpixels")
-            self.load_superpix_from_file()
             feats_sp = list()
             frames = np.unique(self.centroids_loc['frame'].values)
             bar = tqdm.tqdm(total=len(frames))
@@ -576,7 +505,6 @@ class DataManager:
         """ Returns array same size as labels with probabilities of bagging model
         """
 
-        self.load_labels_if_not_exist()
         scores = self.labels.copy().astype(float)
         if (mode == 'foreground'):
             pm_df = self.fg_pm_df
@@ -590,16 +518,17 @@ class DataManager:
 
         i = 0
         self.logger.info('Generating PM array')
-        with pbar(maxval=frames.shape[0]) as bar:
-            for f in frames:
-                bar.update(i)
-                this_frame_pm_df = pm_df[pm_df['frame'] == f]
-                dict_keys = this_frame_pm_df['sp_label']
-                dict_vals = this_frame_pm_df['proba']
-                dict_map = dict(zip(dict_keys, dict_vals))
-                for k, v in dict_map.items():
-                    scores[scores[..., f] == k, f] = v
-                i += 1
+        bar = tqdm.tqdm(total=len(frames))
+        for f in frames:
+            this_frame_pm_df = pm_df[pm_df['frame'] == f]
+            dict_keys = this_frame_pm_df['sp_label']
+            dict_vals = this_frame_pm_df['proba']
+            dict_map = dict(zip(dict_keys, dict_vals))
+            for k, v in dict_map.items():
+                scores[scores[..., f] == k, f] = v
+            i += 1
+            bar.update(1)
+        bar.close()
 
         if (save):
 
@@ -618,117 +547,28 @@ class DataManager:
 
         return scores
 
-    def update_marked_sp(self, marked, mode='foreground'):
-        """ Updates marked SP for bagging (with ksp SPs)
-        """
-
-        if (mode == 'foreground'):
-            old_marked = self.fg_marked
-        else:
-            old_marked = self.bg_marked
-
-        #Insert sp in marked if it doesn't exist already
-        if (old_marked is not None):
-            for i in range(marked.shape[0]):
-                match_rows_frames = np.where(old_marked[:, 0] == marked[i, 0])
-                match_rows = np.where(
-                    old_marked[match_rows_frames, 1].ravel() == marked[i, 1])
-                if (match_rows[0].size == 0
-                    ):  #No match found, current marked SP is added
-                    old_marked = np.insert(
-                        old_marked, 0, marked[i, ...], axis=0)
-
-            idx_sort = np.argsort(old_marked[:, 0])
-            old_marked = old_marked[idx_sort, :]
-
-            if (mode == 'foreground'):
-                self.fg_marked = old_marked
-            else:
-                self.bg_marked = old_marked
-        else:
-            if (mode == 'foreground'):
-                self.fg_marked = marked
-            else:
-                self.bg_marked = marked
-
     def calc_pm(self,
-                locs2d,
-                save=False,
-                marked_feats=None,
+                pos_sps,
                 all_feats_df=None,
-                in_type='csv_normalized',
-                mode='foreground',
-                feat_fields=['desc'],
-                T=100,
-                bag_n_feats=0.25,
-                bag_max_depth=5,
-                bag_max_samples=2000,
-                n_jobs=1):
-        """ Main function that extracts or updates gaze coordinates and computes transductive learning model (bagging)
-            Inputs:
-                save: Boolean (save to file?)
-                in_type: {'csv_normalized,','centroids'}
-                mode: {'foreground','background'}
+                mode='foreground'):
         """
-
-        self.load_labels_if_not_exist()
+        Main function that extracts or updates gaze coordinates
+        and computes transductive learning model (bagging)
+        Inputs:
+            mode: {'foreground','background'}
+        """
 
         self.logger.info('--- Generating probability map foreground')
         self.logger.info("T: " + str(self.conf.bag_t))
         self.logger.info("bag_n_bins: " + str(self.conf.bag_n_bins))
 
-        # Convert input to marked (if necessary). This is used only once (from csv gaze file)
-        marked_arr = np.empty((locs2d.shape[0], 2))
-
-        for index, row in locs2d.iterrows():
-            ci, cj = csv.coord2Pixel(row['x'],
-                                        row['y'],
-                                        self.labels.shape[1],
-                                        self.labels.shape[0])
-            marked_arr[index, ...] = (
-                int(row['frame']),
-                self.labels[ci, cj, int(row['frame'])])
-
-        if (mode == 'foreground'):
-            self.fg_marked = marked_arr  #Set first marked sp array
 
         self.calc_bagging(
-            marked_arr,
-            marked_feats=marked_feats,
+            pos_sps,
             all_feats_df=all_feats_df,
             mode=mode,
-            feat_fields=feat_fields,
             T=self.conf.bag_t,
-            bag_n_feats=bag_n_feats,
-            bag_max_depth=bag_max_depth,
-            bag_max_samples=bag_max_samples,
-            n_jobs=n_jobs)
-
-        if (save):
-
-            if (mode == 'foreground'):
-                data = dict()
-                data['fg_marked'] = self.fg_marked
-                np.savez(
-                    os.path.join(self.conf.precomp_desc_path, 'fg_marked.npz'),
-                    **data)
-                self.fg_pm_df.to_pickle(
-                    os.path.join(self.conf.precomp_desc_path, 'fg_pm_df.p'))
-                data = dict()
-                data['fg_marked_feats'] = self.fg_marked_feats
-                np.savez(
-                    os.path.join(self.conf.precomp_desc_path,
-                                 'fg_marked_feats.npz'), **data)
-            else:
-                data = dict()
-                data['bg_marked'] = self.bg_marked
-                np.savez(
-                    os.path.join(self.conf.precomp_desc_path, 'bg_marked.npz'),
-                    **data)
-                self.bg_pm_df.to_pickle(
-                    os.path.join(self.conf.precomp_desc_path, 'bg_pm_df.p'))
-                data = dict()
-                data['bg_marked_feats'] = self.bg_marked_feats
-                np.savez(
-                    os.path.join(self.conf.precomp_desc_path,
-                                 'bg_marked_feats.npz'), **data)
+            bag_n_feats=self.conf.bag_n_feats,
+            bag_max_depth=self.conf.bag_max_depth,
+            bag_max_samples=self.conf.bag_max_samples,
+            n_jobs=self.conf.bag_jobs)

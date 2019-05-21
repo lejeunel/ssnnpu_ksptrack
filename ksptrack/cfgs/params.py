@@ -66,6 +66,7 @@ def get_params():
 
     # Superpixel transitions
     p.add('--sp-trans-init-mode')
+    p.add('--sp-trans-init-radius', type=float)
 
     #Optical flow
     p.add('--oflow-alpha', type=float)
