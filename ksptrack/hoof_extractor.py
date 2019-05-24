@@ -57,7 +57,7 @@ class HOOFExtractor:
                 mapping[f] = {ls[0]: ls[1] for ls in map_}
             np.savez(file_mapping, **{'mapping': mapping})
         else:
-            mapping = np.load(file_mapping)['mapping'][()]
+            mapping = np.load(file_mapping, allow_pickle=True)['mapping'][()]
 
         return mapping
 

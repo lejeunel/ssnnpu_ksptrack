@@ -72,7 +72,6 @@ def main(arg_cfg):
     if (conf.calc_superpix): my_dataset.calc_superpix(save=True)
 
     my_dataset.load_superpix_from_file()
-    #my_dataset.relabel(save=True,who=conf.relabel_who)
 
     from scipy.spatial.distance import mahalanobis
     from metric_learn import LFDA
@@ -85,20 +84,6 @@ def main(arg_cfg):
     labels = my_dataset.labels
     my_dataset.load_all_from_file()
     pm = my_dataset.fg_pm_df
-
-    # sps_man = spm.SuperpixelManager(
-    #     my_dataset, conf, with_flow=conf.use_hoof,
-    #     init_mode=conf.sp_trans_init_mode)
-
-    # my_dataset.load_pm_fg_from_file()
-    # my_dataset.calc_pm(
-    #     conf.myGaze_fg,
-    #     save=True,
-    #     marked_feats=None,
-    #     all_feats_df=my_dataset.get_sp_desc_from_file(),
-    #     in_type='csv_normalized',
-    #     mode='foreground',
-    #     feat_fields=['desc'])
 
     conf.myGaze_fg = utls.readCsv(
         os.path.join(conf.root_path, conf.ds_dir, conf.locs_dir,

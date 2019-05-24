@@ -11,7 +11,7 @@ feat-batchsize : 2
 feat-feats-upsamp-size : 600  
 
 # number of epochs to train
-feat-n-epochs : 1
+feat-n-epochs : 50
 
 feat-loss : 'mse'  
 

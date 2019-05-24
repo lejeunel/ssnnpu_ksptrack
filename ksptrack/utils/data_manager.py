@@ -1,5 +1,3 @@
-import scipy
-from sklearn.tree import DecisionTreeClassifier
 import os
 from os.path import join as pjoin
 import pandas as pd
@@ -10,20 +8,15 @@ from ksptrack.utils import my_utils as utls
 from ksptrack.utils import bagging as bag
 from ksptrack.utils import csv_utils as csv
 from ksptrack.utils import superpixel_extractor as svx
-import pickle as pk
+from ksptrack.utils import superpixel_utils as spix_utls
 from skimage import (color, io, segmentation)
 from sklearn import (mixture, metrics, preprocessing, decomposition)
-from scipy import (ndimage, io, misc)
+import scipy as scp
 import glob, itertools
 import logging
-from sklearn.ensemble import RandomForestClassifier
 from imgaug import augmenters as iaa
-from imgaug import parameters as iap
-from pytorch_utils.im_utils import upsample_sequence
-from pytorch_utils.utils import chunks
 from pytorch_utils.my_augmenters import rescale_augmenter
 import torch
-import shutil
 import tqdm
 
 
@@ -105,7 +98,7 @@ class DataManager:
             np_file_out = os.path.join(self.conf.root_path,
                                        self.conf.ds_dir,
                                        self.conf.frameDir, 'sp_labels.npz')
-            io.savemat(mat_file_out, label_dict_out)
+            scp.io.savemat(mat_file_out, label_dict_out)
             np.savez(np_file_out, **label_dict_out)
 
         elif (save & ~has_changed):
@@ -216,14 +209,13 @@ class DataManager:
 
         if(not os.path.exists(pjoin(self.conf.precomp_desc_path, 'sp_labels.npz'))):
             spix_extr = svx.SuperpixelExtractor()
-            self.labels = spix_extr.extract(
+
+            self.labels_, numlabels = spix_extr.extract(
                 self.conf.frameFileNames,
                 self.conf.precomp_desc_path,
                 'sp_labels.npz',
                 self.conf.slic_compactness,
-                self.conf.slic_n_sp,
-                save_labels=do_save,
-                save_previews=do_save)
+                self.conf.slic_n_sp)
 
             self.labels_contours_ = list()
             self.logger.info("Generating label contour maps")
@@ -240,6 +232,30 @@ class DataManager:
             np.savez(
                 os.path.join(self.conf.precomp_desc_path,
                             'sp_labels_tsp_contours.npz'), **data)
+
+            if (do_save):
+                self.logger.info('Saving labels to {}'.format(
+                    self.conf.precomp_desc_path))
+                np.savez(
+                    os.path.join(self.conf.precomp_desc_path, 'sp_labels.npz'), **{
+                        'sp_labels': self.labels,
+                        'numlabels': numlabels
+                    })
+
+            if (do_save):
+                self.logger.info('Saving slic previews to {}'.format(
+                    pjoin(self.conf.precomp_desc_path, 'spix_previews')))
+                ims_list = [utls.imread(im) for im in self.conf.frameFileNames]
+                previews_dir = os.path.join(self.conf.precomp_desc_path,
+                                            'spix_previews')
+                if (not os.path.exists(previews_dir)):
+                    os.makedirs(previews_dir)
+                for i, im in enumerate(ims_list):
+                    fname = os.path.join(previews_dir,
+                                        'frame_{0:04d}.png'.format(i))
+
+                    im = spix_utls.drawLabelContourMask(im, self.labels[..., i])
+                    io.imsave(fname, im)
 
             self.logger.info('Getting centroids...')
             self.centroids_loc_ = spix.getLabelCentroids(self.labels)
@@ -440,8 +456,13 @@ class DataManager:
         # Do forward pass on images and retrieve features
         if (forward_pass):
             # load best model
-            dict_ = torch.load(bm_path)
+            dict_ = torch.load(bm_path,
+                               map_location=lambda storage,
+                               loc: storage)
             model = UNetFeatExtr.from_state_dict(dict_)
+
+            device = torch.device('cuda' if self.conf.cuda else 'cpu')
+            model.to(device)
 
             transf = iaa.Sequential([
                 iaa.Resize(self.conf.feat_in_shape),
@@ -477,7 +498,7 @@ class DataManager:
             bar = tqdm.tqdm(total=len(frames))
             for f in frames:
                 feats_us = np.asarray([
-                    misc.imresize(feats_ds[..., i, f],
+                    scp.misc.imresize(feats_ds[..., i, f],
                                     orig_shape[0:2], interp='bilinear')
                     for i in range(feats_ds[..., f].shape[-1])
                 ]).transpose((1, 2, 0))

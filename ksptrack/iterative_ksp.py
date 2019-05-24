@@ -65,8 +65,6 @@ def main(cfg):
     dm.calc_pm(
         np.array(locs2d_sps), all_feats_df=dm.sp_desc_df, mode='foreground')
 
-    # pm = dm.get_pm_array(frames=[10, 30, 60, 90])
-
     gt = None
     if (cfg.monitor_score):
         logger.info('Making ground-truth seeds for monitoring')

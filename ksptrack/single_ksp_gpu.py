@@ -14,6 +14,9 @@ p.add('--out-path', required=True)
 
 cfg = p.parse_args()
 
+if(cfg.entrance_masks_path == 'None'):
+    cfg.entrance_masks_path = None
+
 # Run segmentation
 conf, logger = iterative_ksp.main(cfg)
 

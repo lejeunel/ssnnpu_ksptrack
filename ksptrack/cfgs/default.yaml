@@ -1,7 +1,7 @@
 precomp-dir : '.'
 in-path : '/home/laurent.lejeune/medical-labeling/'
 out-path : '/home/laurent.lejeune/medical-labeling/'
-entrance-masks-path : 
+entrance-masks-path : None
 locs-dir : 'gaze-measurements'
 truth-dir : 'ground_truth-frames'
 out-dir-prefix : 'exp'
@@ -47,7 +47,7 @@ bag-max-depth : 5
 bag-jobs : 8
 #-----------------------
 
-hoof-tau-u : 0.45
+hoof-tau-u : 0.75
 hoof-n-bins: 100
 
 # Metric learning
@@ -63,5 +63,5 @@ norm-neighbor : 0.08  #Cut edges outside neighborhood
 norm-neighbor-in : 0.05  #Cut edges outside neighborhood
 
 
-pm-thr : 0.8  #Threshold on KSP+SS PM for positives selection
+pm-thr : 0.5  #Threshold on KSP+SS PM for positives selection
 

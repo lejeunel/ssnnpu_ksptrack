@@ -30,9 +30,12 @@ class EntranceAgent:
 
         self.entrance_radius = entrance_radius
         self.shape = shape
+        self.mask_path = mask_path
+
         if(mask_path is not None):
             self.mask_paths = sorted(glob.glob(pjoin(mask_path, '*.png')))
             self.masks = [plt.imread(p) for p in self.mask_paths]
+
 
     def is_entrance(self,
                     loc_2d,
@@ -45,14 +48,14 @@ class EntranceAgent:
                                          self.shape[1],
                                          self.shape[0])
 
-        if(self.mask_paths is not None):
+        if(self.mask_path is not None):
             return self.masks[idx].astype(bool)[i_gaze, j_gaze]
         else:
-            mask = np.zeros(self.shape)
+            mask = np.zeros(self.shape, dtype=bool)
             rr, cc = circle(
                 i_gaze,
                 j_gaze,
                 self.shape[0] * self.entrance_radius,
                 shape=self.shape)
-            mask[rr, cc] = 1
+            mask[rr, cc] = True
             return mask[i_gaze, j_gaze]

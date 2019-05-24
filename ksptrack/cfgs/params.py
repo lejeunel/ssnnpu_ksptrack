@@ -52,7 +52,7 @@ def get_params():
     p.add('--frame-extension')
     p.add('--csv-fname')
     p.add('--feats-dir')
-    p.add('--entrance-masks-path')
+    p.add('--entrance-masks-path', default=None)
 
     p.add('--use-hoof', type=bool, default=True)
     p.add('--hoof-tau-u', type=float)
