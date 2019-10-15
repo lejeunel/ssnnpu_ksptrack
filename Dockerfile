@@ -39,6 +39,10 @@ RUN cd /home && git clone https://github.com/Illumina/pyflow.git \
   && cd pyflow/pyflow \
   && python3 setup.py build install 
 
+RUN apt-get update && \
+    apt-get install -y python3-opencv libopencv-dev&&\
+    rm -rf /var/lib/apt/lists/*
+
 #Install KSPTrack
 RUN cd /home && git clone https://github.com/lejeunel/ksptrack.git \
   && cd ksptrack \
