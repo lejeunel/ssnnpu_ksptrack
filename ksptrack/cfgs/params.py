@@ -1,5 +1,6 @@
 import os
 import configargparse
+from os.path import join as pjoin
 
 seq_type_dict = {
     'Tweezer': ['Dataset00', 'Dataset01', 'Dataset02', 'Dataset03'],
@@ -31,23 +32,23 @@ def datasetdir_to_type(dir_):
     return seq_type
 
 
-def get_params():
+def get_params(path='cfgs'):
     """ Builds default configuration
     """
     p = configargparse.ArgParser(
         config_file_parser_class=configargparse.YAMLConfigFileParser,
-        default_config_files=['cfgs/default.yaml',
-                              'cfgs/feat.yaml'])
+        default_config_files=[pjoin(path, 'default.yaml'),
+                              pjoin(path, 'feat.yaml')])
 
     p.add('-v', help='verbose', action='store_true')
 
     #Paths, dirs, names ...
     p.add('--locs-dir')
     p.add('--truth-dir')
-    p.add('--root-path')
     p.add('--out-dir-prefix')
     p.add('--frame-prefix')
     p.add('--precomp-dir')
+    p.add('--precomp-desc-path')
     p.add('--frame-dir')
     p.add('--frame-extension')
     p.add('--csv-fname')
@@ -95,13 +96,14 @@ def get_params():
     p.add('--lfda-dim', type=int)
     p.add('--lfda-n-samps', type=int)
     p.add('--lfda-thresh', type=float)
-    p.add('--pca', default=True, action='store_true')
+    p.add('--pca', default=False, action='store_true')
 
     #Graph parameters
     p.add('--norm-neighbor', type=float)
     p.add('--norm-neighbor-in', type=float)
 
     p.add('--pm-thr', type=float)
+    p.add('--thr-entrance', type=float)
     p.add('--n-iter-ksp', type=float)
 
     # features

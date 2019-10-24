@@ -1,32 +1,26 @@
 from sklearn.metrics import (f1_score, roc_curve, auc, precision_recall_curve)
 import glob
-import progressbar
 import sys
 import os
 import numpy as np
 import matplotlib.pyplot as plt
 from skimage import (color, segmentation, io)
 import logging
-import pandas as pd
 from ksptrack.utils import my_utils as utls
-from ksptrack.utils import learning_dataset
-from ksptrack.utils import csv_utils as csv
-from ksptrack.utils import data_manager as ds
+from ksptrack.cfgs import params
 from ksptrack.tr import Tracklet
 
 
-def main(conf, logger=None):
+def main(cfg, out_path, logger=None):
 
     logger = logging.getLogger('plot_results_ksp')
 
-    logger.info('--------')
-    logger.info('Writing result frames to: ' + conf.out_path)
-    logger.info('--------')
+    logger.info('Writing result frames to: ' + out_path)
 
     res = np.load(
-        os.path.join(conf.out_path, 'results.npz'))
+        os.path.join(out_path, 'results.npz'))
 
-    frame_dir = os.path.join(conf.out_path, 'results')
+    frame_dir = os.path.join(out_path, 'results')
     if(not os.path.exists(frame_dir)):
         logger.info('Creating output frame dir: {}'.format(frame_dir))
         os.makedirs(frame_dir)
@@ -46,7 +40,12 @@ def main(conf, logger=None):
                     scores_pm[..., i])
 
 if __name__ == "__main__":
-    main(sys.argv)
+    p = params.get_params()
+
+    p.add('--out-path', required=True)
+
+    cfg = p.parse_args()
+    main(cfg)
 
 #dir_ = os.path.join(rd.root_dir,
 #                    'Dataset30/results/2017-11-07_14-49-56_exp')

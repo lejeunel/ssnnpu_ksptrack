@@ -105,7 +105,7 @@ class HOOFExtractor:
         else:
             self.logger.info('Loading HOOF on grid {}'.format(file_hoof_grid))
             self.logger.info('... (delete to re-run)')
-            self.hoof_grid = np.load(file_hoof_grid)['hoof'][()]
+            self.hoof_grid = np.load(file_hoof_grid, allow_pickle=True)['hoof'][()]
 
         return self.hoof_grid
 

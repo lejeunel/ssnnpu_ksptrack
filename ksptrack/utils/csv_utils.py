@@ -4,6 +4,7 @@ import numpy as np
 import os.path
 from skimage.draw import circle
 from scipy import ndimage
+import pandas as pd
 
 
 def draw2DPoint(locs2d, frame_num, img, radius=2, color=(0, 255, 0)):
@@ -75,9 +76,15 @@ def coord2normalized(x, y, width, height):
     return x, y
 
 
-def readCsv(filePath):
+def readCsv(filePath, as_pandas=False):
 
-    return np.loadtxt(open(filePath, "rb"), delimiter=";", skiprows=5)
+    if (as_pandas):
+        arr = pd.read_csv(filePath, skiprows=4, delimiter=";")
+    else:
+        arr = np.loadtxt(open(filePath, "rb"), delimiter=";", skiprows=5)
+
+    return arr
+
 
 
 #def writeCsv(a, path, field_names = ['']):

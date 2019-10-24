@@ -1,6 +1,5 @@
-precomp-dir : '.'
-in-path : '/home/laurent.lejeune/medical-labeling/'
-out-path : '/home/laurent.lejeune/medical-labeling/'
+precomp-dir : 'precomp_desc'
+precomp-desc-path : ''
 entrance-masks-path : None
 locs-dir : 'gaze-measurements'
 truth-dir : 'ground_truth-frames'
@@ -42,7 +41,7 @@ monitor-score : False
 bag-t : 500
 bag-n-bins : 100
 bag-n-feats : 0.013
-bag-max-samples : 2000
+bag-max-samples : 500
 bag-max-depth : 5
 bag-jobs : 8
 #-----------------------
@@ -52,8 +51,8 @@ hoof-n-bins: 100
 
 # Metric learning
 n-comp-pca : 3
-lfda-k : 7
-lfda-dim : 5
+lfda-k : 3
+lfda-dim : 4
 lfda-n-samps : 1000
 lfda-thresh : 0.8
 pca : False  #Overrides LFDA and computes PCA with n-components:lfda-dims
@@ -64,4 +63,5 @@ norm-neighbor-in : 0.05  #Cut edges outside neighborhood
 
 
 pm-thr : 0.5  #Threshold on KSP+SS PM for positives selection
+thr-entrance : 0.85 #Threshold entrance masks
 

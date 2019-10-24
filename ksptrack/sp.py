@@ -333,7 +333,7 @@ def getLabelCentroids(labels):
                     [i, int(idxLabels[j]), pos_norm[0], pos_norm[1]])
     centroids = pd.DataFrame(
         centroid_list,
-        columns=['frame', 'sp_label', 'pos_norm_x', 'pos_norm_y'])
+        columns=['frame', 'label', 'x', 'y'])
 
     return (centroids)
 

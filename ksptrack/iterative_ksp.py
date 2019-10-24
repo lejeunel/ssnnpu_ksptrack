@@ -1,16 +1,17 @@
 import os
 from os.path import join as pjoin
-from ruamel import yaml
+import yaml
 import pandas as pd
 import numpy as np
 import ksptrack.graph_tracking as gtrack
 from ksptrack.utils import my_utils as utls
 from ksptrack.utils.data_manager import DataManager
-from ksptrack.utils.entrance_agent_mask import EntranceAgent
+from ksptrack.utils.link_agent import LinkAgent
 import logging
 import ksptrack.sp_manager as spm
+from ksptrack.utils import write_frames_results
+from ksptrack.utils import comp_scores
 import matplotlib.pyplot as plt
-from cfgs.params import datasetdir_to_type
 import datetime
 
 
@@ -18,20 +19,20 @@ def main(cfg):
     data = dict()
 
     d = datetime.datetime.now()
-    cfg.out_path = pjoin(cfg.out_path, 'results',
+    out_path = pjoin(cfg.out_path,
                          '{:%Y-%m-%d_%H-%M-%S}'.format(d))
 
-    if (not os.path.exists(cfg.out_path)):
-        os.makedirs(cfg.out_path)
+    if (not os.path.exists(out_path)):
+        os.makedirs(out_path)
 
     # Set logger
-    utls.setup_logging(cfg.out_path)
+    utls.setup_logging(out_path)
     logger = logging.getLogger('ksp')
 
     logger.info('-' * 10)
     logger.info('starting experiment on: {}'.format(cfg.in_path))
     logger.info('2d locs filename: {}'.format(cfg.csv_fname))
-    logger.info('Output path: {}'.format(cfg.out_path))
+    logger.info('Output path: {}'.format(out_path))
     logger.info('-' * 10)
 
     # Make frame file names
@@ -41,13 +42,13 @@ def main(cfg):
     locs2d = utls.readCsv(
         os.path.join(cfg.in_path, cfg.locs_dir, cfg.csv_fname))
 
-    # cfg.precomp_desc_path = cfg.out_path
-    cfg.precomp_desc_path = pjoin(cfg.in_path, 'precomp_desc')
+    cfg.precomp_desc_path = pjoin(cfg.in_path, cfg.precomp_dir)
     if (not os.path.exists(cfg.precomp_desc_path)):
         os.makedirs(cfg.precomp_desc_path)
 
-    with open(os.path.join(cfg.out_path, 'cfg.yml'), 'w') as outfile:
+    with open(os.path.join(out_path, 'cfg.yml'), 'w') as outfile:
         yaml.dump(cfg.__dict__, stream=outfile, default_flow_style=False)
+
 
     # ---------- Descriptors/superpixel costs
     dm = DataManager(cfg)
@@ -78,17 +79,20 @@ def main(cfg):
     ksp_scores_mat = []
 
     if (cfg.entrance_masks_path is not None):
-        entrance_agent = EntranceAgent(dm.labels.shape[:2],
-                                       cfg.entrance_masks_path)
+        link_agent = LinkAgent(dm.labels.shape[:2],
+                               logger=logger,
+                               csv_path=pjoin(cfg.in_path, cfg.locs_dir, cfg.csv_fname),
+                               thr_entrance=cfg.thr_entrance,
+                               mask_path=cfg.entrance_masks_path)
+
     else:
-        entrance_agent = EntranceAgent(
-            dm.labels.shape[:2], entrance_radius=cfg.norm_neighbor_in)
+        link_agent = LinkAgent(
+            dm.labels.shape[:2],
+            logger=logger,
+            csv_path=pjoin(cfg.in_path, cfg.locs_dir, cfg.csv_fname),
+            entrance_radius=cfg.norm_neighbor_in)
 
-    g_for = gtrack.GraphTracking(entrance_agent, sps_man=sps_man, mode='edge')
-
-    g_back = gtrack.GraphTracking(entrance_agent, sps_man=sps_man, mode='edge')
-
-    g_for.make_trans_transform(
+    link_agent.make_trans_transform(
         dm.sp_desc_df,
         dm.fg_pm_df,
         cfg.pm_thr,
@@ -98,15 +102,9 @@ def main(cfg):
         pca=cfg.pca,
         n_comps_pca=cfg.n_comp_pca)
 
-    g_back.make_trans_transform(
-        dm.sp_desc_df,
-        dm.fg_pm_df,
-        cfg.pm_thr,
-        cfg.lfda_n_samps,
-        cfg.lfda_dim,
-        cfg.lfda_k,
-        cfg.pca,
-        n_comps_pca=cfg.n_comp_pca)
+    g_for = gtrack.GraphTracking(link_agent, sps_man=sps_man)
+
+    g_back = gtrack.GraphTracking(link_agent, sps_man=sps_man)
 
     find_new_forward = True
     find_new_backward = True
@@ -138,9 +136,6 @@ def main(cfg):
             g_back.makeFullGraph(
                 dm.get_sp_desc_from_file(),
                 dm.fg_pm_df,
-                dm.centroids_loc,
-                locs2d,
-                dm.conf.norm_neighbor_in,
                 dm.conf.pm_thr,
                 dm.conf.hoof_tau_u,
                 direction='backward',
@@ -160,9 +155,6 @@ def main(cfg):
             g_for.makeFullGraph(
                 dm.get_sp_desc_from_file(),
                 dm.fg_pm_df,
-                dm.centroids_loc,
-                locs2d,
-                dm.conf.norm_neighbor_in,
                 dm.conf.pm_thr,
                 dm.conf.hoof_tau_u,
                 direction='forward',
@@ -214,7 +206,7 @@ def main(cfg):
             logger.info("""Number hit pixels of ksp at iteration {}:
                         {}""".format(i + 1, n_pix_ksp))
 
-            fileOut = os.path.join(cfg.out_path,
+            fileOut = os.path.join(out_path,
                                    'pm_scores_iter_{}.npz'.format(i))
             data = dict()
             data['ksp_scores_mat'] = ksp_scores_mat
@@ -228,30 +220,20 @@ def main(cfg):
                     all_feats_df=dm.sp_desc_df,
                     mode='foreground')
 
-                g_for.make_trans_transform(
-                    dm.sp_desc_df,
-                    dm.fg_pm_df,
-                    cfg.lfda_thresh,
-                    cfg.lfda_n_samps,
-                    cfg.lfda_dim,
-                    cfg.lfda_k,
-                    pca=cfg.pca,
-                    n_comps_pca=cfg.n_comp_pca)
-
-                g_back.make_trans_transform(
-                    dm.sp_desc_df,
-                    dm.fg_pm_df,
-                    cfg.lfda_thresh,
-                    cfg.lfda_n_samps,
-                    cfg.lfda_dim,
-                    cfg.lfda_k,
-                    pca=cfg.pca,
-                    n_comps_pca=cfg.n_comp_pca)
+            link_agent.make_trans_transform(
+                dm.sp_desc_df,
+                dm.fg_pm_df,
+                cfg.pm_thr,
+                cfg.lfda_n_samps,
+                cfg.lfda_dim,
+                cfg.lfda_k,
+                pca=cfg.pca,
+                n_comps_pca=cfg.n_comp_pca)
 
             i += 1
 
     # Saving 
-    fileOut = os.path.join(cfg.out_path, 'results.npz')
+    fileOut = os.path.join(out_path, 'results.npz')
     data = dict()
     data['frameFileNames'] = cfg.frameFileNames
     data['n_iters_ksp'] = cfg.n_iters_ksp
@@ -259,14 +241,17 @@ def main(cfg):
     data['pm_scores_mat'] = dm.get_pm_array()
     data['paths_back'] = dict_ksp['backward_sets']
     data['paths_for'] = dict_ksp['forward_sets']
-    logger.info("Saving results and cfgig to: " + fileOut)
+    logger.info("Saving results and cfg to: " + fileOut)
     np.savez(fileOut, **data)
 
-    g_for.save_all(os.path.join(cfg.out_path, 'g_for'))
-    g_back.save_all(os.path.join(cfg.out_path, 'g_back'))
+    g_for.save_all(os.path.join(out_path, 'g_for'))
+    g_back.save_all(os.path.join(out_path, 'g_back'))
 
     logger.info("done")
 
-    logger.info('Finished experiment: ' + cfg.out_path)
+    logger.info('Finished experiment: ' + out_path)
+
+    write_frames_results.main(cfg, out_path, logger)
+    comp_scores.main(cfg, out_path, logger)
 
     return cfg, logger

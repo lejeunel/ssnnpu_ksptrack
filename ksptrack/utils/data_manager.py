@@ -9,13 +9,13 @@ from ksptrack.utils import bagging as bag
 from ksptrack.utils import csv_utils as csv
 from ksptrack.utils import superpixel_extractor as svx
 from ksptrack.utils import superpixel_utils as spix_utls
-from skimage import (color, io, segmentation)
+from skimage import (color, io, segmentation, transform)
 from sklearn import (mixture, metrics, preprocessing, decomposition)
 import scipy as scp
 import glob, itertools
 import logging
 from imgaug import augmenters as iaa
-from pytorch_utils.my_augmenters import rescale_augmenter
+from ksptrack.utils.my_augmenters import rescale_augmenter
 import torch
 import tqdm
 
@@ -29,80 +29,11 @@ class DataManager:
         self.labels_ = None
         self.labels_contours_ = None
         self.centroids_loc_ = None
+        self.sp_desc_df_ = None
 
         if (not os.path.exists(self.conf.precomp_desc_path)):
             self.logger.info('Feature directory does not exist... creating')
             os.mkdir(self.conf.precomp_desc_path)
-
-    def relabel(self, save=False, who=[]):
-        """ Relabel labels, sp_desc_df and sp_link_df to make labels contiguous
-            who=['entr','desc','link','pm','centroids']
-        """
-
-        self.logger.info('Relabeling labels')
-
-        has_changed = False
-        if ('desc' in who):
-            sp_desc_df = self.get_sp_desc_from_file()
-        if ('link' in who):
-            sp_link_df = self.get_link_data_from_file()
-
-        with pbar(maxval=len(self.conf.frameFileNames)) as bar:
-            for i in range(len(self.conf.frameFileNames)):
-                bar.update(i)
-                this_labels = self.get_labels()[..., i]
-                sorted_labels = np.asarray(
-                    sorted(np.unique(this_labels).ravel()))
-                if (np.any((sorted_labels[1:] - sorted_labels[0:-1]) > 1)):
-                    has_changed = True
-                    map_dict = {
-                        sorted_labels[i]: i
-                        for i in range(sorted_labels.shape[0])
-                    }
-                    this_labels = utls.relabel(this_labels, map_dict)
-                    self.labels[..., i] = this_labels
-                    new_labels = np.asarray(
-                        [i for i in range(sorted_labels.shape[0])])
-                    if ('centroids' in who):
-                        self.centroids_loc.loc[(self.centroids_loc['frame'] ==
-                                                i), 'sp_label'] = new_labels
-                    if ('entr' in who):
-                        self.sp_entr_df.loc[(self.sp_entr_df['frame'] == i
-                                             ), 'sp_label'] = new_labels
-                    if ('pm' in who):
-                        self.fg_pm_df.loc[(self.fg_pm_df['frame'] == i
-                                           ), 'sp_label'] = new_labels
-
-                    if ('desc' in who):
-                        sp_desc_df.loc[(
-                            sp_desc_df['frame'] == i), 'sp_label'] = new_labels
-
-                    if ('link' in who):
-                        sp_link_df.loc[sp_link_df['input frame'] ==
-                                       i, 'input label'].replace(
-                                           map_dict, inplace=True)
-                        sp_link_df.loc[sp_link_df['output frame'] ==
-                                       i, 'output label'].replace(
-                                           map_dict, inplace=True)
-
-        #has_changed = True
-        self.logger.info('done.')
-        if (save & has_changed):
-            self.logger.info('Saving to disk...')
-
-            label_dict_out = dict()
-            label_dict_out['sp_labels'] = self.labels
-            mat_file_out = os.path.join(self.conf.root_path,
-                                        self.conf.ds_dir,
-                                        self.conf.frameDir, 'sp_labels.mat')
-            np_file_out = os.path.join(self.conf.root_path,
-                                       self.conf.ds_dir,
-                                       self.conf.frameDir, 'sp_labels.npz')
-            scp.io.savemat(mat_file_out, label_dict_out)
-            np.savez(np_file_out, **label_dict_out)
-
-        elif (save & ~has_changed):
-            self.logger.info('Nothing to change')
 
     @property
     def labels_contours(self):
@@ -142,34 +73,14 @@ class DataManager:
 
     def get_sp_desc_from_file(self):
 
-        # if (self.conf.feats_graph == 'overfeat'):
-        #     fname = 'overfeat.p'
-        # elif (self.conf.feats_graph == 'unet'):
-        #     fname = 'sp_desc_unet_rec.p'
-        # elif (self.conf.feats_graph == 'unet_gaze'):
         fname = 'sp_desc_ung.p'
-        # elif (self.conf.feats_graph == 'unet_gaze_cov'):
-        #     gaze_fname = os.path.splitext(self.conf.csvFileName_fg)[0]
-        #     fname = 'sp_desc_ung_' + gaze_fname + '.p'
-        # elif (self.conf.feats_graph == 'scp'):
-        #     fname = 'sp_desc_df.p'
-        # elif (self.conf.feats_graph == 'hsv'):
-        #     fname = 'sp_desc_hsv_df.p'
-        # elif (self.conf.feats_graph == 'vgg16'):
-        #     fname = 'sp_desc_vgg16.p'
 
-        path = os.path.join(self.conf.precomp_desc_path, fname)
-        # if (os.path.exists(path)):
+        if(self.sp_desc_df_ is None):
+            path = os.path.join(self.conf.precomp_desc_path, fname)
+            out = pd.read_pickle(path)
+            self.sp_desc_df_ = out
 
-        out = pd.read_pickle(path)
-
-        # else:
-        #     self.logger.info("Couldnt find features: {}".format(path))
-        #     self.logger.info("Will compute them now.")
-        #     self.calc_sp_feats_dispatch(self.conf.precomp_desc_path)
-        #     return self.get_sp_desc_from_file()
-
-        return out
+        return self.sp_desc_df_
 
     def get_sp_desc_means_from_file(self):
 
@@ -273,7 +184,7 @@ class DataManager:
                      T=100,
                      bag_n_feats=0.25,
                      bag_max_depth=5,
-                     bag_max_samples=2000,
+                     bag_max_samples=500,
                      n_jobs=1):
         """
         Computes "Bagging" transductive probabilities using marked_arr as positives.
@@ -298,75 +209,6 @@ class DataManager:
 
         return self.fg_pm_df
 
-    def calc_sp_feats_vgg16(self, save_dir):
-        """ Computes VGG16 features
-         and save features
-        """
-        from ksptrack.feat_extractor.myvgg16 import MyVGG16
-        from ksptrack.feat_extractor.feat_data_loader import PatchDataLoader
-
-        fnames = self.conf.frameFileNames
-        sp_labels = self.load_labels_if_not_exist()
-
-        myvgg16 = MyVGG16(cuda=self.conf.vgg16_cuda)
-
-        print('starting VGG16 feature extraction')
-        with pbar(maxval=len(fnames)) as bar:
-            for f_ind, f in enumerate(fnames):
-                bar.update(f_ind)
-                feats = list()
-                patch_loader = PatchDataLoader(f,
-                                               sp_labels[..., f_ind],
-                                               self.conf.vgg16_size,
-                                               myvgg16.transform,
-                                               batch_size=\
-                                               self.conf.vgg16_batch_size)
-
-                im_feats_save_path = os.path.join(save_dir,
-                                                  'im_feat_{}.p'.format(f_ind))
-
-                if (not os.path.exists(im_feats_save_path)):
-                    for b_i, b in enumerate(patch_loader.data_loader):
-                        print('frame {}/{}. batch {}/{}'.format(
-                            f_ind + 1, len(fnames), b_i + 1,
-                            len(patch_loader.data_loader)))
-                        patches = b[0]
-                        labels = b[1]
-                        print('myvgg16.get_features')
-                        feats_ = myvgg16.get_features(patches)
-                        print('done')
-                        feats += [(f_ind, l, f_) for (
-                            l,
-                            f_) in zip(np.asarray(labels), np.asarray(feats_))]
-
-                    feats = pd.DataFrame(
-                        feats, columns=["frame", "sp_label", "desc"])
-                    feats.sort_values(['frame', 'sp_label'], inplace=True)
-                    feats.to_pickle(im_feats_save_path)
-
-        print('done')
-        # Make single feature file for convenience
-        all_feats_path = os.path.join(self.conf.precomp_desc_path,
-                                      'sp_desc_vgg16.p')
-
-        if (not os.path.exists(all_feats_path)):
-            im_feats_paths = sorted(
-                glob.glob(
-                    os.path.join(self.conf.precomp_desc_path, 'im_feat_*.p')))
-            all_feats = [pd.read_pickle(p_) for p_ in im_feats_paths]
-
-            feats_df = pd.concat(all_feats)
-            feats_df.sort_values(['frame', 'sp_label'], inplace=True)
-
-            self.logger.info(
-                "Saving all features at {}".format(all_feats_path))
-            feats_df = feats_df.reset_index()
-            feats_df.to_pickle(all_feats_path)
-        else:
-            all_feats = pd.read_pickle(all_feats_path)
-
-        return all_feats
-
     def calc_sp_feats_unet_gaze_rec(self, locs2d, save_dir=None):
         """ 
         Computes UNet features in Autoencoder-mode
@@ -384,9 +226,8 @@ class DataManager:
         df_path = os.path.join(save_dir, df_fname)
         bm_path = os.path.join(save_dir, bm_fname)
 
-        from unet_obj_prior.unet_feat_extr import UNetFeatExtr
-        from pytorch_utils.dataset import Dataset
-        from pytorch_utils import utils as unet_utls
+        from ksptrack.models.unet_feat_extr import UNetFeatExtr
+        from ksptrack.models.dataset import Dataset
 
         orig_shape = utls.imread(self.conf.frameFileNames[50]).shape
         in_shape = self.conf.feat_in_shape
@@ -497,15 +338,13 @@ class DataManager:
             frames = np.unique(self.centroids_loc['frame'].values)
             bar = tqdm.tqdm(total=len(frames))
             for f in frames:
-                feats_us = np.asarray([
-                    scp.misc.imresize(feats_ds[..., i, f],
-                                    orig_shape[0:2], interp='bilinear')
-                    for i in range(feats_ds[..., f].shape[-1])
-                ]).transpose((1, 2, 0))
+                feats_us = transform.resize(feats_ds[..., f],
+                                            (*orig_shape[0:2], feats_ds.shape[2]))
+                            
                 for index, row in self.centroids_loc[
                         self.centroids_loc['frame'] == f].iterrows():
-                    x = row['pos_norm_x']
-                    y = row['pos_norm_y']
+                    x = row['x']
+                    y = row['y']
                     ci, cj = csv.coord2Pixel(x, y, feats_us.shape[1],
                                                 feats_us.shape[0])
                     feats_sp.append(feats_us[ci, cj, :].copy())
@@ -542,7 +381,7 @@ class DataManager:
         bar = tqdm.tqdm(total=len(frames))
         for f in frames:
             this_frame_pm_df = pm_df[pm_df['frame'] == f]
-            dict_keys = this_frame_pm_df['sp_label']
+            dict_keys = this_frame_pm_df['label']
             dict_vals = this_frame_pm_df['proba']
             dict_map = dict(zip(dict_keys, dict_vals))
             for k, v in dict_map.items():

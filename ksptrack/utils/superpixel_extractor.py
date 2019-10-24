@@ -13,6 +13,25 @@ from ksptrack.utils import my_utils as utls
 from ksptrack.utils import superpixel_utils as spix_utls
 
 
+def relabel(labels):
+
+    sorted_labels = np.asarray(sorted(np.unique(labels).ravel()))
+    non_contiguous = np.any((sorted_labels[1:] - sorted_labels[0:-1]) > 1)
+    not_start_zero = sorted_labels[0] != 0
+    if (non_contiguous or not_start_zero):
+        map_dict = {sorted_labels[i]: i for i in range(sorted_labels.shape[0])}
+
+        shape = labels.shape
+        labels = labels.ravel()
+        new_labels = np.copy(labels)
+        for k, v in map_dict.items():
+            new_labels[labels == k] = v
+
+        return new_labels.reshape(shape)
+    else:
+        return labels
+
+
 class SuperpixelExtractor:
     def __init__(self):
 
@@ -30,15 +49,18 @@ class SuperpixelExtractor:
 
         self.logger.info('Got {} images'.format(len(im_paths)))
 
-        if (len(im_paths) < 5):
+        if(len(im_paths) < 5):
             im_paths += [im_paths[-1] for i in range(5 - len(im_paths))]
 
         ims_list = [utls.imread(im) for im in im_paths]
         ims_arr = np.asarray(ims_list).transpose(1, 2, 3, 0)
-        dims = ims_arr.shape
 
-        labels, numlabels = self.my_svx.run(ims_arr, slic_n_sp,
+        labels, numlabels = self.my_svx.run(ims_arr,
+                                            slic_n_sp,
                                             slic_compactness)
+
+        labels = np.array([relabel(labels[..., i].copy()) for i in range(labels.shape[-1])])
+        labels = np.rollaxis(labels, 0, 3)
 
         self.logger.info('Num. of labels: {}' \
                             .format(numlabels))

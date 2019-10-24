@@ -2,7 +2,7 @@ import logging
 import numpy as np
 from ksptrack.utils import my_utils as utls
 from ksptrack.hoof_extractor import HOOFExtractor
-import progressbar
+import tqdm
 import os
 import pickle as pk
 import matplotlib.pyplot as plt
@@ -48,6 +48,9 @@ class SuperpixelManager:
     def make_dicts(self):
         #self.dict_init = self.make_init_dicts()
         if (self.with_flow):
+            file_hoof_sps = os.path.join(self.conf.precomp_desc_path,
+                                         'hoof_inters_{}_graph.npz'.format(self.init_mode))
+
             self.graph = self.make_init_constraint()
             flows_path = os.path.join(self.conf.precomp_desc_path, 'flows.npz')
 
@@ -70,7 +73,7 @@ class SuperpixelManager:
                                   'radius_constraint.p')
         if (not os.path.exists(file_graph)):
             f = self.c_loc['frame']
-            s = self.c_loc['sp_label']
+            s = self.c_loc['label']
 
             g = nx.Graph()
 
@@ -91,8 +94,8 @@ class SuperpixelManager:
                     deep=False)
                 df1 = self.c_loc.loc[self.c_loc['frame'] == f1].copy(
                     deep=False)
-                df0.columns = ['frame_0', 'sp_label_0', 'x0', 'y0']
-                df1.columns = ['frame_1', 'sp_label_1', 'x1', 'y1']
+                df0.columns = ['frame_0', 'label_0', 'x0', 'y0']
+                df1.columns = ['frame_1', 'label_1', 'x1', 'y1']
                 df0.loc[:, 'key'] = 1
                 df1.loc[:, 'key'] = 1
                 df_combs = pd.merge(df0, df1, on='key').drop('key', axis=1)
@@ -130,7 +133,7 @@ class SuperpixelManager:
                                   'overlap_constraint.p')
         if (not os.path.exists(file_graph)):
             f = self.c_loc['frame']
-            s = self.c_loc['sp_label']
+            s = self.c_loc['label']
 
             g = nx.Graph()
 
@@ -172,120 +175,6 @@ class SuperpixelManager:
         self.graph_init = g
         return g
 
-    def make_hoof_inter_graph(self):
-        #We build an undirected graph where nodes are tuples (frame, sp_label)
-        hoof = self.make_hoof_dict()
-
-        file_graph = os.path.join(self.conf.precomp_desc_path,
-                                  'hoof_constraint.p')
-
-        frames = np.unique(self.c_loc['frame'])
-        # Compute histograms
-        if (not os.path.exists(file_graph)):
-            for direction in self.directions:
-                self.logger.info('Computing HOOF intersections in {} direction'\
-                                 .format(direction))
-                with progressbar.ProgressBar(maxval=len(g.nodes())) as bar:
-                    for i, n in enumerate(g.nodes()):
-                        bar.update(i)
-                        for c in g[n]:  # candidates
-                            start_f = n[0]
-                            end_f = c[0]
-                            start_s = n[1]  # start sp_label
-                            end_s = c[1]
-                            if (direction == 'forward'):
-                                inter_hoof = utls.hist_inter(
-                                    hoof[direction][start_f][start_s],
-                                    hoof[direction][start_f][end_s])
-
-                            else:
-                                inter_hoof = utls.hist_inter(
-                                    hoof[direction][end_f][start_s],
-                                    hoof[direction][end_f][end_s])
-                            g[n][c][direction] = inter_hoof
-
-                self.logger.info('Saving hoof graph to ' + file_graph)
-                with open(file_graph, 'wb') as f:
-                    pk.dump(g, f, pk.HIGHEST_PROTOCOL)
-                self.graph_hoof = g
-            return self.graph_hoof
-        else:
-            self.logger.info('Loading graph... (delete to re-run)')
-            with open(file_graph, 'rb') as f:
-                self.dict_hoof = f
-                return pk.load(f)
-
-    def make_hoof_dict(self):
-        """
-        Compute for each direction a HOOF dictionary
-        """
-
-        g = self.make_overlap_constraint()
-        edges = g.edges()
-
-        file_graph = os.path.join(self.conf.precomp_desc_path,
-                                  'hoof_constraint.p')
-
-        # Compute histograms
-        if (not os.path.exists(file_graph)):
-            for direction in self.directions:
-                if (direction == 'forward'):
-                    edges = [e for e in edges if (e[1][0] > e[0][0])]
-                    keys = ['fvx', 'fvy']
-                else:
-                    edges = [e for e in edges if (e[0][0] > e[1][0])]
-                    keys = ['bvx', 'bvy']
-
-                frames = sorted(set([e[0][0] for e in edges]))
-
-                hoof_ = dict()
-                bins_hoof = np.linspace(-np.pi / 2, np.pi / 2,
-                                        self.conf.hoof_n_bins + 1)
-
-                self.logger.info('Getting optical flows')
-                flows = self.dataset.get_flows()
-
-                # duplicate flows at limits
-                fx = flows[keys[0]]
-                fy = flows[keys[1]]
-
-                self.logger.info(
-                    'Computing HOOF in {} direction'.format(direction))
-
-                with progressbar.ProgressBar(maxval=len(frames)) as bar:
-                    for f, p in zip(frames, range(len(frames))):
-
-                        edges_ = [e for e in edges if (e[0][0] == f)]
-
-                        if (direction == 'forward'):
-                            f_start = edges_[0][0][0]
-                            f_end = edges_[0][1][0]
-                        else:
-                            f_start = edges_[0][1][0]
-                            f_end = edges_[0][0][0]
-
-                        hoof_start = make_hoof_labels(
-                            fx[..., p], fy[..., p], self.labels[..., f_start],
-                            bins_hoof)
-                        hoof_end = make_hoof_labels(fx[..., p], fy[..., p],
-                                                    self.labels[..., f_end],
-                                                    bins_hoof)
-
-                        for e in edges_:
-                            g[e[0]][e[1]][direction] = utls.hist_inter(
-                                hoof_start[e[0][1]], hoof_end[e[1][1]])
-                        bar.update(p)
-
-            self.logger.info('Saving hoof graph to ' + file_graph)
-            with open(file_graph, 'wb') as f:
-                pk.dump(g, f, pk.HIGHEST_PROTOCOL)
-            self.graph = g
-            return self.graph
-        else:
-            self.logger.info('Loading hoof dict... (delete to re-run)')
-            with open(file_graph, 'rb') as f:
-                self.graph = pk.load(f)
-                return self.graph
 
     def __getstate__(self):
         d = dict(self.__dict__)

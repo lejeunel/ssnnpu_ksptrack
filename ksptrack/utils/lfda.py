@@ -3,9 +3,11 @@ import numpy as np
 
 
 class myLFDA(LFDA):
-    def __init__(self, num_dims=None, k=None, embedding_type='weighted'):
+    def __init__(self, n_components=None, k=None, embedding_type='weighted'):
 
-        super(myLFDA, self).__init__(num_dims, k, embedding_type)
+        super(myLFDA, self).__init__(n_components=n_components,
+                                     k=k,
+                                     embedding_type=embedding_type)
 
     def fit(self, X, y, thresh, n_samp, clean_zeros=True):
         """

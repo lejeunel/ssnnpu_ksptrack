@@ -61,7 +61,7 @@ def calc_bagging(T,
                  mode='foreground',
                  feat_fields=['desc'],
                  remove_marked=False,
-                 bag_max_samples=2000,
+                 bag_max_samples=500,
                  n_jobs=4):
     #marked_arr: has index of frame and corresponding superpixel label. Taken as positive samples
     #all_feats_df: Pandas frame with all samples (positive and unlabeled)
@@ -80,7 +80,7 @@ def calc_bagging(T,
             if (not np.any(
                     marked_arr[i, :] == -1)):  #Some points might be missing
                 this_idx = np.where((all_feats_df['frame']==marked_arr[i,0])\
-                        & (all_feats_df['sp_label']==marked_arr[i,1]) )[0][0]
+                        & (all_feats_df['label']==marked_arr[i,1]) )[0][0]
 
                 this_feat = np.hstack([
                     all_feats_df[feat_field].iloc[this_idx].reshape(1, -1)
@@ -88,7 +88,7 @@ def calc_bagging(T,
                 ]).ravel()
                 this_feat = np.hstack(
                     (all_feats_df.frame.iloc[this_idx],
-                     all_feats_df.sp_label.iloc[this_idx], this_feat))
+                     all_feats_df['label'].iloc[this_idx], this_feat))
                 marked_feats.append(this_feat)
         marked_feats = np.asarray(marked_feats)
 
@@ -97,7 +97,7 @@ def calc_bagging(T,
     if (remove_marked):
         for i in range(marked_arr.shape[0]):
             data_U_df = data_U_df[~((data_U_df.frame == marked_arr[i, 0]) &
-                                    (data_U_df.sp_label == marked_arr[i, 1]))]
+                                    (data_U_df['label'] == marked_arr[i, 1]))]
 
     global data_U
     data_U = merge_feats(data_U_df, feat_fields=feat_fields)
@@ -107,11 +107,12 @@ def calc_bagging(T,
     global data_P
     data_P = marked_feats[~nan_idx, :]
 
-    print('number of positives samples: ' + str(data_P.shape[0]))
 
     NP = np.min((data_P.shape[0], bag_max_samples))
     #NP = data_P.shape[0]
     NU = data_U.shape[0]
+
+    print('number of positives samples: {}'.format(NP))
 
     np.random.seed(0)
 
@@ -161,11 +162,11 @@ def calc_bagging(T,
 
     pm_df = pd.DataFrame({
         'frame': data_frames.ravel(),
-        'sp_label': data_labels.ravel(),
+        'label': data_labels.ravel(),
         'proba': data_probas.ravel()
     })
 
-    pm_df.sort_values(['frame', 'sp_label'], inplace=True)
+    pm_df.sort_values(['frame', 'label'], inplace=True)
 
     return marked_feats, pm_df
 
@@ -173,7 +174,7 @@ def merge_feats(df, feat_fields):
     out = []
     for i in df.index:
         out.append(
-            np.hstack((df.frame[i], df.sp_label[i],
+            np.hstack((df.frame[i], df.label[i],
                        np.hstack([
                            df[feat_field][i].reshape(1, -1)
                            for feat_field in feat_fields
@@ -202,7 +203,7 @@ def make_samples(marked_arr,
                     ):  #Some points might be missing
                     this_idx = np.where(
                         (all_feats_df['frame'] == marked_arr[i, 0]) &
-                        (all_feats_df['sp_label'] == marked_arr[i, 1]))[0][0]
+                        (all_feats_df['label'] == marked_arr[i, 1]))[0][0]
 
                     this_feat = np.hstack([
                         all_feats_df[feat_field][this_idx].reshape(1, -1)
@@ -210,7 +211,7 @@ def make_samples(marked_arr,
                     ]).ravel()
                     this_feat = np.hstack(
                         (all_feats_df.frame[this_idx],
-                         all_feats_df.sp_label[this_idx], this_feat))
+                         all_feats_df.label[this_idx], this_feat))
                     marked_feats.append(this_feat)
             marked_feats = np.asarray(marked_feats)
 
@@ -219,7 +220,7 @@ def make_samples(marked_arr,
     if (remove_marked):
         for i in range(marked_arr.shape[0]):
             data_U_df = data_U_df[~((data_U_df.frame == marked_arr[i, 0]) &
-                                    (data_U_df.sp_label == marked_arr[i, 1]))]
+                                    (data_U_df.label == marked_arr[i, 1]))]
 
     data_U = merge_feats(data_U_df, feat_fields=feat_fields)
     #data_U = data_U[:,2:]
