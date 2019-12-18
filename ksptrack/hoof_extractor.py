@@ -109,15 +109,13 @@ class HOOFExtractor:
 
         return self.hoof_grid
 
-    def make_hoof_inters(self, g):
+    def make_hoof_inters(self, g, file_out):
         """
         Compute HOOF intersection on sps
         Neighboring superpixels are given by undirected graph g
         """
-        file_hoof_sps = os.path.join(self.conf.precomp_desc_path,
-                                     'hoof_inters_graph.npz')
 
-        if (not os.path.exists(file_hoof_sps)):
+        if (not os.path.exists(file_out)):
             self.hoof_grid = self.make_hoof_on_grid()
             for dir_ in self.directions:
                 self.logger.info(
@@ -152,13 +150,13 @@ class HOOFExtractor:
                 bar.close()
 
             self.logger.info('Saving HOOF on sps ...')
-            with open(file_hoof_sps, 'wb') as f:
+            with open(file_out, 'wb') as f:
                 pk.dump(g, f, pk.HIGHEST_PROTOCOL)
             self.g = g
         else:
-            self.logger.info('Loading HOOF graph {} on sps'.format(file_hoof_sps))
+            self.logger.info('Loading HOOF graph {} on sps'.format(file_out))
             self.logger.info('... (delete to re-run)')
-            with open(file_hoof_sps, 'rb') as f:
+            with open(file_out, 'rb') as f:
                 self.g = pk.load(f)
 
         return self.g

@@ -8,7 +8,7 @@ from sklearn import (mixture, metrics, preprocessing, decomposition)
 from scipy import (ndimage)
 import glob, itertools
 import logging
-from SLICsupervoxels import libsvx
+# from SLICsupervoxels import libsvx
 from ksptrack.utils import my_utils as utls
 from ksptrack.utils import superpixel_utils as spix_utls
 
@@ -38,7 +38,7 @@ class SuperpixelExtractor:
         self.logger = logging.getLogger('SuperpixelExtractor')
 
         # Create supervoxel object
-        self.my_svx = libsvx.svx.create()
+        # self.my_svx = libsvx.svx.create()
 
     def extract(self,
                 im_paths,
@@ -53,16 +53,20 @@ class SuperpixelExtractor:
             im_paths += [im_paths[-1] for i in range(5 - len(im_paths))]
 
         ims_list = [utls.imread(im) for im in im_paths]
-        ims_arr = np.asarray(ims_list).transpose(1, 2, 3, 0)
+        self.logger.info('Running SLIC on {} images with {} labels'.format(len(im_paths),
+                                                                           slic_n_sp))
+        labels = np.array([segmentation.slic(im, n_segments = slic_n_sp, compactness=slic_compactness)
+                  for im in ims_list])
 
-        labels, numlabels = self.my_svx.run(ims_arr,
-                                            slic_n_sp,
-                                            slic_compactness)
+        # labels, numlabels = self.my_svx.run(ims_arr,
+        #                                     slic_n_sp,
+        #                                     slic_compactness)
 
-        labels = np.array([relabel(labels[..., i].copy()) for i in range(labels.shape[-1])])
+        # labels = np.array([relabel(labels[..., i].copy()) for i in range(labels.shape[-1])])
         labels = np.rollaxis(labels, 0, 3)
 
-        self.logger.info('Num. of labels: {}' \
-                            .format(numlabels))
+        # self.logger.info('Num. of labels: {}' \
+        #                     .format(numlabels))
 
-        return labels, numlabels
+        # return labels, numlabels
+        return labels

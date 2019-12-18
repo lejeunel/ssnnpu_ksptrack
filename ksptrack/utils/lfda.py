@@ -9,7 +9,7 @@ class myLFDA(LFDA):
                                      k=k,
                                      embedding_type=embedding_type)
 
-    def fit(self, X, y, thresh, n_samp, clean_zeros=True):
+    def fit(self, X, y, threshs, n_samp):
         """
         X: features matrix
         y: probability values
@@ -18,18 +18,20 @@ class myLFDA(LFDA):
         clean_zeros: remove feature that are zeros on all samples
         """
 
-        n_samp = min((np.sum(y > thresh), n_samp))
+        n_samp = min((np.sum(y < threshs[0]), np.sum(y > threshs[1]), n_samp))
 
-        if (clean_zeros):
-            X, unq_idx = np.unique(X, axis=0, return_index=True)
-            y = (y > thresh).astype(int)[unq_idx]
-        else:
-            y = (y > thresh).astype(int)
-
-        rand_idx_pos = np.random.choice(
-            np.where(y > 0)[0], replace=False, size=n_samp)
+        replace = False
+        if((y < threshs[0]).sum() < n_samp):
+            replace = True
         rand_idx_neg = np.random.choice(
-            np.where(y == 0)[0], replace=False, size=n_samp)
+            np.where(y < threshs[0])[0], replace=replace, size=n_samp)
+
+        replace = False
+        if((y > threshs[1]).sum() < n_samp):
+            replace = True
+        rand_idx_pos = np.random.choice(
+            np.where(y > threshs[1])[0], replace=False, size=n_samp)
+
         rand_X_pos = X[rand_idx_pos, :]
         rand_X_neg = X[rand_idx_neg, :]
         rand_y_pos = y[rand_idx_pos]
@@ -37,17 +39,19 @@ class myLFDA(LFDA):
         rand_descs = np.concatenate((rand_X_pos, rand_X_neg), axis=0)
 
         # Check for samples with all zeros
-        inds_ = np.where(np.sum(rand_descs, axis=1) != 0)[0]
-        rand_descs = rand_descs[inds_, :]
+        # inds_ = np.where(np.sum(rand_descs, axis=1) != 0)[0]
+        # rand_descs = rand_descs[inds_, :]
 
         # Check for components with all zeros
-        self.valid_components = np.where(np.sum(rand_descs, axis=0) != 0)[0]
-        rand_descs = rand_descs[..., self.valid_components]
+        # self.valid_components = np.where(np.sum(rand_descs, axis=0) != 0)[0]
 
-        rand_y = np.concatenate((rand_y_pos, rand_y_neg), axis=0)
+        # rand_descs = rand_descs[..., self.valid_components]
+        rand_y = np.concatenate((np.ones_like(rand_y_pos), np.zeros_like(rand_y_neg)), axis=0)
+        # rand_y = rand_y[self.valid_components]
 
         return super(myLFDA, self).fit(rand_descs, rand_y)
 
     def transform(self, x):
 
-        return super(myLFDA, self).transform(x[..., self.valid_components])
+        # return super(myLFDA, self).transform(x[..., self.valid_components])
+        return super(myLFDA, self).transform(x)

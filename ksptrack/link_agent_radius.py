@@ -15,15 +15,17 @@ from siamese_sp.siamese import Siamese
 import torch
 
 
-class LinkAgent:
+class LinkAgentRadius:
     def __init__(self,
-                 csv_path,
-                 labels,
-                 thr_entrance=0.5,
-                 mask_path=None,
-                 model_path=None,
-                 sigma=0.07,
-                 entrance_radius=None):
+                csv_path,
+                labels,
+                sp_desc,
+                thr_entrance=0.5,
+                mask_path=None,
+                model_path=None,
+                sigma=0.07,
+                cuda=False,
+                entrance_radius=None):
 
         # assert((entrance_radius is not None) or (mask_path is not None) and (model_path is None)), 'entrance_radius, mask_path, and model_path cannot be all None'
 
@@ -32,6 +34,7 @@ class LinkAgent:
         self.shape = self.labels[..., 0].shape
         self.mask_path = mask_path
         self.model_path = model_path
+        self.cuda = cuda
         self.sigma = sigma
         self.trans_transform = None
         self.thr_clip = 0.05
@@ -51,6 +54,7 @@ class LinkAgent:
             self.mode = 'mask'
 
         if (model_path is not None):
+            assert(sp_desc is not None), 'when using model, provide sp_desc'
             assert(mask_path is not None), 'when using model, provide mask_path'
             print('Loading model {}'.format(model_path))
             self.model = Siamese(balanced=False)
@@ -61,7 +65,7 @@ class LinkAgent:
 
     def get_i_j(self, loc):
         i, j = csv.coord2Pixel(loc['x'], loc['y'], self.shape[1],
-                               self.shape[0])
+                                self.shape[0])
         return i, j
 
     def make_radius_mask(self, frame):
@@ -122,7 +126,7 @@ class LinkAgent:
         ]
         loc_min = self.locs.loc[np.argmin(dists)]
         i_min, j_min = csv.coord2Pixel(loc_min['x'], loc_min['y'],
-                                       self.shape[1], self.shape[0])
+                                        self.shape[1], self.shape[0])
         return labels[i_min, j_min, tl.get_in_frame()]
 
     def get_proba_entrance(self, tl, tl_loc, sp_desc, labels):
@@ -134,7 +138,7 @@ class LinkAgent:
             frame_user = tl.get_in_frame()
 
             return self.get_proba(sp_desc, frame_user, label_user, frame_tl,
-                                  label_tl)
+                                    label_tl)
         else:
             # compute average probability on mask on label occupied by tl
             if (tl.get_in_frame() in self.masks.keys()):
@@ -173,9 +177,9 @@ class LinkAgent:
 
     def get_distance(self, sp_desc, f1, l1, f2, l2, p=2):
         d1 = sp_desc.loc[(sp_desc['frame'] == f1) &
-                         (sp_desc['label'] == l1), 'desc'].values[0][None, ...]
+                            (sp_desc['label'] == l1), 'desc'].values[0][None, ...]
         d2 = sp_desc.loc[(sp_desc['frame'] == f2) &
-                         (sp_desc['label'] == l2), 'desc'].values[0][None, ...]
+                            (sp_desc['label'] == l2), 'desc'].values[0][None, ...]
         d1 = self.trans_transform.transform(d1)
         d2 = self.trans_transform.transform(d2)
 
@@ -192,15 +196,15 @@ class LinkAgent:
 
 
     def make_trans_transform(self,
-                             sp_desc,
-                             pm,
-                             threshs,
-                             n_samps,
-                             n_dims,
-                             k,
-                             embedding_type='weighted',
-                             pca=False,
-                             n_comps_pca=3):
+                                sp_desc,
+                                pm,
+                                threshs,
+                                n_samps,
+                                n_dims,
+                                k,
+                                embedding_type='weighted',
+                                pca=False,
+                                n_comps_pca=3):
 
         # descs_cat = utls.concat_arr(sp_desc['desc'])
         descs_cat = np.vstack(sp_desc['desc'].values)
@@ -210,8 +214,8 @@ class LinkAgent:
         if (not pca):
 
             self.trans_transform = myLFDA(n_components=n_dims,
-                                          k=k,
-                                          embedding_type=embedding_type)
+                                            k=k,
+                                            embedding_type=embedding_type)
             probas = pm['proba'].values
             if((probas < threshs[0]).sum() < n_samps):
                 sorted_probas = np.sort(probas)
@@ -222,7 +226,7 @@ class LinkAgent:
                 threshs[1] = sorted_probas[n_samps]
                 warnings.warn('Not enough positives. Setting thr to {}'.format(threshs[1]))
             self.trans_transform.fit(descs_cat, pm['proba'].values, threshs,
-                                     n_samps)
+                                        n_samps)
 
         else:
             self.trans_transform = PCA(n_components=n_comps_pca, whiten=False)

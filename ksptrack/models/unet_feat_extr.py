@@ -2,59 +2,81 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from ksptrack.models.unet_model import UNet
+from ksptrack.models.unet_model import conv1x1
 from ksptrack.models.loss_logger import LossLogger
+from torch.nn import MSELoss
+from ksptrack.models.losses import PriorMSE
 from ksptrack.models import utils as ptu
 from ksptrack.models import im_utils as ptimu
-from ksptrack.models.losses import PriorMSE
 import time
 import os
 from os.path import join as pjoin
 import matplotlib.pyplot as plt
 from skimage import (io, transform)
 import numpy as np
-from itertools import cycle
-from torch.utils.data import DataLoader
 import tqdm
-from imgaug import augmenters as iaa
-from imgaug import parameters as iap
+
 
 class UNetFeatExtr(nn.Module):
     """ 
     Wrapper around UNet that takes object priors (gaussians) and images 
     as input.
     """
+    def __init__(self,
+                 params,
+                 in_channels,
+                 train_mode,
+                 dataloader,
+                 depth=3,
+                 checkpoint_path=None):
 
-    def __init__(self, params, depth=4):
         super(UNetFeatExtr, self).__init__()
-        self.in_channels = 3
+
+        assert ((train_mode == 'autoenc') or
+                (train_mode == 'pred')), print('mode must be autoenc or pred')
+        if (train_mode == 'pred'):
+            assert (checkpoint_path is
+                    not None), print('in pred mode, specify checkpoint_path')
+
+        self.dataloader = dataloader
+        self.train_mode = train_mode
+
+        self.in_channels = in_channels
         self.out_channels = 3
         self.depth = depth
         self.model = UNet(
             in_channels=self.in_channels,
             out_channels=self.out_channels,
-            merge_mode=
-            'none',  # no concatenation (or addition from enc to dec)
+            merge_mode='none',  # no concatenation (or addition from enc to dec)
             up_mode='upsample',
-            depth=depth,
-            cuda=params['cuda'])
+            depth=depth)
+
         self.params = params
         self.device = torch.device('cuda' if params['cuda'] else 'cpu')
+        self.criterion = PriorMSE(params['cuda'])
+
+        if(train_mode == 'pred'):
+            
+            print('mode: {}, loading checkpoint {}'.format(train_mode, checkpoint_path))
+            dict_ = torch.load(checkpoint_path,
+                                map_location=lambda storage,
+                                loc: storage)
+            self.model.load_state_dict(dict_['model'])
+            # replace last conv layer
+            self.model.conv_final = conv1x1(self.model.up_convs[-1].out_channels,
+                                            1)
+            self.criterion = MSELoss()
+
+        self.model.to(self.device)
 
     def state_dict(self):
-        return {'params': self.params,
-                'depth': self.depth,
-                'in_channels': self.in_channels,
-                'out_channels': self.out_channels,
-                'model': self.model.state_dict()}
-
-    @classmethod
-    def from_state_dict(cls, dict_):
-        feat_extr = cls(dict_['params'], depth=dict_['depth'])
-        feat_extr.model.load_state_dict(dict_['model'])
-        return feat_extr
-
-    def forward(self, x):
-        return self.model(x)
+        return {
+            'params': self.params,
+            'depth': self.depth,
+            'in_channels': self.in_channels,
+            'out_channels': self.out_channels,
+            'model': self.model.state_dict()
+        }
 
     def get_features_layer(self, x):
 
@@ -64,13 +86,7 @@ class UNetFeatExtr(nn.Module):
 
         return x
 
-    def calc_features(self, dataset):
-
-        dataloader = DataLoader(dataset,
-                                batch_size=self.params['batch_size'],
-                                shuffle=False,
-                                collate_fn=dataset.collate_fn,
-                                num_workers=self.params['n_workers'])
+    def calc_features(self, dataloader):
 
         feats = []
         bar = tqdm.tqdm(total=len(dataloader))
@@ -86,54 +102,32 @@ class UNetFeatExtr(nn.Module):
         feats = feats.transpose((2, 3, 1, 0))
         return feats
 
-    def train(self, dataset):
+    def train(self):
 
         since = time.time()
 
-        optimizer = optim.Adam(
-            self.model.parameters(),
-            lr=self.params['lr'],
-            betas=(self.params['beta1'], self.params['beta2']),
-            eps=self.params['epsilon'],
-            weight_decay=self.params['weight_decay_adam'])
-
-        train_logger = LossLogger(
-            'train',
-            self.params['batch_size'],
-            len(dataset),
-            self.params['out_dir'],
-            print_mode=0)
-
-        loggers = {'train': train_logger}
-
-        dataloader = DataLoader(dataset,
-                                batch_size=self.params['batch_size'],
-                                shuffle=True,
-                                collate_fn=dataset.collate_fn,
-                                num_workers=self.params['n_workers'])
+        optimizer = optim.Adam(self.model.parameters(),
+                               lr=self.params['lr'],
+                               betas=(self.params['beta1'],
+                                      self.params['beta2']),
+                               eps=self.params['epsilon'],
+                               weight_decay=self.params['weight_decay_adam'])
 
         # Save augmented previews
-        data_prev = [dataset.sample_uniform() for i in range(10)]
+        data_prev = [self.dataloader.dataset.sample_uniform() for i in range(10)]
         path_ = pjoin(self.params['out_dir'], 'augment_previews')
-        if(not os.path.exists(path_)):
+        if (not os.path.exists(path_)):
             os.makedirs(path_)
 
-        padding = ((10,), (10,), (0,))
-        data_prev = [np.concatenate((np.pad(d['image'],
-                                            pad_width=padding,
-                                            mode='constant'),
-                                     np.pad(d['prior'],
-                                            pad_width=padding,
-                                            mode='constant')),
-                                    axis=-1)
-                     for d in data_prev]
+        padding = ((10, ), (10, ), (0, ))
+        data_prev = [
+            np.concatenate(
+                (np.pad(d['image'], pad_width=padding, mode='constant'),
+                 np.pad(d['prior'], pad_width=padding, mode='constant')),
+                axis=-1) for d in data_prev
+        ]
         for i, d in enumerate(data_prev):
-            io.imsave(pjoin(path_,
-                            'im_{:02d}.png'.format(i)),
-            d)
-
-        # Path for checkpoint
-        self.criterion = PriorMSE(self.params['cuda'])
+            io.imsave(pjoin(path_, 'im_{:02d}.png'.format(i)), d)
 
         best_loss = np.inf
 
@@ -144,18 +138,12 @@ class UNetFeatExtr(nn.Module):
             self.model.train()
 
             running_loss = 0.0
-            running_corrects = 0
 
-            # Iterate over data.
-            samp = 1
-            n_batches_per_epoch = len(dataset) // self.params['batch_size']
-
-            running_loss = 0.0
-
-            pbar = tqdm.tqdm(total=len(dataloader))
-            for i, sample in enumerate(dataloader):
+            pbar = tqdm.tqdm(total=len(self.dataloader))
+            for i, sample in enumerate(self.dataloader):
 
                 im = sample['image'].to(self.device)
+                truth = sample['label/segmentation'].to(self.device)
                 prior = sample['prior'].to(self.device)
 
                 # zero the parameter gradients
@@ -165,8 +153,11 @@ class UNetFeatExtr(nn.Module):
                 # track history if only in train
                 with torch.set_grad_enabled(True):
                     # out = self.forward(data.image, data.obj_prior)
-                    out = self.forward(im)
-                    loss = self.criterion(out, im, prior)
+                    out = self.model(im)
+                    if (self.train_mode == 'autoenc'):
+                        loss = self.criterion(out, im, prior)
+                    else:
+                        loss = self.criterion(out, truth)
 
                     # backward + optimize only if in training phase
                     loss.backward()
@@ -174,10 +165,8 @@ class UNetFeatExtr(nn.Module):
 
                 running_loss += loss.cpu().detach().numpy()
                 loss_ = running_loss / ((i + 1) * self.params['batch_size'])
-                pbar.set_description('loss: {:.8f}'.format(
-                    loss_))
+                pbar.set_description('loss: {:.8f}'.format(loss_))
                 pbar.update(1)
-                samp += 1
 
             pbar.close()
 
@@ -187,11 +176,12 @@ class UNetFeatExtr(nn.Module):
                                 fname_cp=self.params['cp_fname'],
                                 fname_bm=self.params['bm_fname'])
 
-            if(running_loss < best_loss):
+            if (running_loss < best_loss):
                 best_loss = running_loss
-                            
-            ptimu.save_tensors(
-                [im[0], out[0]],
-                ['image', 'image'],
-                os.path.join(self.params['out_dir'], 'train_previews',
-                                'im_{:04d}.png'.format(epoch)))
+
+            if(out.shape[1] == 1):
+                out = out.repeat(1, 3, 1, 1)
+            ptimu.save_tensors([im[0], out[0]], ['image', 'image'],
+                               os.path.join(self.params['out_dir'],
+                                            'train_previews',
+                                            'im_{:04d}.png'.format(epoch)))

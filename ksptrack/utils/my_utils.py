@@ -18,8 +18,8 @@ import logging
 import logging.config
 from scipy import interpolate
 import pandas as pd
-import ksptrack
 from . import csv_utils as csv
+import ksptrack
 
 
 def df_crossjoin(df1, df2, **kwargs):

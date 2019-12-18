@@ -1,0 +1,55 @@
+import re
+import os
+import shutil
+import fileinput
+import subprocess
+
+
+args = {
+    'job_name': [
+        'ksp_tw',
+                 'ksp_co',
+                 'ksp_sl',
+                 'ksp_br'
+    ],
+    'sets': [
+        '00 01 02 03 04 05',
+        '10 11 12 13',
+        '20 21 22 23 24 25',
+        '30 31 32 33 34 35'
+    ],
+    'set_labeled': [
+        '00',
+                    '10',
+                    '20',
+                    '30'
+    ],
+    'labeled_frames': [
+        '15',
+                       '52',
+                       '15',
+                       '52'
+    ]
+}
+
+n_jobs = 4
+job_mask = [True, False, False, False]
+template = 'mysubmit_tmpl.sh'
+file_ = 'mysubmit_tmp.sh'
+
+for j in range(n_jobs):
+    if(job_mask[j]):
+        shutil.copyfile(template, file_)
+        for k, v in args.items():
+            for line in fileinput.input(file_, inplace=True):
+                line = re.sub('###{}###'.format(k),
+                    v[j],
+                    line.rstrip())
+                print(line)
+
+        print('-----------------------------------')
+        print('starting job {}'.format(j))
+        print('-----------------------------------')
+        os.system('cat {}'.format(file_))
+        print('-----------------------------------')
+        subprocess.call(["sbatch", file_])

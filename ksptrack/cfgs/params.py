@@ -45,7 +45,7 @@ def get_params(path='cfgs'):
     #Paths, dirs, names ...
     p.add('--locs-dir')
     p.add('--truth-dir')
-    p.add('--out-dir-prefix')
+    p.add('--exp-name')
     p.add('--frame-prefix')
     p.add('--precomp-dir')
     p.add('--precomp-desc-path')
@@ -53,7 +53,6 @@ def get_params(path='cfgs'):
     p.add('--frame-extension')
     p.add('--csv-fname')
     p.add('--feats-dir')
-    p.add('--entrance-masks-path', default=None)
 
     p.add('--use-hoof', type=bool, default=True)
     p.add('--hoof-tau-u', type=float)
@@ -94,8 +93,11 @@ def get_params(path='cfgs'):
     p.add('--n-comp-pca', type=int)
     p.add('--lfda-k', type=int)
     p.add('--lfda-dim', type=int)
-    p.add('--lfda-n-samps', type=int)
-    p.add('--lfda-thresh', type=float)
+    p.add('--ml-n-samps', type=int)
+    p.add('--ml-up-thr', type=float)
+    p.add('--ml-sigma', type=float)
+    p.add('--ml-down-thr', type=float)
+    p.add('--ml-embedding', type=str)
     p.add('--pca', default=False, action='store_true')
 
     #Graph parameters
@@ -137,5 +139,11 @@ def get_params(path='cfgs'):
     p.add('--feat-n-workers', type=int)
 
     p.add('--feat-locs-gaussian-std', type=float)
+
+    p.add('--gc-gamma-range', nargs='+', default=[0.2, 0.6])
+    p.add('--gc-gamma-step', default=0.1)
+    p.add('--gc-lambda-range', nargs='+', default=[20, 60])
+    p.add('--gc-lambda-step', default=5)
+    p.add('--gc-sigma', type=float, default=None)
 
     return p

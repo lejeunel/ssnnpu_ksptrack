@@ -1,9 +1,8 @@
 precomp-dir : 'precomp_desc'
 precomp-desc-path : ''
-entrance-masks-path : None
 locs-dir : 'gaze-measurements'
 truth-dir : 'ground_truth-frames'
-out-dir-prefix : 'exp'
+exp-name : 'exp'
 frame-prefix : 'frame_'
 frame-extension : '.png'
 frame-dir : 'input-frames'
@@ -15,9 +14,9 @@ feats-dir : 'precomp_descriptors'
 use-hoof : True
 
 #Superpixel segmentation
-slic-compactness : 10.0
+slic-compactness : 20.0
 slic-size : 1000
-slic-n-sp : 900
+slic-n-sp : 1200
 slic-rel-size : 0.1
 
 # Superpixel transitions
@@ -33,17 +32,17 @@ oflow-outer-iters : 7
 oflow-inner-iters : 1
 oflow-sor-iters : 30
 
-n-iters-ksp : 10
+n-iters-ksp : 4
 
 monitor-score : False
 
 # Bagging---------------
-bag-t : 500
+bag-t : 1000
 bag-n-bins : 100
 bag-n-feats : 0.013
 bag-max-samples : 500
 bag-max-depth : 5
-bag-jobs : 8
+bag-jobs : 1
 #-----------------------
 
 hoof-tau-u : 0.75
@@ -51,17 +50,18 @@ hoof-n-bins: 100
 
 # Metric learning
 n-comp-pca : 3
-lfda-k : 3
-lfda-dim : 4
-lfda-n-samps : 1000
-lfda-thresh : 0.8
+lfda-k : 5
+lfda-dim : 7
+ml-n-samps : 1000
+ml-up-thr : 0.9 
+ml-down-thr : 0.5 
+ml-sigma : 0.075 
+ml-embedding : 'orthonormalized'
 pca : False  #Overrides LFDA and computes PCA with n-components:lfda-dims
 
 #Graph parameters
 norm-neighbor : 0.08  #Cut edges outside neighborhood
 norm-neighbor-in : 0.05  #Cut edges outside neighborhood
+thr-entrance : 0.8 
 
-
-pm-thr : 0.5  #Threshold on KSP+SS PM for positives selection
-thr-entrance : 0.85 #Threshold entrance masks
-
+pm-thr : 0.75  #Threshold on KSP+SS PM for positives selection

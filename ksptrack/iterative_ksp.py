@@ -13,26 +13,35 @@ from ksptrack.utils import write_frames_results
 from ksptrack.utils import comp_scores
 import matplotlib.pyplot as plt
 import datetime
+from ksptrack.cfgs import params
 
+def make_link_agent(labels, csv_path, thr_entrance, sigma, sp_desc,
+                    mask_path, model_path, entrance_radius):
+    if(model_path is not None):
+        return 
 
 def main(cfg):
     data = dict()
 
     d = datetime.datetime.now()
-    out_path = pjoin(cfg.out_path,
-                         '{:%Y-%m-%d_%H-%M-%S}'.format(d))
+    # cfg.run_dir = pjoin(cfg.out_path,
+    #                     '{:%Y-%m-%d_%H-%M-%S}_{}'.format(d, cfg.exp_name))
+    cfg.run_dir = pjoin(cfg.out_path, '{}'.format(cfg.exp_name))
 
-    if (not os.path.exists(out_path)):
-        os.makedirs(out_path)
+    if (os.path.exists(cfg.run_dir)):
+        print('run dir {} already exists.'.format(cfg.run_dir))
+        return cfg
+    else:
+        os.makedirs(cfg.run_dir)
 
     # Set logger
-    utls.setup_logging(out_path)
+    utls.setup_logging(cfg.run_dir)
     logger = logging.getLogger('ksp')
 
     logger.info('-' * 10)
     logger.info('starting experiment on: {}'.format(cfg.in_path))
     logger.info('2d locs filename: {}'.format(cfg.csv_fname))
-    logger.info('Output path: {}'.format(out_path))
+    logger.info('Output path: {}'.format(cfg.run_dir))
     logger.info('-' * 10)
 
     # Make frame file names
@@ -46,61 +55,53 @@ def main(cfg):
     if (not os.path.exists(cfg.precomp_desc_path)):
         os.makedirs(cfg.precomp_desc_path)
 
-    with open(os.path.join(out_path, 'cfg.yml'), 'w') as outfile:
+    with open(os.path.join(cfg.run_dir, 'cfg.yml'), 'w') as outfile:
         yaml.dump(cfg.__dict__, stream=outfile, default_flow_style=False)
 
+    cfg.gtFileNames = utls.get_images(os.path.join(cfg.in_path, cfg.truth_dir))
 
     # ---------- Descriptors/superpixel costs
     dm = DataManager(cfg)
     dm.calc_superpix()
 
-    locs2d_sps = utls.locs2d_to_sps(locs2d, dm.labels)
 
-    dm.calc_sp_feats_unet_gaze_rec(locs2d, save_dir=cfg.precomp_desc_path)
+    dm.calc_sp_feats_unet_gaze_rec(locs2d,
+                                   save_dir=cfg.precomp_desc_path,
+                                   mode=cfg.feats_mode)
 
     logger.info('Building superpixel managers')
-    sps_man = spm.SuperpixelManager(
-        dm, cfg, with_flow=cfg.use_hoof, init_mode=cfg.sp_trans_init_mode,
-        init_radius=cfg.sp_trans_init_radius)
+    sps_man = spm.SuperpixelManager(dm,
+                                    cfg,
+                                    with_flow=cfg.use_hoof,
+                                    init_mode=cfg.sp_trans_init_mode,
+                                    init_radius=cfg.sp_trans_init_radius)
 
-    dm.calc_pm(
-        np.array(locs2d_sps), all_feats_df=dm.sp_desc_df, mode='foreground')
+    link_agent = LinkAgent(labels=dm.labels,
+                            csv_path=pjoin(cfg.in_path, cfg.locs_dir,
+                                            cfg.csv_fname),
+                            thr_entrance=cfg.thr_entrance,
+                            sigma=cfg.ml_sigma,
+                           sp_desc=dm.sp_desc_df,
+                            mask_path=cfg.entrance_masks_path,
+                            entrance_radius=cfg.norm_neighbor_in)
 
-    gt = None
-    if (cfg.monitor_score):
-        logger.info('Making ground-truth seeds for monitoring')
+    locs2d_sps = link_agent.get_all_entrance_sps(dm.sp_desc_df)
 
-        gtFileNames = utls.get_images(os.path.join(cfg.in_path, cfg.truth_dir))
+    dm.calc_pm(np.array(locs2d_sps),
+               all_feats_df=dm.sp_desc_df,
+               mode='bagging')
 
-        gt = utls.getPositives(gtFileNames)
-        gt_seeds = utls.make_y_array_true(gt, dm.labels)
+    link_agent.make_trans_transform(dm.sp_desc_df,
+                                    dm.fg_pm_df,
+                                    [cfg.ml_down_thr, cfg.ml_up_thr],
+                                    cfg.ml_n_samps,
+                                    cfg.lfda_dim,
+                                    cfg.lfda_k,
+                                    pca=cfg.pca,
+                                    n_comps_pca=cfg.n_comp_pca,
+                                    embedding_type=cfg.ml_embedding)
 
-    # Tracking with KSP---------------
     ksp_scores_mat = []
-
-    if (cfg.entrance_masks_path is not None):
-        link_agent = LinkAgent(dm.labels.shape[:2],
-                               logger=logger,
-                               csv_path=pjoin(cfg.in_path, cfg.locs_dir, cfg.csv_fname),
-                               thr_entrance=cfg.thr_entrance,
-                               mask_path=cfg.entrance_masks_path)
-
-    else:
-        link_agent = LinkAgent(
-            dm.labels.shape[:2],
-            logger=logger,
-            csv_path=pjoin(cfg.in_path, cfg.locs_dir, cfg.csv_fname),
-            entrance_radius=cfg.norm_neighbor_in)
-
-    link_agent.make_trans_transform(
-        dm.sp_desc_df,
-        dm.fg_pm_df,
-        cfg.pm_thr,
-        cfg.lfda_n_samps,
-        cfg.lfda_dim,
-        cfg.lfda_k,
-        pca=cfg.pca,
-        n_comps_pca=cfg.n_comp_pca)
 
     g_for = gtrack.GraphTracking(link_agent, sps_man=sps_man)
 
@@ -133,16 +134,15 @@ def main(cfg):
         # Make backward graph
         if (find_new_backward):
 
-            g_back.makeFullGraph(
-                dm.get_sp_desc_from_file(),
-                dm.fg_pm_df,
-                dm.conf.pm_thr,
-                dm.conf.hoof_tau_u,
-                direction='backward',
-                labels=dm.labels)
+            g_back.makeFullGraph(dm.get_sp_desc_from_file(),
+                                 dm.fg_pm_df,
+                                 dm.conf.pm_thr,
+                                 dm.conf.hoof_tau_u,
+                                 direction='backward',
+                                 labels=dm.labels)
 
-            logger.info(
-                "Computing KSP on backward graph. (i: {}".format(i + 1))
+            logger.info("Computing KSP on backward graph. (i: {}".format(i +
+                                                                         1))
             g_back.run()
             dict_ksp['backward_sets'], pos_tls_back = utls.ksp2sps(
                 g_back.kspSet, g_back.tracklets)
@@ -152,16 +152,15 @@ def main(cfg):
         # Make forward graph
         if (find_new_forward):
 
-            g_for.makeFullGraph(
-                dm.get_sp_desc_from_file(),
-                dm.fg_pm_df,
-                dm.conf.pm_thr,
-                dm.conf.hoof_tau_u,
-                direction='forward',
-                labels=dm.labels)
+            g_for.makeFullGraph(dm.get_sp_desc_from_file(),
+                                dm.fg_pm_df,
+                                dm.conf.pm_thr,
+                                dm.conf.hoof_tau_u,
+                                direction='forward',
+                                labels=dm.labels)
 
-            logger.info(
-                "Computing KSP on forward graph. (i: {})".format(i + 1))
+            logger.info("Computing KSP on forward graph. (i: {})".format(i +
+                                                                         1))
             g_for.run()
             dict_ksp['forward_sets'], pos_tls_for = utls.ksp2sps(
                 g_for.kspSet, g_for.tracklets)
@@ -206,7 +205,7 @@ def main(cfg):
             logger.info("""Number hit pixels of ksp at iteration {}:
                         {}""".format(i + 1, n_pix_ksp))
 
-            fileOut = os.path.join(out_path,
+            fileOut = os.path.join(cfg.run_dir,
                                    'pm_scores_iter_{}.npz'.format(i))
             data = dict()
             data['ksp_scores_mat'] = ksp_scores_mat
@@ -214,26 +213,26 @@ def main(cfg):
 
             # Recompute PM values
             if (i + 1 < cfg.n_iters_ksp):
-                dm.calc_pm(
-                    pos_sps=np.array(
-                        list(set(locs2d_sps + marked_back + marked_for))),
-                    all_feats_df=dm.sp_desc_df,
-                    mode='foreground')
+                dm.calc_pm(pos_sps=np.array(
+                    list(set(locs2d_sps + marked_back + marked_for))),
+                           all_feats_df=dm.sp_desc_df,
+                           mode='bagging')
 
-            link_agent.make_trans_transform(
-                dm.sp_desc_df,
-                dm.fg_pm_df,
-                cfg.pm_thr,
-                cfg.lfda_n_samps,
-                cfg.lfda_dim,
-                cfg.lfda_k,
-                pca=cfg.pca,
-                n_comps_pca=cfg.n_comp_pca)
+            link_agent.make_trans_transform(dm.sp_desc_df,
+                                            dm.fg_pm_df,
+                                            [cfg.ml_down_thr, cfg.ml_up_thr],
+                                            cfg.ml_n_samps,
+                                            cfg.lfda_dim,
+                                            cfg.lfda_k,
+                                            pca=cfg.pca,
+                                            n_comps_pca=cfg.n_comp_pca,
+                                            embedding_type=cfg.ml_embedding)
+
 
             i += 1
 
-    # Saving 
-    fileOut = os.path.join(out_path, 'results.npz')
+    # Saving
+    fileOut = os.path.join(cfg.run_dir, 'results.npz')
     data = dict()
     data['frameFileNames'] = cfg.frameFileNames
     data['n_iters_ksp'] = cfg.n_iters_ksp
@@ -244,14 +243,28 @@ def main(cfg):
     logger.info("Saving results and cfg to: " + fileOut)
     np.savez(fileOut, **data)
 
-    g_for.save_all(os.path.join(out_path, 'g_for'))
-    g_back.save_all(os.path.join(out_path, 'g_back'))
+    g_for.save_all(os.path.join(cfg.run_dir, 'g_for'))
+    g_back.save_all(os.path.join(cfg.run_dir, 'g_back'))
 
     logger.info("done")
 
-    logger.info('Finished experiment: ' + out_path)
+    logger.info('Finished experiment: ' + cfg.run_dir)
 
-    write_frames_results.main(cfg, out_path, logger)
-    comp_scores.main(cfg, out_path, logger)
+    write_frames_results.main(cfg, cfg.run_dir, logger)
+    comp_scores.main(cfg, cfg.run_dir, logger)
 
-    return cfg, logger
+    return cfg
+
+
+if __name__ == "__main__":
+
+    p = params.get_params()
+
+    p.add('--out-path', required=True)
+    p.add('--in-path', required=True)
+    p.add('--feats-mode', default='autoenc', type=str)
+    p.add('--entrance-masks-path', default=None)
+
+    cfg = p.parse_args()
+
+    main(cfg)

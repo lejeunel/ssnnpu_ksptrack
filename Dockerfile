@@ -206,3 +206,31 @@ RUN    apt-get -y update --fix-missing && \
     apt-get clean && \
     rm -rf /ITK /var/lib/apt/lists/*
 
+# Install Shogun
+RUN    cd / && \
+    apt-get -y update --fix-missing && \
+    apt-get -y install --no-install-recommends \
+        cmake \
+        make \
+        git \
+    && \
+
+    git clone https://github.com/shogun-toolbox/shogun.git && \
+    cd shogun && \
+    git submodule update --init && \
+
+# Prepare build
+    mkdir build && \
+    cd build && \
+    cmake -DBUILD_EXAMPLES=OFF -DBUILD_META_EXAMPLES=OFF .. &&\
+
+# Build, Test and Install
+    make -j$(nproc) && \
+    make install && \
+    make clean && \
+
+# cleaning
+    apt-get autoremove -y && \
+    apt-get clean && \
+    rm -rf /shogun /var/lib/apt/lists/*
+

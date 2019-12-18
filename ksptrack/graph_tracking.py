@@ -265,7 +265,7 @@ class GraphTracking:
         for tl in tls:
             tl_loc = sp_desc.loc[tl.df_ix[0]]
 
-            if (self.link_agent.is_entrance(tl_loc)):
+            if (self.link_agent.is_entrance(tl_loc['frame'], tl_loc['label'])):
 
                 this_e = (int(self.source), int(tl.in_id))
 
@@ -297,8 +297,7 @@ class GraphTracking:
 
                 proba = self.link_agent.get_proba_inter_frame(tl,
                                                               linkable_tl,
-                                                              sp_desc,
-                                                              mode='head')
+                                                              sp_desc)
                 w = -np.log(proba / (1 - proba))
                 this_e = (tl.out_id,
                           linkable_tl.in_id)
@@ -309,8 +308,13 @@ class GraphTracking:
         self.logger.info('Added {} transition edges'.format(added))
 
     def run(self):
-        self.copy_cxx()
-        self.kspSet = self.g_cxx.run()
+        from_source = [e for e in self.g.edges() if(e[0] == self.source)]
+        if(len(from_source) == 0):
+            self.logger.info('Found {} entrance edges. Skipping.'.format(len(from_source)))
+        else:
+            
+            self.copy_cxx()
+            self.kspSet = self.g_cxx.run()
         return self.kspSet
 
     def run_nocopy(self):
@@ -330,6 +334,12 @@ class GraphTracking:
 
         self.logger.info('Copying graph with {} edges...'.
                          format(len(self.g.edges())))
+        # weights = [e['weight'] for e in self.g.edges]
+        # self.logger.info('num. nan: {}'.format(np.isnan(weights).sum()))
+        # self.logger.info('num. inf: {}'.format(np.isinf(weights).sum()))
+        # self.logger.info('max weight: {}'.format(np.max(weights)))
+        # self.logger.info('min weight: {}'.format(np.min(weights)))
+
         for e in self.g.edges():
             self.g_cxx.add_edge(
                 int(e[0]), int(e[1]), self.g[e[0]][e[1]]['weight'],

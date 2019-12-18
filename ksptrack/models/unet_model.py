@@ -37,7 +37,9 @@ def upconv2x2(in_channels, out_channels, mode='transpose'):
 
 def conv1x1(in_channels, out_channels, groups=1):
     return nn.Conv2d(
-        in_channels, out_channels, kernel_size=1, groups=groups, stride=1)
+        in_channels, out_channels, kernel_size=1,
+        padding=0,
+        groups=groups, stride=1)
 
 
 class Interpolate(nn.Module):
@@ -209,8 +211,7 @@ class UNet(nn.Module):
                  depth=5,
                  start_filts=64,
                  up_mode='transpose',
-                 merge_mode='concat',
-                 cuda=True):
+                 merge_mode='concat'):
         """
         Arguments:
             in_channels: int, number of channels in the input tensor.
@@ -230,8 +231,6 @@ class UNet(nn.Module):
             raise ValueError("\"{}\" is not a valid mode for "
                              "upsampling. Only \"transpose\" and "
                              "\"upsample\" are allowed.".format(up_mode))
-
-        self.device = torch.device('cuda' if cuda else 'cpu')
 
         if merge_mode in ('concat', 'add', 'none'):
             self.merge_mode = merge_mode
@@ -265,7 +264,7 @@ class UNet(nn.Module):
             outs = self.start_filts * (2**i)
             pooling = True if i < depth - 1 else False
 
-            down_conv = DownConv(ins, outs, pooling=pooling).to(self.device)
+            down_conv = DownConv(ins, outs, pooling=pooling)
             self.down_convs.append(down_conv)
 
         # create the decoder pathway and add to a list
@@ -275,10 +274,10 @@ class UNet(nn.Module):
             outs = ins // 2
             up_conv = UpConv(
                 ins, outs, up_mode=up_mode,
-                merge_mode=merge_mode).to(self.device)
+                merge_mode=merge_mode)
             self.up_convs.append(up_conv)
 
-        self.conv_final = conv1x1(outs, self.out_channels).to(self.device)
+        self.conv_final = conv1x1(outs, self.out_channels)
 
         # add the list of modules to current module
         self.down_convs = nn.ModuleList(self.down_convs)

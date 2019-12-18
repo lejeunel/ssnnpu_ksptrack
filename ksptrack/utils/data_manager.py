@@ -18,6 +18,8 @@ from imgaug import augmenters as iaa
 from ksptrack.utils.my_augmenters import rescale_augmenter
 import torch
 import tqdm
+from torch.utils.data import DataLoader, SubsetRandomSampler
+import warnings
 
 
 class DataManager:
@@ -121,7 +123,7 @@ class DataManager:
         if(not os.path.exists(pjoin(self.conf.precomp_desc_path, 'sp_labels.npz'))):
             spix_extr = svx.SuperpixelExtractor()
 
-            self.labels_, numlabels = spix_extr.extract(
+            self.labels_  = spix_extr.extract(
                 self.conf.frameFileNames,
                 self.conf.precomp_desc_path,
                 'sp_labels.npz',
@@ -149,8 +151,7 @@ class DataManager:
                     self.conf.precomp_desc_path))
                 np.savez(
                     os.path.join(self.conf.precomp_desc_path, 'sp_labels.npz'), **{
-                        'sp_labels': self.labels,
-                        'numlabels': numlabels
+                        'sp_labels': self.labels
                     })
 
             if (do_save):
@@ -200,16 +201,15 @@ class DataManager:
             bag_max_samples=bag_max_samples,
             n_jobs=n_jobs)
 
-        if (mode == 'foreground'):
-            self.fg_marked_feats = this_marked_feats
-            self.fg_pm_df = this_pm_df
-        else:
-            self.bg_marked_feats = this_marked_feats
-            self.bg_pm_df = this_pm_df
+        self.fg_marked_feats = this_marked_feats
+        self.fg_pm_df = this_pm_df
 
         return self.fg_pm_df
 
-    def calc_sp_feats_unet_gaze_rec(self, locs2d, save_dir=None):
+    def calc_sp_feats_unet_gaze_rec(self,
+                                    locs2d,
+                                    save_dir=None,
+                                    mode='autoenc'):
         """ 
         Computes UNet features in Autoencoder-mode
         Train/forward-propagate Unet and save features/weights
@@ -217,20 +217,21 @@ class DataManager:
 
         df_fname = 'sp_desc_ung.p'
         feats_fname = 'feats_unet.npz'
-        feats_upsamp_fname = 'feats_unet_upsamp.npz'
         cp_fname = 'checkpoint.pth.tar'
         bm_fname = 'best_model.pth.tar'
 
         feats_path = os.path.join(save_dir, feats_fname)
-        feats_upsamp_path = os.path.join(save_dir, feats_upsamp_fname)
         df_path = os.path.join(save_dir, df_fname)
         bm_path = os.path.join(save_dir, bm_fname)
+
+        forward_pass = not os.path.exists(feats_path)
+        assign_feats_to_sps = not os.path.exists(df_path)
 
         from ksptrack.models.unet_feat_extr import UNetFeatExtr
         from ksptrack.models.dataset import Dataset
 
-        orig_shape = utls.imread(self.conf.frameFileNames[50]).shape
-        in_shape = self.conf.feat_in_shape
+        orig_shape = utls.imread(self.conf.frameFileNames[0]).shape
+        in_shape = 800
 
         params = {
             'batch_size': self.conf.batch_size,
@@ -248,11 +249,41 @@ class DataManager:
             'n_workers': self.conf.feat_n_workers
         }
 
-        train_net = not os.path.exists(bm_path)
-        forward_pass = not os.path.exists(feats_path)
-        assign_feats_to_sps = not os.path.exists(df_path)
+        transf = iaa.Sequential([
+            iaa.SomeOf(self.conf.feat_data_someof,
+                        [iaa.Affine(
+                            scale={
+                                "x": (1 - self.conf.feat_data_width_shift,
+                                        1 + self.conf.feat_data_width_shift),
+                                "y": (1 - self.conf.feat_data_height_shift,
+                                        1 + self.conf.feat_data_height_shift)
+                            },
+                            rotate=(-self.conf.feat_data_rot_range,
+                                    self.conf.feat_data_rot_range),
+                            shear=(-self.conf.feat_data_shear_range,
+                                    self.conf.feat_data_shear_range)),
+                        iaa.AdditiveGaussianNoise(
+                            scale=self.conf.feat_data_gaussian_noise_std*255),
+                        iaa.Fliplr(p=0.5),
+                        iaa.Flipud(p=0.5)]),
+            iaa.Resize(in_shape),
+            rescale_augmenter])
 
-        if (train_net):
+        checkpoint_path = pjoin(save_dir, bm_fname)
+
+        dl = Dataset(
+            in_shape=in_shape,
+            im_paths=self.conf.frameFileNames,
+            truth_paths=self.conf.gtFileNames,
+            locs2d=locs2d,
+            sig_prior=self.conf.feat_locs_gaussian_std,
+            augmentations=transf)
+        dataloader = DataLoader(dl,
+                                batch_size=params['batch_size'],
+                                shuffle=True,
+                                collate_fn=dl.collate_fn,
+                                num_workers=params['n_workers'])
+        if(not os.path.exists(bm_path)):
             self.logger.info(
                 "Network weights file {} does not exist. Training...".format(
                     bm_path))
@@ -260,60 +291,75 @@ class DataManager:
                 "Parameters: \n {}".format(
                     params))
 
-            model = UNetFeatExtr(params)
-            model.model.train()
+            model = UNetFeatExtr(params, 3, mode, dataloader,
+                                 depth=4)
+            model.train()
 
-            transf = iaa.Sequential([
-                iaa.SomeOf(self.conf.feat_data_someof,
-                           [iaa.Affine(
-                               scale={
-                                   "x": (1 - self.conf.feat_data_width_shift,
-                                         1 + self.conf.feat_data_width_shift),
-                                   "y": (1 - self.conf.feat_data_height_shift,
-                                         1 + self.conf.feat_data_height_shift)
-                               },
-                               rotate=(-self.conf.feat_data_rot_range,
-                                       self.conf.feat_data_rot_range),
-                               shear=(-self.conf.feat_data_shear_range,
-                                      self.conf.feat_data_shear_range)),
-                            iaa.AdditiveGaussianNoise(
-                                scale=self.conf.feat_data_gaussian_noise_std*255),
-                            iaa.Fliplr(p=0.5),
-                            iaa.Flipud(p=0.5)]),
-                iaa.Resize(self.conf.feat_in_shape),
-                rescale_augmenter])
+        if(mode == 'pred'):
+            # will re-start from autoencoder's checkpoint
+            checkpoint_path = pjoin(save_dir, bm_fname)
 
-            dl = Dataset(
-                in_shape,
-                im_paths=self.conf.frameFileNames,
-                truth_paths=None,
-                locs2d=locs2d,
-                sig_prior=self.conf.feat_locs_gaussian_std,
-                augmentations=transf,
-                cuda=self.conf.cuda)
+            cp_fname = 'checkpoint_refined.pth.tar'
+            bm_fname = 'best_model_refined.pth.tar'
+            df_fname = 'sp_desc_ung_refined.p'
+            feats_fname = 'feats_unet_refined.npz'
+            feats_path = os.path.join(save_dir, feats_fname)
+            df_path = os.path.join(save_dir, df_fname)
+            bm_path = os.path.join(save_dir, bm_fname)
+            forward_pass = not os.path.exists(feats_path)
+            assign_feats_to_sps = not os.path.exists(df_path)
 
-            model.train(dl)
+            params['cp_fname'] = cp_fname
+            params['bm_fname'] = bm_fname
+
+
+            if(not os.path.exists(bm_path)):
+                self.logger.info(
+                    "Network weights file {} does not exist. Training...".format(
+                        bm_path))
+                self.logger.info(
+                    "Parameters: \n {}".format(
+                        params))
+                # this will refine in prediction mode with given frames
+                dl = Dataset(
+                    in_shape=in_shape,
+                    im_paths=self.conf.refine_frameFileNames,
+                    truth_paths=self.conf.refine_gtFileNames,
+                    augmentations=transf)
+                idx_refine = np.repeat(np.arange(len(dl)), 120 // len(dl))
+                dataloader = DataLoader(dl,
+                                        batch_size=params['batch_size'],
+                                        sampler=SubsetRandomSampler(idx_refine),
+                                        collate_fn=dl.collate_fn,
+                                        num_workers=params['n_workers'])
+                model = UNetFeatExtr(params, 3, mode, dataloader,
+                                     depth=4,
+                                     checkpoint_path=checkpoint_path)
+                model.train()
+
 
         # Do forward pass on images and retrieve features
         if (forward_pass):
-            # load best model
-            dict_ = torch.load(bm_path,
-                               map_location=lambda storage,
-                               loc: storage)
-            model = UNetFeatExtr.from_state_dict(dict_)
-
-            device = torch.device('cuda' if self.conf.cuda else 'cpu')
-            model.to(device)
 
             transf = iaa.Sequential([
-                iaa.Resize(self.conf.feat_in_shape),
+                iaa.Resize(in_shape),
                 rescale_augmenter])
 
             dl = Dataset(
-                in_shape,
                 im_paths=self.conf.frameFileNames,
-                augmentations=transf,
-                cuda=self.conf.cuda)
+                in_shape=in_shape,
+                augmentations=transf)
+            dataloader = DataLoader(dl,
+                                    batch_size=params['batch_size'],
+                                    collate_fn=dl.collate_fn,
+                                    num_workers=params['n_workers'])
+
+            model = UNetFeatExtr(params, 3, mode, dataloader,
+                                 depth=4,
+                                checkpoint_path=checkpoint_path)
+
+            device = torch.device('cuda' if self.conf.cuda else 'cpu')
+            model.to(device)
 
             if(not os.path.exists(feats_path)):
                 self.logger.info(
@@ -321,7 +367,7 @@ class DataManager:
                         feats_path))
 
                 model.model.eval()
-                feats_ds = model.calc_features(dl)
+                feats_ds = model.calc_features(dataloader)
 
                 self.logger.info(
                     'Saving (downsampled) features to {}.'.format(feats_path))
@@ -341,13 +387,8 @@ class DataManager:
                 feats_us = transform.resize(feats_ds[..., f],
                                             (*orig_shape[0:2], feats_ds.shape[2]))
                             
-                for index, row in self.centroids_loc[
-                        self.centroids_loc['frame'] == f].iterrows():
-                    x = row['x']
-                    y = row['y']
-                    ci, cj = csv.coord2Pixel(x, y, feats_us.shape[1],
-                                                feats_us.shape[0])
-                    feats_sp.append(feats_us[ci, cj, :].copy())
+                for l in np.unique(self.labels[..., f]):
+                    feats_sp.append(feats_us[self.labels[..., f] == l, :].mean(axis=0).copy())
                 bar.update(1)
             bar.close()
 
@@ -410,7 +451,9 @@ class DataManager:
     def calc_pm(self,
                 pos_sps,
                 all_feats_df=None,
-                mode='foreground'):
+                map_dir=None,
+                labels=None,
+                mode='bagging'):
         """
         Main function that extracts or updates gaze coordinates
         and computes transductive learning model (bagging)
@@ -419,16 +462,42 @@ class DataManager:
         """
 
         self.logger.info('--- Generating probability map foreground')
-        self.logger.info("T: " + str(self.conf.bag_t))
-        self.logger.info("bag_n_bins: " + str(self.conf.bag_n_bins))
 
+        assert(mode == 'bagging' or mode == 'maps'), 'mode must be bagging or maps'
+        if(mode == 'maps'):
+            assert(map_dir is not None and labels is not None), 'when using maps, specify map_paths and labels'
+            
+        if(pos_sps.size == 0):
+            warnings.warn('pos_sps is empty, returning probas of 0.5.')
+            self.fg_pm_df = all_feats_df.copy(deep=True)
+            self.fg_pm_df.drop(columns=['desc', 'x', 'y'])
+            self.fg_pm_df = self.fg_pm_df.assign(proba=[0.5]*self.fg_pm_df.shape[0])
+            return
 
-        self.calc_bagging(
-            pos_sps,
-            all_feats_df=all_feats_df,
-            mode=mode,
-            T=self.conf.bag_t,
-            bag_n_feats=self.conf.bag_n_feats,
-            bag_max_depth=self.conf.bag_max_depth,
-            bag_max_samples=self.conf.bag_max_samples,
-            n_jobs=self.conf.bag_jobs)
+        if(mode == 'bagging'):
+            self.logger.info("T: " + str(self.conf.bag_t))
+            self.logger.info("bag_n_bins: " + str(self.conf.bag_n_bins))
+
+            self.calc_bagging(
+                pos_sps,
+                all_feats_df=all_feats_df,
+                mode=mode,
+                T=self.conf.bag_t,
+                bag_n_feats=self.conf.bag_n_feats,
+                bag_max_depth=self.conf.bag_max_depth,
+                bag_max_samples=self.conf.bag_max_samples,
+                n_jobs=self.conf.bag_jobs)
+        else:
+            map_paths = sorted(glob.glob(pjoin(map_dir, '*.png')))
+            maps = [io.imread(f) for f in map_paths]
+
+            frames = np.unique(self.labels['frame'].values)
+            probas = []
+            bar = tqdm.tqdm(total=len(frames))
+            for f in frames:
+                for l in np.unique(self.labels[
+                        ..., f]):
+                    probas.append(maps[f][self.labels[..., f] == l].mean().copy())
+                bar.update(1)
+            bar.close()
+            self.fg_pm_df.assign(proba=probas)

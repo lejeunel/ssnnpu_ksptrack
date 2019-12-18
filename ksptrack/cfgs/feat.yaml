@@ -41,5 +41,5 @@ feat-n-workers: 0
 feat-locs-gaussian-std : 0.1  # std dev for creating 2D Gaussian map
 
 feat-in-shape: 512
-batch-size : 4
+batch-size : 1
 cuda : False

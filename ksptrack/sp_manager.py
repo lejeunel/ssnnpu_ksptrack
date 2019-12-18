@@ -58,7 +58,7 @@ class SuperpixelManager:
                                       self.hoof_grid_ratio)
 
             # This will add fields in original graph
-            self.graph = hoof_extr.make_hoof_inters(self.graph)
+            self.graph = hoof_extr.make_hoof_inters(self.graph, file_hoof_sps)
         else:
             self.graph = self.make_init_constraint()
 
