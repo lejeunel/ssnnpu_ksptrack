@@ -110,18 +110,12 @@ def get_params(path='cfgs'):
 
     # features
     p.add('--feat-path')
+    p.add('--feats-mode', type=str)
     p.add('--feat-extr-algorithm')
-    p.add('--feat-batchsize', type=int)
     p.add('--feat-feats-upsamp-size', type=int)
     p.add('--feat-n-epochs', type=int)
     p.add('--feat-loss')
     p.add('--feat-validation-split', type=float)
-    p.add('--feat-optimizer')
-    p.add('--feat-adam-learning-rate', type=float)
-    p.add('--feat-adam-beta1', type=float)
-    p.add('--feat-adam-beta2', type=float)
-    p.add('--feat-adam-epsilon', type=float)
-    p.add('--feat-adam-decay', type=float)
     p.add('--feat-data-gaussian-noise-std', type=float)
     p.add('--feat-data-rot-range', type=float)
     p.add('--feat-data-width-shift', type=float)
@@ -129,6 +123,11 @@ def get_params(path='cfgs'):
     p.add('--feat-data-shear-range', type=float)
     p.add('--feat-data-someof', type=float)
     p.add('--feat-interp-n-jobs', type=int)
+
+    p.add('--feat-sgd-learning-rate', type=float)
+    p.add('--feat-sgd-learning-rate-power', type=float)
+    p.add('--feat-sgd-momentum', type=float)
+    p.add('--feat-sgd-decay', type=float)
 
     p.add('--feat-gaze-gaussian-std', type=int)
 

@@ -32,11 +32,8 @@ class WeightedMSE(nn.Module):
         return L
 
 class PriorMSE(nn.Module):
-    def __init__(self, cuda=True):
+    def __init__(self):
         super(PriorMSE, self).__init__()
-
-        self.device = torch.device("cuda" if cuda \
-                                   else "cpu")
 
     def forward(self, y, y_true, prior):
 

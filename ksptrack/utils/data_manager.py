@@ -5,22 +5,186 @@ import numpy as np
 import matplotlib.pyplot as plt
 from ksptrack.utils import superpixel_utils as spix
 from ksptrack.utils import my_utils as utls
+from ksptrack.models import im_utils as ptimu
 from ksptrack.utils import bagging as bag
-from ksptrack.utils import csv_utils as csv
 from ksptrack.utils import superpixel_extractor as svx
 from ksptrack.utils import superpixel_utils as spix_utls
+from ksptrack.models.losses import PriorMSE
+from ksptrack.models import utils as ptu
 from skimage import (color, io, segmentation, transform)
-from sklearn import (mixture, metrics, preprocessing, decomposition)
-import scipy as scp
-import glob, itertools
+import glob
 import logging
 from imgaug import augmenters as iaa
-from ksptrack.utils.my_augmenters import rescale_augmenter
+from ksptrack.utils.my_augmenters import rescale_augmenter, Normalize
 import torch
 import tqdm
 from torch.utils.data import DataLoader, SubsetRandomSampler
+import torch.optim as optim
 import warnings
+import time
+import copy
 
+
+def adjust_lr(optimizer, itr, max_itr, lr, pwr):
+    now_lr = lr * (1 - itr/(max_itr+1)) ** pwr
+    optimizer.param_groups[0]['lr'] = now_lr
+    optimizer.param_groups[1]['lr'] = 10*now_lr
+    optimizer.param_groups[2]['lr'] = 10*now_lr
+    return now_lr
+
+def get_features(model, cfg, dataloader, checkpoint, sp_labels, mode='autoenc'):
+    since = time.time()
+
+    if(os.path.exists(checkpoint)):
+        print('loading {}'.format(checkpoint))
+        dict_ = torch.load(checkpoint,
+                           map_location=lambda storage,
+                           loc: storage)
+        model.load_state_dict(dict_)
+
+    device = torch.device('cuda' if cfg.cuda else 'cpu')
+    model.eval()
+    model.to(device)
+
+    feats = []
+
+    pbar = tqdm.tqdm(total=len(dataloader))
+    for i, sample in enumerate(dataloader):
+        with torch.no_grad():
+            inputs = sample['image'].to(device)
+            _, feat = model(inputs)
+            feat = feat.detach().cpu().numpy()
+            feat = [feat[0, :, sp_labels[..., i] == l].mean(axis=0)
+                    for l in np.unique(sp_labels[..., i])]
+            feats += feat
+        pbar.update(1)
+
+    pbar.close()
+
+    return feats
+
+def train_model(model, cfg, dataloader, checkpoint, out_dir,
+                cp_fname,
+                bm_fname,
+                mode='autoenc'):
+    since = time.time()
+
+    if(os.path.exists(checkpoint)):
+        print('checkpoint {} exists'.format(checkpoint))
+        dict_ = torch.load(checkpoint,
+                            map_location=lambda storage,
+                            loc: storage)
+        model.load_state_dict(dict_)
+
+        return model
+
+    if(mode == 'autoenc'):
+        model.to_autoenc()
+        criterion = torch.nn.MSELoss()
+    else:
+        model.to_predictor()
+        criterion = torch.nn.CrossEntropyLoss()
+
+    best_model_wts = copy.deepcopy(model.state_dict())
+    best_loss = np.inf
+
+    device = torch.device('cuda' if cfg.cuda else 'cpu')
+    model.to(device)
+    optimizer = optim.SGD(params = [
+        {'params': model.encoder.parameters(), 'lr': cfg.feat_sgd_learning_rate},
+        {'params': model.decoder.parameters(), 'lr': 10*cfg.feat_sgd_learning_rate},
+        {'params': model.aspp.parameters(), 'lr': 10*cfg.feat_sgd_learning_rate}
+    ],
+                           momentum=cfg.feat_sgd_momentum,
+                           weight_decay=cfg.feat_sgd_decay)
+
+    # Save augmented previews
+    data_prev = [dataloader.dataset.sample_uniform() for i in range(10)]
+    path_ = pjoin(out_dir, 'augment_previews_{}'.format(mode))
+    if (not os.path.exists(path_)):
+        os.makedirs(path_)
+
+    padding = ((10, ), (10, ), (0, ))
+    data_prev = [
+        np.concatenate(
+            (np.pad(d['image'], pad_width=padding, mode='constant'),
+             np.pad(d['prior'], pad_width=padding, mode='constant')),
+            axis=-1) for d in data_prev
+    ]
+
+    for i, d in enumerate(data_prev):
+        io.imsave(pjoin(path_, 'im_{:02d}.png'.format(i)), d)
+
+    max_itr = cfg.feat_n_epochs * len(dataloader)
+    itr = 0
+    for epoch in range(cfg.feat_n_epochs):
+        print('Epoch {}/{}'.format(epoch, cfg.feat_n_epochs - 1))
+        print('-' * 10)
+
+        model.train()  # Set model to training mode
+
+        running_loss = 0.0
+
+        # Iterate over data.
+        pbar = tqdm.tqdm(total=len(dataloader))
+        for sample in dataloader:
+            now_lr = adjust_lr(optimizer, itr, max_itr,
+                               cfg.feat_sgd_learning_rate,
+                               cfg.feat_sgd_learning_rate_power)
+            inputs = sample['image'].to(device)
+            if(mode == 'autoenc'):
+                labels = inputs
+            else:
+                labels = sample['label/segmentation'].to(device)
+
+            # zero the parameter gradients
+            optimizer.zero_grad()
+
+            with torch.set_grad_enabled(True):
+                output, _ = model(inputs)
+                loss = criterion(output, labels)
+
+                loss.backward()
+                optimizer.step()
+                itr += 1
+
+            # statistics
+            running_loss += loss.item() * inputs.size(0)
+            pbar.set_description('loss: {:.8f}'.format(running_loss))
+            pbar.update(1)
+
+        pbar.close()
+
+        epoch_loss = running_loss / len(dataloader.dataset)
+
+        print('{} Loss: {:.4f} LR: {}'.format('train', epoch_loss, now_lr))
+
+        if (running_loss < best_loss):
+            best_loss = running_loss
+
+        if(output.shape[1] == 1):
+            output = output.repeat(1, 3, 1, 1)
+        ptimu.save_tensors([inputs[0], output[0]], ['image', 'image'],
+                           os.path.join(out_dir,
+                                        'train_previews',
+                                        'im_{:04d}.png'.format(epoch)))
+
+        # deep copy the model
+        if epoch_loss < best_loss:
+            best_loss = epoch_loss
+            best_model_wts = copy.deepcopy(model.state_dict())
+            ptu.save_checkpoint(model.state_dict(),
+                                running_loss < best_loss,
+                                out_dir,
+                                fname_cp=cp_fname.format(mode),
+                                fname_bm=bm_fname.format(mode))
+
+    time_elapsed = time.time() - since
+    print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+
+    # load best model weights
+    model.load_state_dict(best_model_wts)
+    return model
 
 class DataManager:
     def __init__(self, conf):
@@ -75,7 +239,7 @@ class DataManager:
 
     def get_sp_desc_from_file(self):
 
-        fname = 'sp_desc_ung.p'
+        fname = 'sp_desc_{}.p'.format(self.conf.feats_mode)
 
         if(self.sp_desc_df_ is None):
             path = os.path.join(self.conf.precomp_desc_path, fname)
@@ -206,48 +370,25 @@ class DataManager:
 
         return self.fg_pm_df
 
-    def calc_sp_feats_unet_gaze_rec(self,
-                                    locs2d,
-                                    save_dir=None,
-                                    mode='autoenc'):
+    def calc_sp_feats(self,
+                      locs2d,
+                      save_dir=None,
+                      mode='autoenc'):
         """ 
         Computes UNet features in Autoencoder-mode
         Train/forward-propagate Unet and save features/weights
         """
 
-        df_fname = 'sp_desc_ung.p'
-        feats_fname = 'feats_unet.npz'
-        cp_fname = 'checkpoint.pth.tar'
-        bm_fname = 'best_model.pth.tar'
+        df_fname = 'sp_desc_{}.p'
+        cp_fname = 'checkpoint_{}.pth.tar'
+        bm_fname = 'best_model_{}.pth.tar'
 
-        feats_path = os.path.join(save_dir, feats_fname)
         df_path = os.path.join(save_dir, df_fname)
         bm_path = os.path.join(save_dir, bm_fname)
+        cp_path = os.path.join(save_dir, cp_fname)
 
-        forward_pass = not os.path.exists(feats_path)
-        assign_feats_to_sps = not os.path.exists(df_path)
-
-        from ksptrack.models.unet_feat_extr import UNetFeatExtr
         from ksptrack.models.dataset import Dataset
-
-        orig_shape = utls.imread(self.conf.frameFileNames[0]).shape
-        in_shape = 800
-
-        params = {
-            'batch_size': self.conf.batch_size,
-            'cuda': self.conf.cuda,
-            'lr': self.conf.feat_adam_learning_rate,
-            'momentum': 0.9,
-            'beta1': self.conf.feat_adam_beta1,
-            'beta2': self.conf.feat_adam_beta2,
-            'epsilon': self.conf.feat_adam_epsilon,
-            'weight_decay_adam': self.conf.feat_adam_decay,
-            'num_epochs': self.conf.feat_n_epochs,
-            'out_dir': save_dir,
-            'cp_fname': cp_fname,
-            'bm_fname': bm_fname,
-            'n_workers': self.conf.feat_n_workers
-        }
+        from ksptrack.models.deeplab import DeepLabv3Plus
 
         transf = iaa.Sequential([
             iaa.SomeOf(self.conf.feat_data_someof,
@@ -266,140 +407,72 @@ class DataManager:
                             scale=self.conf.feat_data_gaussian_noise_std*255),
                         iaa.Fliplr(p=0.5),
                         iaa.Flipud(p=0.5)]),
-            iaa.Resize(in_shape),
-            rescale_augmenter])
-
-        checkpoint_path = pjoin(save_dir, bm_fname)
+            rescale_augmenter,
+            Normalize(mean=[0.485, 0.456, 0.406],
+                      std=[0.229, 0.224, 0.225])
+        ])
 
         dl = Dataset(
-            in_shape=in_shape,
             im_paths=self.conf.frameFileNames,
             truth_paths=self.conf.gtFileNames,
             locs2d=locs2d,
             sig_prior=self.conf.feat_locs_gaussian_std,
             augmentations=transf)
+        if(mode == 'autoenc'):
+            sampler = None
+            shuffle = True
+        else:
+            idx_refine = np.repeat(np.arange(len(dl)), 120 // len(dl))
+            sampler = SubsetRandomSampler(idx_refine)
+            shuffle = False
+
         dataloader = DataLoader(dl,
-                                batch_size=params['batch_size'],
-                                shuffle=True,
+                                batch_size=self.conf.batch_size,
+                                shuffle=shuffle,
+                                sampler=sampler,
                                 collate_fn=dl.collate_fn,
-                                num_workers=params['n_workers'])
-        if(not os.path.exists(bm_path)):
+                                drop_last=True,
+                                num_workers=self.conf.feat_n_workers)
+        if(not os.path.exists(bm_path.format(mode))):
             self.logger.info(
                 "Network weights file {} does not exist. Training...".format(
-                    bm_path))
-            self.logger.info(
-                "Parameters: \n {}".format(
-                    params))
+                    bm_path.format(mode)))
 
-            model = UNetFeatExtr(params, 3, mode, dataloader,
-                                 depth=4)
-            model.train()
-
-        if(mode == 'pred'):
-            # will re-start from autoencoder's checkpoint
-            checkpoint_path = pjoin(save_dir, bm_fname)
-
-            cp_fname = 'checkpoint_refined.pth.tar'
-            bm_fname = 'best_model_refined.pth.tar'
-            df_fname = 'sp_desc_ung_refined.p'
-            feats_fname = 'feats_unet_refined.npz'
-            feats_path = os.path.join(save_dir, feats_fname)
-            df_path = os.path.join(save_dir, df_fname)
-            bm_path = os.path.join(save_dir, bm_fname)
-            forward_pass = not os.path.exists(feats_path)
-            assign_feats_to_sps = not os.path.exists(df_path)
-
-            params['cp_fname'] = cp_fname
-            params['bm_fname'] = bm_fname
-
-
-            if(not os.path.exists(bm_path)):
-                self.logger.info(
-                    "Network weights file {} does not exist. Training...".format(
-                        bm_path))
-                self.logger.info(
-                    "Parameters: \n {}".format(
-                        params))
-                # this will refine in prediction mode with given frames
-                dl = Dataset(
-                    in_shape=in_shape,
-                    im_paths=self.conf.refine_frameFileNames,
-                    truth_paths=self.conf.refine_gtFileNames,
-                    augmentations=transf)
-                idx_refine = np.repeat(np.arange(len(dl)), 120 // len(dl))
-                dataloader = DataLoader(dl,
-                                        batch_size=params['batch_size'],
-                                        sampler=SubsetRandomSampler(idx_refine),
-                                        collate_fn=dl.collate_fn,
-                                        num_workers=params['n_workers'])
-                model = UNetFeatExtr(params, 3, mode, dataloader,
-                                     depth=4,
-                                     checkpoint_path=checkpoint_path)
-                model.train()
-
+            model = DeepLabv3Plus()
+            train_model(model, self.conf, dataloader,
+                        cp_path.format('autoenc'),
+                        save_dir,
+                        cp_fname,
+                        bm_fname,
+                        mode)
 
         # Do forward pass on images and retrieve features
-        if (forward_pass):
+        if(not os.path.exists(df_path.format(mode))):
+            self.logger.info(
+                "Computing features on superpixels")
 
             transf = iaa.Sequential([
-                iaa.Resize(in_shape),
-                rescale_augmenter])
+                rescale_augmenter,
+                Normalize(mean=[0.485, 0.456, 0.406],
+                          std=[0.229, 0.224, 0.225])])
 
             dl = Dataset(
                 im_paths=self.conf.frameFileNames,
-                in_shape=in_shape,
                 augmentations=transf)
             dataloader = DataLoader(dl,
-                                    batch_size=params['batch_size'],
-                                    collate_fn=dl.collate_fn,
-                                    num_workers=params['n_workers'])
-
-            model = UNetFeatExtr(params, 3, mode, dataloader,
-                                 depth=4,
-                                checkpoint_path=checkpoint_path)
-
-            device = torch.device('cuda' if self.conf.cuda else 'cpu')
-            model.to(device)
-
-            if(not os.path.exists(feats_path)):
-                self.logger.info(
-                    "Downsampled feature file {} does not exist...".format(
-                        feats_path))
-
-                model.model.eval()
-                feats_ds = model.calc_features(dataloader)
-
-                self.logger.info(
-                    'Saving (downsampled) features to {}.'.format(feats_path))
-                np.savez(feats_path, **{'feats': feats_ds})
-        else:
-            self.logger.info(
-                "Downsampled feature file {} exist. Delete to re-run.".format(
-                    feats_path))
-            feats_ds = np.load(feats_path)['feats']
-
-        if(assign_feats_to_sps):
-            self.logger.info("Computing features on superpixels")
-            feats_sp = list()
-            frames = np.unique(self.centroids_loc['frame'].values)
-            bar = tqdm.tqdm(total=len(frames))
-            for f in frames:
-                feats_us = transform.resize(feats_ds[..., f],
-                                            (*orig_shape[0:2], feats_ds.shape[2]))
-                            
-                for l in np.unique(self.labels[..., f]):
-                    feats_sp.append(feats_us[self.labels[..., f] == l, :].mean(axis=0).copy())
-                bar.update(1)
-            bar.close()
+                                    batch_size=1,
+                                    collate_fn=dl.collate_fn)
+            model = DeepLabv3Plus()
+            feats_sp = get_features(model,
+                                    self.conf,
+                                    dataloader,
+                                    cp_path.format(mode),
+                                    self.labels,
+                                    mode)
 
             feats_df = self.centroids_loc.assign(desc=feats_sp)
-            self.logger.info('Saving  features to {}.'.format(df_path))
-            feats_df.to_pickle(os.path.join(df_path))
-        else:
-            self.logger.info(
-                "feature file {} exist. Delete to re-run.".format(
-                    df_path))
-            feats_df = pd.read_pickle(df_path)
+            self.logger.info('Saving  features to {}.'.format(df_path.format(mode)))
+            feats_df.to_pickle(os.path.join(df_path.format(mode)))
 
 
     def get_pm_array(self, mode='foreground', save=False, frames=None):

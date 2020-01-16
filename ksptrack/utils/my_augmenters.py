@@ -2,6 +2,7 @@ from imgaug import augmenters as iaa
 import numpy as np
 from imgaug.augmenters import Augmenter
 import matplotlib.pyplot as plt
+np.random.bit_generator = np.random._bit_generator
 
 
 class Normalize(Augmenter):
@@ -53,9 +54,5 @@ def rescale_images(images, random_state, parents, hooks):
     return result
 
 
-void_fun = lambda x, random_state, parents, hooks: x
-
 rescale_augmenter = iaa.Lambda(
-    func_images=rescale_images,
-    func_heatmaps=void_fun,
-    func_keypoints=void_fun)
+    func_images=rescale_images)

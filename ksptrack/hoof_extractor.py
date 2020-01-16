@@ -67,14 +67,12 @@ class HOOFExtractor:
         """
 
         hoof = dict()
-
         path_flow = self.flows_path
 
         if (not os.path.exists(path_flow)):
             self.calc_oflow(save=True, save_path=path_flow)
 
         flows = self.get_flows(path_flow)
-
         file_hoof_grid = os.path.join(self.conf.precomp_desc_path, 'hoof.npz')
 
         if (not os.path.exists(file_hoof_grid)):

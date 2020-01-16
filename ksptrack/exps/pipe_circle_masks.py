@@ -8,23 +8,23 @@ from ksptrack import gc_refinement
 
 masks_paths_unet = {
     ('Dataset00', 'Dataset01', 'Dataset02', 'Dataset03', 'Dataset04', 'Dataset05'):
-    'Dataset00_2019-08-06_13-48',
+    'Dataset00',
     ('Dataset10', 'Dataset11', 'Dataset12', 'Dataset13'):
-    'Dataset10_2019-08-06_16-10',
+    'Dataset10',
     ('Dataset20', 'Dataset21', 'Dataset22', 'Dataset23', 'Dataset24', 'Dataset25'):
-    'Dataset20_2019-08-06_11-46',
+    'Dataset20',
     ('Dataset30', 'Dataset31', 'Dataset32', 'Dataset33', 'Dataset34', 'Dataset35'):
-    'Dataset30_2019-08-06_17-27'
+    'Dataset30'
 }
 masks_paths_darnet = {
     ('Dataset00', 'Dataset01', 'Dataset02', 'Dataset03', 'Dataset04', 'Dataset05'):
-    'Dataset00_2019-10-04_16-17',
+    'Dataset00',
     ('Dataset10', 'Dataset11', 'Dataset12', 'Dataset13'):
-    'Dataset10_2019-10-31_11-38',
+    'Dataset10',
     ('Dataset20', 'Dataset21', 'Dataset22', 'Dataset23', 'Dataset24', 'Dataset25'):
-    'Dataset20_2019-10-04_16-00',
+    'Dataset20',
     ('Dataset30', 'Dataset31', 'Dataset32', 'Dataset33', 'Dataset34', 'Dataset35'):
-    'Dataset30_2019-10-31_11-38'
+    'Dataset30'
 }
 
 if __name__ == "__main__":
@@ -39,11 +39,9 @@ if __name__ == "__main__":
 
     cfg = p.parse_args()
 
-    gamma_range = np.arange(cfg.gc_gamma_range[0],
-                            cfg.gc_gamma_range[1],
+    gamma_range = np.arange(cfg.gc_gamma_range[0], cfg.gc_gamma_range[1],
                             cfg.gc_gamma_step)
-    lambda_range = np.arange(cfg.gc_lambda_range[0],
-                             cfg.gc_lambda_range[1],
+    lambda_range = np.arange(cfg.gc_lambda_range[0], cfg.gc_lambda_range[1],
                              cfg.gc_lambda_step)
 
     assert (cfg.set_labeled == cfg.sets[0]
@@ -74,144 +72,145 @@ if __name__ == "__main__":
         cfg.out_path = pjoin(cfg.root_path, 'runs/ksptrack', dset)
 
         # constant radius ---------------------------------------------------
-        cfg.entrance_masks_path = None
-
         # 0 frames
         cfg.feats_mode = 'autoenc'
+        cfg.entrance_masks_path = None
+        cfg.model_path = None
         cfg.exp_name = '{}_feats_disk_entr'.format(cfg.feats_mode)
         iterative_ksp.main(cfg)
 
         # 1 frame
-        cfg.feats_mode = 'pred'
-        cfg.exp_name = '{}_feats_disk_entr'.format(cfg.feats_mode)
-        cfg = iterative_ksp.main(cfg)
+        # cfg.feats_mode = 'pred'
+        # cfg.exp_name = '{}_feats_disk_entr'.format(cfg.feats_mode)
+        # cfg = iterative_ksp.main(cfg)
 
         # optimize graph-cut
-        if (i == 0):
-            cfg.val_run_dir = cfg.run_dir
-            cfg.val_dir = cfg.in_path
-            gc_gamma, gc_lambda, gc_sigma = gc_optimize.optimize_params(
-                cfg.in_path, cfg.run_dir, 'input-frames',
-                'ground_truth-frames', cfg.labeled_frames, gamma_range,
-                lambda_range, cfg.gc_sigma)
-            gc_params['disk'] = {
-                'gamma': gc_gamma,
-                'lambda': gc_lambda,
-                'sigma': gc_sigma
-            }
+        # if (i == 0):
+        #     cfg.val_run_dir = cfg.run_dir
+        #     cfg.val_dir = cfg.in_path
+        #     gc_gamma, gc_lambda, gc_sigma = gc_optimize.optimize_params(
+        #         cfg.in_path, cfg.run_dir, 'input-frames',
+        #         'ground_truth-frames', cfg.labeled_frames, gamma_range,
+        #         lambda_range, cfg.gc_sigma)
+        #     gc_params['disk'] = {
+        #         'gamma': gc_gamma,
+        #         'lambda': gc_lambda,
+        #         'sigma': gc_sigma
+        #     }
 
         # 1 frame + GC
-        gc_refinement.main(cfg.run_dir, gc_params['disk']['gamma'],
-                           gc_params['disk']['sigma'],
-                           gc_params['disk']['lambda'], cfg.in_path,
-                           cfg.frame_dir, cfg.truth_dir)
+        # gc_refinement.main(cfg.run_dir, gc_params['disk']['gamma'],
+        #                    gc_params['disk']['sigma'],
+        #                    gc_params['disk']['lambda'], cfg.in_path,
+        #                    cfg.frame_dir, cfg.truth_dir)
         # ------------------------------------------------------------------
 
         # selective search -------------------------------------------------
-        cfg.entrance_masks_path = pjoin(cfg.root_path, 'runs',
-                                        'selective_search', dset,
-                                        cfg.csv_fname)
+        # cfg.entrance_masks_path = pjoin(cfg.root_path, 'runs',
+        #                                 'selective_search', dset,
+        #                                 cfg.csv_fname)
         # 0 frames
-        cfg.feats_mode = 'autoenc'
-        cfg.exp_name = '{}_feats_ss_entr'.format(cfg.feats_mode)
-        iterative_ksp.main(cfg)
+        # cfg.feats_mode = 'autoenc'
+        # cfg.exp_name = '{}_feats_ss_entr'.format(cfg.feats_mode)
+        # iterative_ksp.main(cfg)
 
         # 1 frame
-        cfg.feats_mode = 'pred'
-        cfg.exp_name = '{}_feats_ss_entr'.format(cfg.feats_mode)
-        cfg = iterative_ksp.main(cfg)
+        # cfg.feats_mode = 'pred'
+        # cfg.exp_name = '{}_feats_ss_entr'.format(cfg.feats_mode)
+        # cfg = iterative_ksp.main(cfg)
 
         # optimize graph-cut
-        if (i == 0):
-            cfg.val_run_dir = cfg.run_dir
-            cfg.val_dir = cfg.in_path
-            gc_gamma, gc_lambda, gc_sigma = gc_optimize.optimize_params(
-                cfg.in_path, cfg.run_dir, 'input-frames',
-                'ground_truth-frames', cfg.labeled_frames, gamma_range,
-                lambda_range, cfg.gc_sigma)
-            gc_params['ss'] = {
-                'gamma': gc_gamma,
-                'lambda': gc_lambda,
-                'sigma': gc_sigma
-            }
+        # if (i == 0):
+        #     cfg.val_run_dir = cfg.run_dir
+        #     cfg.val_dir = cfg.in_path
+        #     gc_gamma, gc_lambda, gc_sigma = gc_optimize.optimize_params(
+        #         cfg.in_path, cfg.run_dir, 'input-frames',
+        #         'ground_truth-frames', cfg.labeled_frames, gamma_range,
+        #         lambda_range, cfg.gc_sigma)
+        #     gc_params['ss'] = {
+        #         'gamma': gc_gamma,
+        #         'lambda': gc_lambda,
+        #         'sigma': gc_sigma
+        #     }
 
         # 1 frame + GC
-        gc_refinement.main(cfg.run_dir, gc_gamma, gc_sigma, gc_lambda,
-                           cfg.in_path, cfg.frame_dir, cfg.truth_dir)
-        gc_refinement.main(cfg.run_dir, gc_params['ss']['gamma'],
-                           gc_params['ss']['sigma'], gc_params['ss']['lambda'],
-                           cfg.in_path, cfg.frame_dir, cfg.truth_dir)
+        # gc_refinement.main(cfg.run_dir, gc_gamma, gc_sigma, gc_lambda,
+        #                    cfg.in_path, cfg.frame_dir, cfg.truth_dir)
+        # gc_refinement.main(cfg.run_dir, gc_params['ss']['gamma'],
+        #                    gc_params['ss']['sigma'], gc_params['ss']['lambda'],
+        #                    cfg.in_path, cfg.frame_dir, cfg.truth_dir)
         # ------------------------------------------------------------------
 
         # U-net patch -------------------------------------------------
-        mask_path = [v for k, v in masks_paths_unet.items() if (dset in k)][0]
-        cfg.entrance_masks_path = pjoin(cfg.root_path, 'runs', 'unet_region',
-                                        mask_path, dset, 'entrance_masks',
-                                        'proba')
+        # mask_path = [v for k, v in masks_paths_unet.items() if (dset in k)][0]
+        # cfg.entrance_masks_path = pjoin(cfg.root_path, 'runs', 'unet_region',
+        #                                 mask_path, dset, 'entrance_masks',
+        #                                 'proba')
         # 0 frames
-        cfg.feats_mode = 'autoenc'
-        cfg.exp_name = '{}_feats_unet_patch_entr'.format(cfg.feats_mode)
-        iterative_ksp.main(cfg)
+        # cfg.feats_mode = 'autoenc'
+        # cfg.exp_name = '{}_feats_unet_patch_entr'.format(cfg.feats_mode)
+        # iterative_ksp.main(cfg)
 
         # 1 frame
-        cfg.feats_mode = 'pred'
-        cfg.exp_name = '{}_feats_unet_patch_entr'.format(cfg.feats_mode)
-        cfg = iterative_ksp.main(cfg)
+        # cfg.feats_mode = 'pred'
+        # cfg.exp_name = '{}_feats_unet_patch_entr'.format(cfg.feats_mode)
+        # cfg = iterative_ksp.main(cfg)
 
         # optimize graph-cut
-        if (i == 0):
-            cfg.val_run_dir = cfg.run_dir
-            cfg.val_dir = cfg.in_path
-            gc_gamma, gc_lambda, gc_sigma = gc_optimize.optimize_params(
-                cfg.in_path, cfg.run_dir, 'input-frames',
-                'ground_truth-frames', cfg.labeled_frames, gamma_range,
-                lambda_range, cfg.gc_sigma)
-            gc_params['unet_patch'] = {
-                'gamma': gc_gamma,
-                'lambda': gc_lambda,
-                'sigma': gc_sigma
-            }
+        # if (i == 0):
+        #     cfg.val_run_dir = cfg.run_dir
+        #     cfg.val_dir = cfg.in_path
+        #     gc_gamma, gc_lambda, gc_sigma = gc_optimize.optimize_params(
+        #         cfg.in_path, cfg.run_dir, 'input-frames',
+        #         'ground_truth-frames', cfg.labeled_frames, gamma_range,
+        #         lambda_range, cfg.gc_sigma)
+        #     gc_params['unet_patch'] = {
+        #         'gamma': gc_gamma,
+        #         'lambda': gc_lambda,
+        #         'sigma': gc_sigma
+        #     }
 
         # 1 frame + GC
-        gc_refinement.main(cfg.run_dir, gc_params['unet_patch']['gamma'],
-                           gc_params['unet_patch']['sigma'],
-                           gc_params['unet_patch']['lambda'], cfg.in_path,
-                           cfg.frame_dir, cfg.truth_dir)
+        # gc_refinement.main(cfg.run_dir, gc_params['unet_patch']['gamma'],
+        #                    gc_params['unet_patch']['sigma'],
+        #                    gc_params['unet_patch']['lambda'], cfg.in_path,
+        #                    cfg.frame_dir, cfg.truth_dir)
         # ------------------------------------------------------------------
 
         # DARNet patch -------------------------------------------------
-        mask_path = [v for k, v in masks_paths_darnet.items()
-                     if (dset in k)][0]
-        cfg.entrance_masks_path = pjoin(cfg.root_path, 'runs', 'darnet',
-                                        mask_path, dset, 'entrance_masks',
-                                        'pred')
+        # mask_path = [v for k, v in masks_paths_darnet.items()
+        #              if (dset in k)][0]
+        # cfg.entrance_masks_path = pjoin(cfg.root_path, 'runs', 'darnet',
+        #                                 mask_path, dset, 'entrance_masks',
+        #                                 'pred')
+
         # 0 frames
-        cfg.feats_mode = 'autoenc'
-        cfg.exp_name = '{}_feats_darnet_entr'.format(cfg.feats_mode)
-        iterative_ksp.main(cfg)
+        # cfg.feats_mode = 'autoenc'
+        # cfg.exp_name = '{}_feats_darnet_entr'.format(cfg.feats_mode)
+        # iterative_ksp.main(cfg)
 
         # 1 frame
-        cfg.feats_mode = 'pred'
-        cfg.exp_name = '{}_feats_darnet_entr'.format(cfg.feats_mode)
-        cfg = iterative_ksp.main(cfg)
+        # cfg.feats_mode = 'pred'
+        # cfg.exp_name = '{}_feats_darnet_entr'.format(cfg.feats_mode)
+        # cfg = iterative_ksp.main(cfg)
 
         # optimize graph-cut
-        if (i == 0):
-            cfg.val_run_dir = cfg.run_dir
-            cfg.val_dir = cfg.in_path
-            gc_gamma, gc_lambda, gc_sigma = gc_optimize.optimize_params(
-                cfg.in_path, cfg.run_dir, 'input-frames',
-                'ground_truth-frames', cfg.labeled_frames, gamma_range,
-                lambda_range, cfg.gc_sigma)
-            gc_params['darnet'] = {
-                'gamma': gc_gamma,
-                'lambda': gc_lambda,
-                'sigma': gc_sigma
-            }
+        # if (i == 0):
+        #     cfg.val_run_dir = cfg.run_dir
+        #     cfg.val_dir = cfg.in_path
+        #     gc_gamma, gc_lambda, gc_sigma = gc_optimize.optimize_params(
+        #         cfg.in_path, cfg.run_dir, 'input-frames',
+        #         'ground_truth-frames', cfg.labeled_frames, gamma_range,
+        #         lambda_range, cfg.gc_sigma)
+        #     gc_params['darnet'] = {
+        #         'gamma': gc_gamma,
+        #         'lambda': gc_lambda,
+        #         'sigma': gc_sigma
+        #     }
 
         # 1 frame + GC
-        gc_refinement.main(cfg.run_dir, gc_params['darnet']['gamma'],
-                           gc_params['darnet']['sigma'],
-                           gc_params['darnet']['lambda'], cfg.in_path,
-                           cfg.frame_dir, cfg.truth_dir)
+        # gc_refinement.main(cfg.run_dir, gc_params['darnet']['gamma'],
+        #                    gc_params['darnet']['sigma'],
+        #                    gc_params['darnet']['lambda'], cfg.in_path,
+        #                    cfg.frame_dir, cfg.truth_dir)
         # ------------------------------------------------------------------

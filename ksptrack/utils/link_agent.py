@@ -11,52 +11,23 @@ from skimage import io
 from ksptrack.utils.lfda import myLFDA
 from sklearn.decomposition import PCA
 import warnings
-from siamese_sp.siamese import Siamese
 import torch
+from abc import ABC, abstractmethod
 
-
-class LinkAgent:
+class LinkAgent(ABC):
     def __init__(self,
                  csv_path,
-                 labels,
-                 thr_entrance=0.5,
-                 mask_path=None,
-                 model_path=None,
-                 sigma=0.07,
-                 entrance_radius=None):
+                 data_path,
+                 thr_entrance=0.5):
 
-        # assert((entrance_radius is not None) or (mask_path is not None) and (model_path is None)), 'entrance_radius, mask_path, and model_path cannot be all None'
+        super().__init__()
 
-        self.entrance_radius = entrance_radius
-        self.labels = labels
+        self.labels = np.load(pjoin(data_path, 'precomp_desc', 'sp_labels.npz'))['sp_labels']
         self.shape = self.labels[..., 0].shape
-        self.mask_path = mask_path
-        self.model_path = model_path
-        self.sigma = sigma
         self.trans_transform = None
         self.thr_clip = 0.05
-        self.thr_entrance = thr_entrance
-        self.labels = labels
-
         self.locs = csv.readCsv(csv_path, as_pandas=True)
-        self.mode = 'radius'
-
-        if (mask_path is not None):
-            self.mask_paths = sorted(glob.glob(pjoin(mask_path, '*.png')))
-            self.mask_paths += sorted(glob.glob(pjoin(mask_path, '*.jpg')))
-            self.masks = {
-                f: io.imread(p, as_gray=True) / 255
-                for f, p in zip(self.locs['frame'], self.mask_paths)
-            }
-            self.mode = 'mask'
-
-        if (model_path is not None):
-            assert(mask_path is not None), 'when using model, provide mask_path'
-            print('Loading model {}'.format(model_path))
-            self.model = Siamese(balanced=False)
-            cp = torch.load(model_path, map_location=lambda storage, loc: storage)
-            self.model.load_state_dict(cp)
-            self.mode = 'model'
+        self.thr_entrance = thr_entrance
 
 
     def get_i_j(self, loc):
@@ -64,26 +35,12 @@ class LinkAgent:
                                self.shape[0])
         return i, j
 
-    def make_radius_mask(self, frame):
-        mask = np.zeros(self.shape, dtype=bool)
-        all_locs = [
-            self.get_i_j(loc)
-            for _, loc in self.locs[self.locs['frame'] == frame].iterrows()
-        ]
-        for loc in all_locs:
-            rr, cc = circle(loc[0],
-                            loc[1],
-                            self.shape[0] * self.entrance_radius,
-                            shape=self.shape)
-            mask[rr, cc] = True
-        return mask
-
     def get_all_entrance_sps(self, sp_desc_df):
 
         sps = []
 
         for f in range(self.labels.shape[-1]):
-            mask = self.make_entrance_mask(f)
+            mask = self.make_entrance_mask(f) > self.thr_entrance
             labels_ = np.unique(self.labels[mask, f])
             descs_ = sp_desc_df[sp_desc_df['frame'] == f]
             descs_ = descs_.loc[descs_['label'].isin(labels_)]
@@ -92,27 +49,18 @@ class LinkAgent:
 
         return sps
 
+    @abstractmethod
     def make_entrance_mask(self, frame):
-        mask = np.zeros(self.labels[..., 0].shape).astype(bool)
-        if ((self.mode == 'mask') or (self.mode == 'model')):
-            if (frame in self.masks.keys()):
-                mask = self.masks[frame] > self.thr_entrance
-        else:
-            mask = self.make_radius_mask(frame)
+        pass
 
-        return mask
-
-    def is_entrance(self, frame, label, mask=None):
+    def is_entrance(self, frame, label):
         """
         """
 
-        if (mask is None):
-            mask = self.make_entrance_mask(frame)
+        mask = self.make_entrance_mask(frame)
+        return np.mean(mask[self.labels[..., frame] == label]) > self.thr_entrance
 
-        mask = mask[self.labels[..., frame] == label]
-        return np.mean(mask) > self.thr_entrance
-
-    def get_closest_label(self, tl, tl_loc, labels):
+    def get_closest_label(self, tl, tl_loc):
         loc_compare = self.locs.loc[self.locs['frame'] == tl.get_in_frame()]
         dists = [
             np.linalg.norm(
@@ -123,73 +71,7 @@ class LinkAgent:
         loc_min = self.locs.loc[np.argmin(dists)]
         i_min, j_min = csv.coord2Pixel(loc_min['x'], loc_min['y'],
                                        self.shape[1], self.shape[0])
-        return labels[i_min, j_min, tl.get_in_frame()]
-
-    def get_proba_entrance(self, tl, tl_loc, sp_desc, labels):
-
-        if (self.mask_path is None):
-            label_user = self.get_closest_label(tl, tl_loc, labels)
-            label_tl = tl.get_in_label()
-            frame_tl = tl.get_in_frame()
-            frame_user = tl.get_in_frame()
-
-            return self.get_proba(sp_desc, frame_user, label_user, frame_tl,
-                                  label_tl)
-        else:
-            # compute average probability on mask on label occupied by tl
-            if (tl.get_in_frame() in self.masks.keys()):
-                label_mask = labels[..., tl.get_in_frame()] == tl.get_in_label(
-                )
-
-                proba = np.mean(self.masks[tl.get_in_frame()][label_mask])
-
-                proba = np.clip(proba,
-                                a_min=self.thr_clip,
-                                a_max=1 - self.thr_clip)
-                return proba
-            return self.thr_clip
-
-    def get_proba_inter_frame(self, tracklet1, tracklet2, sp_desc):
-
-        t1 = tracklet1
-        t2 = tracklet2
-
-        frame_1 = t1.get_out_frame()
-        label_1 = t1.get_out_label()
-        frame_2 = t2.get_in_frame()
-        label_2 = t2.get_in_label()
-
-        if(self.mode == 'model'):
-            d1 = sp_desc.loc[(sp_desc['frame'] == frame_1) &
-                            (sp_desc['label'] == label_1), 'desc'].values[0][None, ...]
-            d2 = sp_desc.loc[(sp_desc['frame'] == frame_2) &
-                            (sp_desc['label'] == label_2), 'desc'].values[0][None, ...]
-            x = torch.tensor([d1, d2]).to(self.model)
-            proba = self.model.calc_probas(x)
-        else:
-            proba = self.get_proba(sp_desc, frame_1, label_1, frame_2, label_2)
-
-        return proba
-
-    def get_distance(self, sp_desc, f1, l1, f2, l2, p=2):
-        d1 = sp_desc.loc[(sp_desc['frame'] == f1) &
-                         (sp_desc['label'] == l1), 'desc'].values[0][None, ...]
-        d2 = sp_desc.loc[(sp_desc['frame'] == f2) &
-                         (sp_desc['label'] == l2), 'desc'].values[0][None, ...]
-        d1 = self.trans_transform.transform(d1)
-        d2 = self.trans_transform.transform(d2)
-
-        dist = np.linalg.norm(d1 - d2, ord=p)
-        return dist
-
-    def get_proba(self, sp_desc, f1, l1, f2, l2):
-
-        dist = self.get_distance(sp_desc, f1, l1, f2, l2)
-        proba = np.exp((-dist**2) / (2 * self.sigma**2))
-        proba = np.clip(proba, a_min=self.thr_clip, a_max=1 - self.thr_clip)
-
-        return proba
-
+        return self.labels[i_min, j_min, tl.get_in_frame()]
 
     def make_trans_transform(self,
                              sp_desc,

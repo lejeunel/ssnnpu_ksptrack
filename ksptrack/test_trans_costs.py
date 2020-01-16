@@ -6,6 +6,8 @@ from ksptrack.utils import superpixel_utils as spix
 from ksptrack import sp_manager as spm
 from ksptrack.utils import csv_utils as csv
 from ksptrack.utils.link_agent import LinkAgent
+from ksptrack.utils.link_agent_radius import LinkAgentRadius
+from ksptrack.utils.link_agent_mask import LinkAgentMask
 from ksptrack.utils import my_utils as utls
 from ksptrack.utils.data_manager import DataManager
 from ksptrack.utils.lfda import myLFDA
@@ -22,76 +24,84 @@ import logging
 from skimage import filters
 import scipy as sp
 
-
 p = params.get_params()
 
 p.add('--in-path')
 
 cfg = p.parse_args()
-cfg.in_path = '/home/ubelix/data/medical-labeling/Dataset10'
+cfg.in_path = '/home/ubelix/lejeune/data/medical-labeling/Dataset30'
+# mask_path = '/home/ubelix/lejeune/runs/unet_region/Dataset10_2019-08-06_16-10/Dataset12/entrance_masks/proba'
+# mask_path = '/home/ubelix/lejeune/runs/unet_region/Dataset00_2019-08-06_13-48/Dataset00/entrance_masks/proba'
+# mask_path = '/home/ubelix/lejeune/runs/unet_region/Dataset20_2019-08-06_11-46/Dataset20/entrance_masks/proba'
 
 #Make frame file names
-cfg.frameFileNames = utls.get_images(os.path.join(cfg.in_path,
-                                                  cfg.frame_dir))
+cfg.frameFileNames = utls.get_images(os.path.join(cfg.in_path, cfg.frame_dir))
 
-locs2d = utls.readCsv(
-    os.path.join(cfg.in_path, cfg.locs_dir, cfg.csv_fname))
+locs2d = utls.readCsv(os.path.join(cfg.in_path, cfg.locs_dir, cfg.csv_fname))
 
-cfg.precomp_desc_path = os.path.join(cfg.in_path,
-                                     'precomp_desc')
+cfg.precomp_desc_path = os.path.join(cfg.in_path, 'precomp_desc')
 
 # ---------- Descriptors/superpixel costs
+cfg.feats_mode = 'autoenc'
 dm = DataManager(cfg)
 dm.calc_superpix()
 
-cfg.bag_t = 1000
-cfg.bag_jobs = 4
+cfg.bag_t = 30
+cfg.bag_jobs = 1
 
-link_agent = LinkAgent(csv_path=os.path.join(cfg.in_path, cfg.locs_dir,
-                                             cfg.csv_fname),
-                       labels=dm.labels,
-                       sigma=cfg.ml_sigma,
-                       entrance_radius=cfg.norm_neighbor_in)
-dm.calc_pm(
-    np.array(link_agent.get_all_entrance_sps(dm.sp_desc_df)),
-    all_feats_df=dm.sp_desc_df,
-    mode='bagging')
+link_agent = LinkAgentRadius(
+    csv_path=os.path.join(cfg.in_path, cfg.locs_dir, cfg.csv_fname),
+    data_path=os.path.join(cfg.in_path),
+    thr_entrance=cfg.thr_entrance,
+    sigma=cfg.ml_sigma,
+    # sigma=0.0005,
+    entrance_radius=cfg.norm_neighbor_in)
+# link_agent = LinkAgentMask(csv_path=os.path.join(cfg.in_path, cfg.locs_dir,
+#                                                  cfg.csv_fname),
+#                            labels=dm.labels,
+#                            thr_entrance=cfg.thr_entrance,
+#                            sigma=cfg.ml_sigma,
+#                            mask_path=mask_path)
+dm.calc_pm(np.array(link_agent.get_all_entrance_sps(dm.sp_desc_df)),
+           all_feats_df=dm.sp_desc_df,
+           mode='bagging')
 labels = dm.labels
 descs = dm.sp_desc_df
 
-link_agent.make_trans_transform(dm.sp_desc_df,
-                                dm.fg_pm_df,
-                                [0.5, 0.9],
-                                1000,
-                                7,
-                                5,
-                                embedding_type='orthonormalized')
-
+link_agent.update_trans_transform(dm.sp_desc_df,
+                                  dm.fg_pm_df, [0.3, 0.7],
+                                  1000,
+                                  15,
+                                  25,
+                                  embedding_type='orthonormalized')
 
 frame_in = 52
 frame_out = 53
 pm_scores_fg = dm.get_pm_array(mode='foreground', frames=[frame_in, frame_out])
 
+link_agent.sigma = 0.3
 
 trans_probas = np.zeros(labels.shape[:2])
 trans_dists = np.zeros(labels.shape[:2])
 i_in, j_in = link_agent.get_i_j(locs2d[locs2d['frame'] == frame_in])
 label_in = labels[i_in, j_in, frame_in]
 for l in np.unique(labels[..., frame_out]):
-    proba = link_agent.get_proba(descs, frame_in,
-                                 label_in,
-                                 frame_out, l)
-    dist = link_agent.get_distance(descs, frame_in,
-                                   label_in,
-                                   frame_out, l)
+    proba = link_agent.get_proba(descs, frame_in, label_in, frame_out, l)
+    dist = link_agent.get_distance(descs, frame_in, label_in, frame_out, l)
     trans_probas[labels[..., frame_out] == l] = proba
     trans_dists[labels[..., frame_out] == l] = dist
 
+entrance_probas = np.zeros(labels.shape[:2])
+label_in = labels[i_in, j_in, frame_in]
+for l in np.unique(labels[..., frame_in]):
+    if (link_agent.is_entrance(frame_in, l)):
+        proba = link_agent.get_proba(descs, frame_in, label_in, frame_in, l)
+        entrance_probas[labels[..., frame_in] == l] = proba
+
 im1 = utls.imread(cfg.frameFileNames[frame_in])
-label_cont = segmentation.find_boundaries(
-    labels[..., frame_in], mode='thick')
-aimed_cont = segmentation.find_boundaries(
-    labels[..., frame_in] == label_in, mode='thick')
+label_cont = segmentation.find_boundaries(labels[..., frame_in], mode='thick')
+aimed_cont = segmentation.find_boundaries(labels[..., frame_in] == label_in,
+                                          mode='thick')
 
 label_cont_im = np.zeros(im1.shape, dtype=np.uint8)
 label_cont_i, label_cont_j = np.where(label_cont)
@@ -110,29 +120,30 @@ im1[aimed_cont, :] = (255, 0, 0)
 im1 = csv.draw2DPoint(locs2d.to_numpy(), frame_in, im1, radius=7)
 
 im2 = utls.imread(cfg.frameFileNames[frame_out])
-label_cont = segmentation.find_boundaries(
-    labels[..., frame_out], mode='thick')
+label_cont = segmentation.find_boundaries(labels[..., frame_out], mode='thick')
 im2[label_cont, :] = (255, 0, 0)
 
-cfg.pm_thr = 0.75
+# cfg.pm_thr = 0.6
 
-#plt.imshow(im1); plt.show()
-plt.subplot(321)
+plt.subplot(331)
 plt.imshow(im1)
 plt.title('frame_1. ind: ' + str(frame_in))
-plt.subplot(322)
+plt.subplot(332)
 plt.imshow(im2)
 plt.title('frame_2. ind: ' + str(frame_out))
-plt.subplot(323)
+plt.subplot(333)
 plt.imshow(pm_scores_fg[..., frame_out] > cfg.pm_thr)
 plt.title('f2 pm > {}'.format(cfg.pm_thr))
-plt.subplot(324)
-plt.imshow(trans_dists)
-plt.title('distances')
-plt.subplot(325)
+plt.subplot(334)
+plt.imshow(entrance_probas)
+plt.title('entrance probas')
+plt.subplot(335)
 plt.imshow(trans_probas)
-plt.title('probas')
-plt.subplot(326)
+plt.title('trans probas')
+plt.subplot(336)
 plt.imshow(pm_scores_fg[..., frame_out])
 plt.title('f2. pm')
+plt.subplot(337)
+plt.imshow(trans_dists)
+plt.title('trans dists')
 plt.show()

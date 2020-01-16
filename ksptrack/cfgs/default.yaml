@@ -37,7 +37,7 @@ n-iters-ksp : 4
 monitor-score : False
 
 # Bagging---------------
-bag-t : 1000
+bag-t : 30
 bag-n-bins : 100
 bag-n-feats : 0.013
 bag-max-samples : 500
@@ -50,12 +50,12 @@ hoof-n-bins: 100
 
 # Metric learning
 n-comp-pca : 3
-lfda-k : 5
-lfda-dim : 7
+lfda-k : 25
+lfda-dim : 15
 ml-n-samps : 1000
-ml-up-thr : 0.9 
-ml-down-thr : 0.5 
-ml-sigma : 0.075 
+ml-up-thr : 0.7 
+ml-down-thr : 0.1 
+ml-sigma : 0.2
 ml-embedding : 'orthonormalized'
 pca : False  #Overrides LFDA and computes PCA with n-components:lfda-dims
 
@@ -64,4 +64,4 @@ norm-neighbor : 0.08  #Cut edges outside neighborhood
 norm-neighbor-in : 0.05  #Cut edges outside neighborhood
 thr-entrance : 0.8 
 
-pm-thr : 0.75  #Threshold on KSP+SS PM for positives selection
+pm-thr : 0.5  #Threshold on KSP+SS PM for positives selection

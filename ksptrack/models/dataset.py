@@ -12,16 +12,14 @@ from collections import namedtuple
 from torch.utils import data
 
 
-class Dataset(data.Dataset):
+class BaseDataset(data.Dataset):
     def __init__(
             self,
             im_paths,
-            in_shape=None,
             truth_paths=None,
             locs2d=None,
             sig_prior=0.1,
-            augmentations=None,
-            seed=0):
+            augmentations=None):
 
         self.im_paths = im_paths
         self.augmentations = augmentations
@@ -29,13 +27,7 @@ class Dataset(data.Dataset):
         self.truth_paths = truth_paths
         self.locs2d = locs2d
         self.sig_prior = sig_prior
-        self.in_shape = in_shape
-        self.seed = 0
 
-        self.normalize = rescale_augmenter
-
-        if(isinstance(self.in_shape, int)):
-            self.in_shape = (self.in_shape, self.in_shape)
             
     def add_imgs(self, im_paths):
         self.im_paths += im_paths
@@ -61,9 +53,7 @@ class Dataset(data.Dataset):
         # we apply a threshold to get back to binary
 
         im = utls.imread(im_path, scale=False)
-
-        if(self.in_shape is None):
-            self.in_shape = im.shape[:2]
+        shape = im.shape
 
         im_orig = im.copy()
         im_shape = im.shape[0:2]
@@ -146,5 +136,6 @@ class Dataset(data.Dataset):
 
         return{'image': im,
                'prior': obj_prior,
+               'frame_name': [d['frame_name'] for d in data],
                'label/segmentation': truth,
                'original image': im_orig}

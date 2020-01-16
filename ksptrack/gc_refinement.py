@@ -47,10 +47,6 @@ def main(run_dir, gamma, sigma, lambda_, data_dir, frame_dir, truth_dir):
     if(not os.path.exists(path_frames)):
         os.makedirs(path_frames)
 
-    if(os.path.exists(file_gc) and os.path.exists(path_res)):
-        print('{} already exists'.format(path_res))
-        return None
-
     # get segmentation results and inputs
     res = np.load(pjoin(run_dir, 'results.npz'))
     seg = res['ksp_scores_mat']

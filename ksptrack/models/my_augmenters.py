@@ -2,7 +2,7 @@ from imgaug import augmenters as iaa
 import numpy as np
 from imgaug.augmenters import Augmenter
 import matplotlib.pyplot as plt
-
+np.random.bit_generator = np.random._bit_generator
 
 class Normalize(Augmenter):
     def __init__(self,

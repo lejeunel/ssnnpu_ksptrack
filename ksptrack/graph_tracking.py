@@ -271,8 +271,7 @@ class GraphTracking:
 
                 proba = self.link_agent.get_proba_entrance(tl,
                                                            tl_loc,
-                                                           sp_desc,
-                                                           labels)
+                                                           sp_desc)
                 w = -np.log(proba / (1 - proba))
                 self.g.add_edge(*this_e, weight=w, id_=-1)
                 added += 1
