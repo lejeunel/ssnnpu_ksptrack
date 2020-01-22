@@ -16,14 +16,15 @@ PROPS['BackwardHoof'] = 'backward_hoof'
 class MyRegionProperties(RegionProperties):
     def __init__(self, slice, label, label_image, intensity_image,
                  cache_active,
-                 forward_flow, backward_flow, n_bins_hoof=30):
+                 flow, n_bins_hoof=30,
+                 no_motion_thr=1e-2):
         super().__init__(slice, label, label_image, intensity_image,
                          cache_active)
 
-        self.forward_flow = forward_flow
-        self.backward_flow = backward_flow
+        self.flow = flow
         self.n_bins_hoof = n_bins_hoof
-        self.bins_hoof = np.linspace(-np.pi, np.pi, self.n_bins_hoof + 1)
+        self.bins_hoof = np.arange(-np.pi, np.pi+1e-6, 2*np.pi/self.n_bins_hoof)
+        self.no_motion_thr = no_motion_thr
 
     @property
     def forward_hoof(self):
@@ -61,52 +62,32 @@ class MyRegionProperties(RegionProperties):
         else:  # backwards compatibility
             return getattr(self, PROPS[key])
 
-    def hoof(self, direction):
-        if(direction == 'forward'):
-            flow_x = self.forward_flow[0]
-            flow_y = self.forward_flow[1]
-        else:
-            flow_x = self.backward_flow[0]
-            flow_y = self.backward_flow[1]
+    @property
+    def hoof(self):
+        # y axis points downwards with pyflow...
+        flow_x = self.flow[0]
+        flow_y = -self.flow[1]
 
         r = self.coords[:, 0]
         c = self.coords[:, 1]
-        angle = np.arctan2(flow_x[r, c], flow_y[r, c])
+        angle = np.arctan2(flow_y[r, c], flow_x[r, c])
         norm = np.linalg.norm(
             np.stack((flow_x[r, c],
                       flow_y[r, c])),
             axis=0).ravel()
-
-        # get angle-bins for each pixel
-        b_angles = np.digitize(angle, self.bins_hoof).ravel()
-
-        # get bin index for each pixel
-        b_mask = [
-            np.where(b_angles == b)[0].tolist()
-            for b in range(1, len(self.bins_hoof))
-        ]
+        if(norm.sum() / self.area < self.no_motion_thr):
+            return np.ones(self.n_bins_hoof) / self.n_bins_hoof
+        _mag_greater_zero = norm > 0.0
+        pruned_angle = angle[_mag_greater_zero]
+        hist, bin_edges = np.histogram(pruned_angle.flatten(),
+                                       bins=self.bins_hoof)
         
-        # Sum norms for each bin and each label
-        hoof__ = np.asarray([np.sum(norm[b]) for b in b_mask])
-
-        # Normalize w.r.t. L1-norm
-        l1_norm = np.sum(hoof__)
-        hoof__ = np.nan_to_num(hoof__ / l1_norm)
-
-        return hoof__
-
-    @property
-    def backward_hoof(self):
-        return self.hoof('backward')
-
-    @property
-    def forward_hoof(self):
-        return self.hoof('forward')
+        hist = hist.astype(np.float32) / (np.sum(_mag_greater_zero) + 1e-6)
+        return hist
 
 def regionprops(label_image, intensity_image=None, cache=True,
                 coordinates=None,
-                backward_flow=None,
-                forward_flow=None,
+                flow=None,
                 n_bins_hoof=30):
     if label_image.ndim not in (2, 3):
         raise TypeError('Only 2-D and 3-D images supported.')
@@ -142,9 +123,8 @@ def regionprops(label_image, intensity_image=None, cache=True,
         props = MyRegionProperties(sl, label, label_image,
                                    intensity_image=intensity_image,
                                    cache_active=cache,
-                                   backward_flow=backward_flow,
-                                   forward_flow=forward_flow,
-                                   n_bins_hoof=30)
+                                   flow=flow,
+                                   n_bins_hoof=n_bins_hoof)
         regions.append(props)
 
     return regions

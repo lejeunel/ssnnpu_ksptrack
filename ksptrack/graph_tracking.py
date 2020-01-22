@@ -86,6 +86,7 @@ class GraphTracking:
         #thresh: Block edges below this proba
         #This also populates the tracklet list
 
+        n_unblocked = 0
         self.tracklets = []
         tracklet_id = 0
         node_id = np.max((self.source, self.sink)) + 1
@@ -100,6 +101,7 @@ class GraphTracking:
             #if (self.direction is not 'forward'):
             if (proba > thresh):
                 blocked = False
+                n_unblocked += 1
             else:
                 blocked = True
 
@@ -124,6 +126,7 @@ class GraphTracking:
             node_id += 2
 
         bar.close()
+        self.logger.info('Got {} unblocked tracklets. '.format(n_unblocked))
 
         self.logger.info('Building tracklet manager')
         self.tls_man = trm.TrackletManager(self.sps_man, self.direction,
@@ -220,6 +223,7 @@ class GraphTracking:
                       sp_pom,
                       thresh_aux,
                       hoof_tau_u=0,
+                      rel_radius=1.,
                       direction='forward',
                       labels=None):
 
@@ -241,7 +245,9 @@ class GraphTracking:
         tls = [t for t in self.tracklets if (t.blocked == False)]
 
         self.make_edges_from_tracklets(tls, sp_desc, 
-                                       hoof_tau_u, labels)
+                                       hoof_tau_u,
+                                       rel_radius,
+                                       labels)
 
         self.orig_weights = nx.get_edge_attributes(self.g, 'weight')
 
@@ -250,6 +256,7 @@ class GraphTracking:
                                   tls,
                                   sp_desc,
                                   hoof_tau_u,
+                                  rel_radius,
                                   labels):
 
         #Exit edges (time lapse)
@@ -280,16 +287,14 @@ class GraphTracking:
         # Transition edges
         self.logger.info('Connecting transition edges')
 
-        mode = 'head'
-
         bar = tqdm.tqdm(total=len(tls))
         added = 0
         for tl in tls:
 
             linkable_tracklets = self.tls_man.get_linkables(
                 tl,
+                rel_radius=rel_radius,
                 hoof_tau_u=hoof_tau_u,
-                mode=mode,
                 direction=self.direction)
 
             for linkable_tl in linkable_tracklets:

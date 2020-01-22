@@ -1,14 +1,14 @@
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from siamese_sp.im_utils import make_grid_rag
-from siamese_sp.loader import Loader
+from ksptrack.siamese.im_utils import make_grid_rag
+from ksptrack.siamese.loader import Loader
 from skimage import io
 import numpy as np
+import pandas as pd
 
-np_file = np.load('/home/ubelix/lejeune/data/medical-labeling/Dataset00/precomp_desc/hoof.npz',
-                  allow_pickle=True)
-hoof = np_file['hoof'][()]
-dl = Loader('/home/ubelix/lejeune/data/medical-labeling/Dataset30')
+
+hoof = pd.read_pickle('/home/ubelix/lejeune/data/medical-labeling/Dataset00/precomp_desc/hoof.p')
+dl = Loader('/home/ubelix/lejeune/data/medical-labeling/Dataset00')
 ind_grid = 0
 frame = 0
 labels = dl[frame]['labels'][..., 0]
@@ -22,7 +22,6 @@ plt.imshow(labels)
 plt.subplot(122)
 plt.imshow(mask_sp)
 plt.show()
-import pdb; pdb.set_trace() ## DEBUG ##
 
 
 # sample = dl[40]

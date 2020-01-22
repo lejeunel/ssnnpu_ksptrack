@@ -34,7 +34,7 @@ def make_link_agent(labels, cfg):
                                data_path=cfg.in_path,
                                thr_entrance=cfg.thr_entrance,
                                sigma=cfg.ml_sigma,
-                               entrance_radius=cfg.norm_neighbor_in)
+                               entrance_radius=cfg.norm_neighbor)
 
 
 def main(cfg):
@@ -61,44 +61,36 @@ def main(cfg):
     logger.info('Output path: {}'.format(cfg.run_dir))
     logger.info('-' * 10)
 
-    # Make frame file names
-    cfg.frameFileNames = utls.get_images(
-        os.path.join(cfg.in_path, cfg.frame_dir))
-
-    locs2d = utls.readCsv(
-        os.path.join(cfg.in_path, cfg.locs_dir, cfg.csv_fname))
-
-    cfg.precomp_desc_path = pjoin(cfg.in_path, cfg.precomp_dir)
-    if (not os.path.exists(cfg.precomp_desc_path)):
-        os.makedirs(cfg.precomp_desc_path)
+    precomp_desc_path = pjoin(cfg.in_path, cfg.precomp_dir)
+    if (not os.path.exists(precomp_desc_path)):
+        os.makedirs(precomp_desc_path)
 
     with open(os.path.join(cfg.run_dir, 'cfg.yml'), 'w') as outfile:
         yaml.dump(cfg.__dict__, stream=outfile, default_flow_style=False)
 
-    cfg.gtFileNames = utls.get_images(os.path.join(cfg.in_path, cfg.truth_dir))
-
     # ---------- Descriptors/superpixel costs
-    dm = DataManager(cfg)
-    dm.calc_superpix()
-
-    dm.calc_sp_feats(locs2d,
-                     save_dir=cfg.precomp_desc_path,
-                     mode=cfg.feats_mode)
+    dm = DataManager(cfg.in_path,
+                     cfg.precomp_dir,
+                     feats_mode=cfg.feats_mode)
+    dm.calc_superpix(cfg.slic_compactness, cfg.slic_n_sp)
 
     logger.info('Building superpixel managers')
     sps_man = spm.SuperpixelManager(dm,
-                                    cfg,
-                                    with_flow=cfg.use_hoof,
-                                    init_mode=cfg.sp_trans_init_mode,
-                                    init_radius=cfg.sp_trans_init_radius)
+                                    init_radius=cfg.sp_trans_init_radius,
+                                    hoof_n_bins=cfg.hoof_n_bins)
+
+    dm.calc_sp_feats(cfg)
 
     link_agent = make_link_agent(dm.labels, cfg)
 
     locs2d_sps = link_agent.get_all_entrance_sps(dm.sp_desc_df)
 
     dm.calc_pm(np.array(locs2d_sps),
-               all_feats_df=dm.sp_desc_df,
-               mode='bagging')
+               cfg.bag_n_feats,
+               cfg.bag_t,
+               cfg.bag_max_depth,
+               cfg.bag_max_samples,
+               cfg.bag_jobs)
 
     link_agent.update_trans_transform(dm.sp_desc_df,
                                       dm.fg_pm_df,
@@ -121,8 +113,6 @@ def main(cfg):
     pos_sp_for = []
     pos_sp_back = []
     list_ksp = []
-    list_paths_for = []
-    list_paths_back = []
     pos_tls_for = None
     pos_tls_back = None
 
@@ -133,18 +123,19 @@ def main(cfg):
 
         if ((i > 0) & find_new_forward):
             g_for.merge_tracklets_temporally(pos_tls_for, dm.fg_pm_df,
-                                             dm.sp_desc_df, dm.conf.pm_thr)
+                                             dm.sp_desc_df, cfg.pm_thr)
 
         if ((i > 0) & find_new_backward):
             g_back.merge_tracklets_temporally(pos_tls_back, dm.fg_pm_df,
-                                              dm.sp_desc_df, dm.conf.pm_thr)
+                                              dm.sp_desc_df, cfg.pm_thr)
         # Make backward graph
         if (find_new_backward):
 
             g_back.makeFullGraph(dm.get_sp_desc_from_file(),
                                  dm.fg_pm_df,
-                                 dm.conf.pm_thr,
-                                 dm.conf.hoof_tau_u,
+                                 cfg.pm_thr,
+                                 cfg.hoof_tau_u,
+                                 cfg.norm_neighbor,
                                  direction='backward',
                                  labels=dm.labels)
 
@@ -161,8 +152,9 @@ def main(cfg):
 
             g_for.makeFullGraph(dm.get_sp_desc_from_file(),
                                 dm.fg_pm_df,
-                                dm.conf.pm_thr,
-                                dm.conf.hoof_tau_u,
+                                cfg.pm_thr,
+                                cfg.hoof_tau_u,
+                                cfg.norm_neighbor,
                                 direction='forward',
                                 labels=dm.labels)
 
@@ -220,11 +212,13 @@ def main(cfg):
 
             # Recompute PM values
             if (i + 1 < cfg.n_iters_ksp):
-                dm.calc_pm(pos_sps=np.array(
+                dm.calc_pm(np.array(
                     list(set(locs2d_sps + marked_back + marked_for))),
-                           all_feats_df=dm.sp_desc_df,
-                           mode='bagging')
-
+                        cfg.bag_n_feats,
+                        cfg.bag_t,
+                        cfg.bag_max_depth,
+                        cfg.bag_max_samples,
+                        cfg.bag_jobs)
             link_agent.update_trans_transform(dm.sp_desc_df,
                                               dm.fg_pm_df,
                                               [cfg.ml_down_thr, cfg.ml_up_thr],
@@ -238,7 +232,6 @@ def main(cfg):
     # Saving
     fileOut = os.path.join(cfg.run_dir, 'results.npz')
     data = dict()
-    data['frameFileNames'] = cfg.frameFileNames
     data['n_iters_ksp'] = cfg.n_iters_ksp
     data['ksp_scores_mat'] = ksp_scores_mat
     data['pm_scores_mat'] = dm.get_pm_array()
@@ -247,8 +240,8 @@ def main(cfg):
     logger.info("Saving results and cfg to: " + fileOut)
     np.savez(fileOut, **data)
 
-    g_for.save_all(os.path.join(cfg.run_dir, 'g_for'))
-    g_back.save_all(os.path.join(cfg.run_dir, 'g_back'))
+    # g_for.save_all(os.path.join(cfg.run_dir, 'g_for'))
+    # g_back.save_all(os.path.join(cfg.run_dir, 'g_back'))
 
     logger.info("done")
 

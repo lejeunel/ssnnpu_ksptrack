@@ -3,12 +3,12 @@ from os.path import join as pjoin
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from ksptrack.utils import superpixel_utils as spix
+from ksptrack.utils import superpixel_utils as sputls
 from ksptrack.utils import my_utils as utls
 from ksptrack.models import im_utils as ptimu
 from ksptrack.utils import bagging as bag
-from ksptrack.utils import superpixel_extractor as svx
-from ksptrack.utils import superpixel_utils as spix_utls
+from ksptrack.utils.base_dataset import BaseDataset
+from ksptrack.utils.loc_prior_dataset import LocPriorDataset
 from ksptrack.models.losses import PriorMSE
 from ksptrack.models import utils as ptu
 from skimage import (color, io, segmentation, transform)
@@ -32,8 +32,7 @@ def adjust_lr(optimizer, itr, max_itr, lr, pwr):
     optimizer.param_groups[2]['lr'] = 10*now_lr
     return now_lr
 
-def get_features(model, cfg, dataloader, checkpoint, sp_labels, mode='autoenc'):
-    since = time.time()
+def get_features(model, cfg, dataloader, checkpoint, mode='autoenc'):
 
     if(os.path.exists(checkpoint)):
         print('loading {}'.format(checkpoint))
@@ -54,8 +53,9 @@ def get_features(model, cfg, dataloader, checkpoint, sp_labels, mode='autoenc'):
             inputs = sample['image'].to(device)
             _, feat = model(inputs)
             feat = feat.detach().cpu().numpy()
-            feat = [feat[0, :, sp_labels[..., i] == l].mean(axis=0)
-                    for l in np.unique(sp_labels[..., i])]
+            sp_labels = np.array([s[0, ...].cpu().numpy() for s in sample['labels']])[0]
+            feat = [feat[0, :, sp_labels == l].mean(axis=0)
+                    for l in np.unique(sp_labels)]
             feats += feat
         pbar.update(1)
 
@@ -78,12 +78,8 @@ def train_model(model, cfg, dataloader, checkpoint, out_dir,
 
         return model
 
-    if(mode == 'autoenc'):
-        model.to_autoenc()
-        criterion = torch.nn.MSELoss()
-    else:
-        model.to_predictor()
-        criterion = torch.nn.CrossEntropyLoss()
+    model.to_autoenc()
+    criterion = PriorMSE()
 
     best_model_wts = copy.deepcopy(model.state_dict())
     best_loss = np.inf
@@ -131,25 +127,22 @@ def train_model(model, cfg, dataloader, checkpoint, out_dir,
             now_lr = adjust_lr(optimizer, itr, max_itr,
                                cfg.feat_sgd_learning_rate,
                                cfg.feat_sgd_learning_rate_power)
-            inputs = sample['image'].to(device)
-            if(mode == 'autoenc'):
-                labels = inputs
-            else:
-                labels = sample['label/segmentation'].to(device)
+            input = sample['image'].to(device)
+            prior = sample['prior'].to(device)
 
             # zero the parameter gradients
             optimizer.zero_grad()
 
             with torch.set_grad_enabled(True):
-                output, _ = model(inputs)
-                loss = criterion(output, labels)
+                output, _ = model(input)
+                loss = criterion(output, input, prior)
 
                 loss.backward()
                 optimizer.step()
                 itr += 1
 
             # statistics
-            running_loss += loss.item() * inputs.size(0)
+            running_loss += loss.item() * input.size(0)
             pbar.set_description('loss: {:.8f}'.format(running_loss))
             pbar.update(1)
 
@@ -164,7 +157,7 @@ def train_model(model, cfg, dataloader, checkpoint, out_dir,
 
         if(output.shape[1] == 1):
             output = output.repeat(1, 3, 1, 1)
-        ptimu.save_tensors([inputs[0], output[0]], ['image', 'image'],
+        ptimu.save_tensors([input[0], output[0]], ['image', 'image'],
                            os.path.join(out_dir,
                                         'train_previews',
                                         'im_{:04d}.png'.format(epoch)))
@@ -187,8 +180,13 @@ def train_model(model, cfg, dataloader, checkpoint, out_dir,
     return model
 
 class DataManager:
-    def __init__(self, conf):
-        self.conf = conf  #Config Bunch object
+    def __init__(self, root_path,
+                 desc_dir='precomp_desc',
+                 feats_mode='autoenc'):
+        self.desc_path = pjoin(root_path, desc_dir)
+        self.desc_dir = desc_dir
+        self.root_path = root_path
+        self.feats_mode = feats_mode
 
         self.logger = logging.getLogger('Dataset')
 
@@ -197,16 +195,16 @@ class DataManager:
         self.centroids_loc_ = None
         self.sp_desc_df_ = None
 
-        if (not os.path.exists(self.conf.precomp_desc_path)):
+        if (not os.path.exists(self.desc_path)):
             self.logger.info('Feature directory does not exist... creating')
-            os.mkdir(self.conf.precomp_desc_path)
+            os.mkdir(self.desc_path)
 
     @property
     def labels_contours(self):
 
         if (self.labels_contours_ is None):
             self.labels_contours_ = np.load(
-                os.path.join(self.conf.precomp_desc_path,
+                os.path.join(self.desc_path,
                              'sp_labels_tsp_contours.npz')
             )['labels_contours'].transpose((1, 2, 0))
         return self.labels_contours_
@@ -215,7 +213,7 @@ class DataManager:
     def labels(self):
 
         if (self.labels_ is None):
-            path_ = os.path.join(self.conf.precomp_desc_path, 'sp_labels.npz')
+            path_ = os.path.join(self.desc_path, 'sp_labels.npz')
             self.logger.info('loading superpixel labels: {}'.format(path_))
 
             self.labels_ = np.load(path_)['sp_labels']
@@ -230,7 +228,7 @@ class DataManager:
     def centroids_loc(self):
 
         if(self.centroids_loc_ is None):
-            centroid_path = os.path.join(self.conf.precomp_desc_path,
+            centroid_path = os.path.join(self.desc_path,
                                         'centroids_loc_df.p')
             self.logger.info(
                 'loading superpixel centroids: {}'.format(centroid_path))
@@ -239,10 +237,10 @@ class DataManager:
 
     def get_sp_desc_from_file(self):
 
-        fname = 'sp_desc_{}.p'.format(self.conf.feats_mode)
+        fname = 'sp_desc_{}.p'.format(self.feats_mode)
 
         if(self.sp_desc_df_ is None):
-            path = os.path.join(self.conf.precomp_desc_path, fname)
+            path = os.path.join(self.desc_path, fname)
             out = pd.read_pickle(path)
             self.sp_desc_df_ = out
 
@@ -250,7 +248,7 @@ class DataManager:
 
     def get_sp_desc_means_from_file(self):
 
-        path = os.path.join(self.conf.precomp_desc_path, 'sp_desc_means.p')
+        path = os.path.join(self.desc_path, 'sp_desc_means.p')
         if (os.path.exists(path)):
             out = pd.read_pickle(os.path.join(path))
         else:
@@ -261,38 +259,41 @@ class DataManager:
     def load_sp_desc_means_from_file(self):
         self.logger.info("Loading sp means ")
         self.sp_desc_means = pd.read_pickle(
-            os.path.join(self.conf.precomp_desc_path, 'sp_desc_means.p'))
+            os.path.join(self.desc_path, 'sp_desc_means.p'))
 
     def load_pm_all_feats(self):
         self.logger.info("Loading PM all feats")
         self.all_feats_df = pd.read_pickle(
-            os.path.join(self.conf.precomp_desc_path, 'all_feats_df.p'))
+            os.path.join(self.desc_path, 'all_feats_df.p'))
 
     def load_pm_fg_from_file(self):
         self.logger.info("Loading PM foreground")
         self.fg_marked = np.load(
-            os.path.join(self.conf.precomp_desc_path,
+            os.path.join(self.desc_path,
                          'fg_marked.npz'))['fg_marked']
         self.fg_pm_df = pd.read_pickle(
-            os.path.join(self.conf.precomp_desc_path, 'fg_pm_df.p'))
+            os.path.join(self.desc_path, 'fg_pm_df.p'))
         self.fg_marked_feats = np.load(
-            os.path.join(self.conf.precomp_desc_path,
+            os.path.join(self.desc_path,
                          'fg_marked_feats.npz'))['fg_marked_feats']
 
-    def calc_superpix(self, do_save=True):
+    def calc_superpix(self,
+                      compactness,
+                      n_segments,
+                      do_save=True):
         """
         Makes centroids and contours
         """
 
-        if(not os.path.exists(pjoin(self.conf.precomp_desc_path, 'sp_labels.npz'))):
-            spix_extr = svx.SuperpixelExtractor()
+        if(not os.path.exists(pjoin(self.desc_path, 'sp_labels.npz'))):
+            dset = BaseDataset(self.root_path)
 
-            self.labels_  = spix_extr.extract(
-                self.conf.frameFileNames,
-                self.conf.precomp_desc_path,
-                'sp_labels.npz',
-                self.conf.slic_compactness,
-                self.conf.slic_n_sp)
+            self.logger.info('Running SLIC on {} images with {} labels'.format(len(dset),
+                                                                               n_segments))
+            labels = np.array([segmentation.slic(s['image'],
+                                                 n_segments=n_segments,
+                                                 compactness=compactness)
+                               for s in dset])
 
             self.labels_contours_ = list()
             self.logger.info("Generating label contour maps")
@@ -307,73 +308,43 @@ class DataManager:
             data = dict()
             data['labels_contours'] = self.labels_contours
             np.savez(
-                os.path.join(self.conf.precomp_desc_path,
-                            'sp_labels_tsp_contours.npz'), **data)
+                os.path.join(self.desc_path,
+                            'sp_labels_contours.npz'), **data)
 
             if (do_save):
                 self.logger.info('Saving labels to {}'.format(
-                    self.conf.precomp_desc_path))
+                    self.desc_path))
                 np.savez(
-                    os.path.join(self.conf.precomp_desc_path, 'sp_labels.npz'), **{
+                    os.path.join(self.desc_path, 'sp_labels.npz'), **{
                         'sp_labels': self.labels
                     })
 
             if (do_save):
                 self.logger.info('Saving slic previews to {}'.format(
-                    pjoin(self.conf.precomp_desc_path, 'spix_previews')))
-                ims_list = [utls.imread(im) for im in self.conf.frameFileNames]
-                previews_dir = os.path.join(self.conf.precomp_desc_path,
+                    pjoin(self.desc_path, 'spix_previews')))
+                previews_dir = os.path.join(self.desc_path,
                                             'spix_previews')
                 if (not os.path.exists(previews_dir)):
                     os.makedirs(previews_dir)
-                for i, im in enumerate(ims_list):
+                for i, sample in enumerate(dset):
                     fname = os.path.join(previews_dir,
                                         'frame_{0:04d}.png'.format(i))
 
-                    im = spix_utls.drawLabelContourMask(im, self.labels[..., i])
+                    im = sputls.drawLabelContourMask(sample['image'],
+                                                        self.labels[..., i])
                     io.imsave(fname, im)
 
             self.logger.info('Getting centroids...')
-            self.centroids_loc_ = spix.getLabelCentroids(self.labels)
+            self.centroids_loc_ = sputls.getLabelCentroids(self.labels)
 
             self.centroids_loc_.to_pickle(
-                os.path.join(self.conf.precomp_desc_path,
+                os.path.join(self.desc_path,
                             'centroids_loc_df.p'))
         else:
             self.logger.info("Superpixels were already computer. Delete to re-run.")
 
-    def calc_bagging(self,
-                     marked_arr,
-                     all_feats_df=None,
-                     mode='foreground',
-                     T=100,
-                     bag_n_feats=0.25,
-                     bag_max_depth=5,
-                     bag_max_samples=500,
-                     n_jobs=1):
-        """
-        Computes "Bagging" transductive probabilities using marked_arr as positives.
-        """
 
-        this_marked_feats, this_pm_df = bag.calc_bagging(
-            T,
-            bag_max_depth,
-            bag_n_feats,
-            marked_arr,
-            all_feats_df=all_feats_df,
-            feat_fields=['desc'],
-            bag_max_samples=bag_max_samples,
-            n_jobs=n_jobs)
-
-        self.fg_marked_feats = this_marked_feats
-        self.fg_pm_df = this_pm_df
-
-        return self.fg_pm_df
-
-    def calc_sp_feats(self,
-                      locs2d,
-                      save_dir=None,
-                      mode='autoenc'):
+    def calc_sp_feats(self, cfg):
         """ 
         Computes UNet features in Autoencoder-mode
         Train/forward-propagate Unet and save features/weights
@@ -383,28 +354,27 @@ class DataManager:
         cp_fname = 'checkpoint_{}.pth.tar'
         bm_fname = 'best_model_{}.pth.tar'
 
-        df_path = os.path.join(save_dir, df_fname)
-        bm_path = os.path.join(save_dir, bm_fname)
-        cp_path = os.path.join(save_dir, cp_fname)
+        df_path = os.path.join(self.desc_path, df_fname)
+        bm_path = os.path.join(self.desc_path, bm_fname)
+        cp_path = os.path.join(self.desc_path, cp_fname)
 
-        from ksptrack.models.dataset import Dataset
         from ksptrack.models.deeplab import DeepLabv3Plus
 
         transf = iaa.Sequential([
-            iaa.SomeOf(self.conf.feat_data_someof,
+            iaa.SomeOf(cfg.feat_data_someof,
                         [iaa.Affine(
                             scale={
-                                "x": (1 - self.conf.feat_data_width_shift,
-                                        1 + self.conf.feat_data_width_shift),
-                                "y": (1 - self.conf.feat_data_height_shift,
-                                        1 + self.conf.feat_data_height_shift)
+                                "x": (1 - cfg.feat_data_width_shift,
+                                        1 + cfg.feat_data_width_shift),
+                                "y": (1 - cfg.feat_data_height_shift,
+                                        1 + cfg.feat_data_height_shift)
                             },
-                            rotate=(-self.conf.feat_data_rot_range,
-                                    self.conf.feat_data_rot_range),
-                            shear=(-self.conf.feat_data_shear_range,
-                                    self.conf.feat_data_shear_range)),
+                            rotate=(-cfg.feat_data_rot_range,
+                                    cfg.feat_data_rot_range),
+                            shear=(-cfg.feat_data_shear_range,
+                                    cfg.feat_data_shear_range)),
                         iaa.AdditiveGaussianNoise(
-                            scale=self.conf.feat_data_gaussian_noise_std*255),
+                            scale=cfg.feat_data_gaussian_noise_std*255),
                         iaa.Fliplr(p=0.5),
                         iaa.Flipud(p=0.5)]),
             rescale_augmenter,
@@ -412,13 +382,11 @@ class DataManager:
                       std=[0.229, 0.224, 0.225])
         ])
 
-        dl = Dataset(
-            im_paths=self.conf.frameFileNames,
-            truth_paths=self.conf.gtFileNames,
-            locs2d=locs2d,
-            sig_prior=self.conf.feat_locs_gaussian_std,
+        dl = LocPriorDataset(
+            root_path=self.root_path,
+            sig_prior=cfg.feat_locs_gaussian_std,
             augmentations=transf)
-        if(mode == 'autoenc'):
+        if(self.feats_mode == 'autoenc'):
             sampler = None
             shuffle = True
         else:
@@ -427,27 +395,23 @@ class DataManager:
             shuffle = False
 
         dataloader = DataLoader(dl,
-                                batch_size=self.conf.batch_size,
+                                batch_size=cfg.batch_size,
                                 shuffle=shuffle,
                                 sampler=sampler,
                                 collate_fn=dl.collate_fn,
                                 drop_last=True,
-                                num_workers=self.conf.feat_n_workers)
-        if(not os.path.exists(bm_path.format(mode))):
-            self.logger.info(
-                "Network weights file {} does not exist. Training...".format(
-                    bm_path.format(mode)))
-
-            model = DeepLabv3Plus()
-            train_model(model, self.conf, dataloader,
-                        cp_path.format('autoenc'),
-                        save_dir,
-                        cp_fname,
-                        bm_fname,
-                        mode)
+                                num_workers=cfg.feat_n_workers)
+        model = DeepLabv3Plus()
+        train_model(model,
+                    cfg, dataloader,
+                    cp_path.format('autoenc'),
+                    self.desc_path,
+                    cp_fname,
+                    bm_fname,
+                    self.feats_mode)
 
         # Do forward pass on images and retrieve features
-        if(not os.path.exists(df_path.format(mode))):
+        if(not os.path.exists(df_path.format(self.feats_mode))):
             self.logger.info(
                 "Computing features on superpixels")
 
@@ -456,23 +420,20 @@ class DataManager:
                 Normalize(mean=[0.485, 0.456, 0.406],
                           std=[0.229, 0.224, 0.225])])
 
-            dl = Dataset(
-                im_paths=self.conf.frameFileNames,
-                augmentations=transf)
+            dl.augmentations = transf
             dataloader = DataLoader(dl,
                                     batch_size=1,
                                     collate_fn=dl.collate_fn)
             model = DeepLabv3Plus()
             feats_sp = get_features(model,
-                                    self.conf,
+                                    cfg,
                                     dataloader,
-                                    cp_path.format(mode),
-                                    self.labels,
-                                    mode)
+                                    cp_path.format(self.feats_mode),
+                                    self.feats_mode)
 
             feats_df = self.centroids_loc.assign(desc=feats_sp)
-            self.logger.info('Saving  features to {}.'.format(df_path.format(mode)))
-            feats_df.to_pickle(os.path.join(df_path.format(mode)))
+            self.logger.info('Saving  features to {}.'.format(df_path.format(self.feats_mode)))
+            feats_df.to_pickle(os.path.join(df_path.format(self.feats_mode)))
 
 
     def get_pm_array(self, mode='foreground', save=False, frames=None):
@@ -498,8 +459,14 @@ class DataManager:
             dict_keys = this_frame_pm_df['label']
             dict_vals = this_frame_pm_df['proba']
             dict_map = dict(zip(dict_keys, dict_vals))
-            for k, v in dict_map.items():
-                scores[scores[..., f] == k, f] = v
+            # Create 2D replacement matrix
+            replace = np.array([list(dict_map.keys()), list(dict_map.values())])    
+            # Find elements that need replacement
+            mask = np.isin(scores[..., f], replace[0, :])                                   
+            # Replace elements
+            scores[mask, f] = replace[1, np.searchsorted(replace[0, :], scores[mask, f])]   
+            # for k, v in dict_map.items():
+            #     scores[scores[..., f] == k, f] = v
             i += 1
             bar.update(1)
         bar.close()
@@ -510,67 +477,41 @@ class DataManager:
                 data = dict()
                 data['pm_scores'] = scores
                 np.savez(
-                    os.path.join(self.conf.precomp_desc_path,
+                    os.path.join(self.desc_path,
                                  'pm_scores_fg_orig.npz'), **data)
             else:
                 data = dict()
                 data['pm_scores'] = scores
                 np.savez(
-                    os.path.join(self.conf.precomp_desc_path,
+                    os.path.join(self.desc_path,
                                  'pm_scores_fg_orig.npz'), **data)
 
         return scores
 
     def calc_pm(self,
                 pos_sps,
-                all_feats_df=None,
-                map_dir=None,
-                labels=None,
-                mode='bagging'):
+                n_feats,
+                T,
+                max_depth,
+                max_samples,
+                n_jobs):
         """
-        Main function that extracts or updates gaze coordinates
-        and computes transductive learning model (bagging)
+        Main function that computes transductive learning model (bagging)
         Inputs:
-            mode: {'foreground','background'}
         """
 
-        self.logger.info('--- Generating probability map foreground')
+        self.logger.info('Training bagging model with {} trees'.format(T))
 
-        assert(mode == 'bagging' or mode == 'maps'), 'mode must be bagging or maps'
-        if(mode == 'maps'):
-            assert(map_dir is not None and labels is not None), 'when using maps, specify map_paths and labels'
-            
-        if(pos_sps.size == 0):
-            warnings.warn('pos_sps is empty, returning probas of 0.5.')
-            self.fg_pm_df = all_feats_df.copy(deep=True)
-            self.fg_pm_df.drop(columns=['desc', 'x', 'y'])
-            self.fg_pm_df = self.fg_pm_df.assign(proba=[0.5]*self.fg_pm_df.shape[0])
-            return
+        marked_feats, pm_df = bag.calc_bagging(
+            T,
+            max_depth,
+            n_feats,
+            pos_sps,
+            all_feats_df=self.sp_desc_df,
+            bag_max_samples=max_samples,
+            n_jobs=n_jobs)
 
-        if(mode == 'bagging'):
-            self.logger.info("T: " + str(self.conf.bag_t))
-            self.logger.info("bag_n_bins: " + str(self.conf.bag_n_bins))
+        self.fg_marked_feats = marked_feats
+        self.fg_pm_df = pm_df
 
-            self.calc_bagging(
-                pos_sps,
-                all_feats_df=all_feats_df,
-                mode=mode,
-                T=self.conf.bag_t,
-                bag_n_feats=self.conf.bag_n_feats,
-                bag_max_depth=self.conf.bag_max_depth,
-                bag_max_samples=self.conf.bag_max_samples,
-                n_jobs=self.conf.bag_jobs)
-        else:
-            map_paths = sorted(glob.glob(pjoin(map_dir, '*.png')))
-            maps = [io.imread(f) for f in map_paths]
-
-            frames = np.unique(self.labels['frame'].values)
-            probas = []
-            bar = tqdm.tqdm(total=len(frames))
-            for f in frames:
-                for l in np.unique(self.labels[
-                        ..., f]):
-                    probas.append(maps[f][self.labels[..., f] == l].mean().copy())
-                bar.update(1)
-            bar.close()
-            self.fg_pm_df.assign(proba=probas)
+        return self.fg_pm_df

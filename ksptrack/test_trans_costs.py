@@ -29,7 +29,7 @@ p = params.get_params()
 p.add('--in-path')
 
 cfg = p.parse_args()
-cfg.in_path = '/home/ubelix/lejeune/data/medical-labeling/Dataset30'
+cfg.in_path = '/home/ubelix/lejeune/data/medical-labeling/Dataset50'
 # mask_path = '/home/ubelix/lejeune/runs/unet_region/Dataset10_2019-08-06_16-10/Dataset12/entrance_masks/proba'
 # mask_path = '/home/ubelix/lejeune/runs/unet_region/Dataset00_2019-08-06_13-48/Dataset00/entrance_masks/proba'
 # mask_path = '/home/ubelix/lejeune/runs/unet_region/Dataset20_2019-08-06_11-46/Dataset20/entrance_masks/proba'
@@ -43,8 +43,10 @@ cfg.precomp_desc_path = os.path.join(cfg.in_path, 'precomp_desc')
 
 # ---------- Descriptors/superpixel costs
 cfg.feats_mode = 'autoenc'
-dm = DataManager(cfg)
-dm.calc_superpix()
+dm = DataManager(cfg.in_path, cfg.precomp_dir)
+dm.calc_superpix(cfg.slic_compactness, cfg.slic_n_sp)
+
+# sps_man = spm.SuperpixelManager(dm)
 
 cfg.bag_t = 30
 cfg.bag_jobs = 1
@@ -56,15 +58,13 @@ link_agent = LinkAgentRadius(
     sigma=cfg.ml_sigma,
     # sigma=0.0005,
     entrance_radius=cfg.norm_neighbor_in)
-# link_agent = LinkAgentMask(csv_path=os.path.join(cfg.in_path, cfg.locs_dir,
-#                                                  cfg.csv_fname),
-#                            labels=dm.labels,
-#                            thr_entrance=cfg.thr_entrance,
-#                            sigma=cfg.ml_sigma,
-#                            mask_path=mask_path)
+
 dm.calc_pm(np.array(link_agent.get_all_entrance_sps(dm.sp_desc_df)),
-           all_feats_df=dm.sp_desc_df,
-           mode='bagging')
+           cfg.bag_n_feats,
+           cfg.bag_t,
+           cfg.bag_max_depth,
+           cfg.bag_max_samples,
+           cfg.bag_jobs)
 labels = dm.labels
 descs = dm.sp_desc_df
 
@@ -77,9 +77,7 @@ link_agent.update_trans_transform(dm.sp_desc_df,
 
 frame_in = 52
 frame_out = 53
-pm_scores_fg = dm.get_pm_array(mode='foreground', frames=[frame_in, frame_out])
-
-link_agent.sigma = 0.3
+pm_scores_fg = dm.get_pm_array(mode='foreground')
 
 trans_probas = np.zeros(labels.shape[:2])
 trans_dists = np.zeros(labels.shape[:2])
@@ -123,8 +121,11 @@ im2 = utls.imread(cfg.frameFileNames[frame_out])
 label_cont = segmentation.find_boundaries(labels[..., frame_out], mode='thick')
 im2[label_cont, :] = (255, 0, 0)
 
-# cfg.pm_thr = 0.6
+# label_out = labels[i_in, j_in, frame_out]
+# hoof_inter = sps_man.graph[(frame_in, label_in)][(frame_out, label_out)]['forward']
+# hoof_out = sps_man.graph[(frame_out, label_out)]['forward']
 
+# cfg.pm_thr = 0.6
 plt.subplot(331)
 plt.imshow(im1)
 plt.title('frame_1. ind: ' + str(frame_in))

@@ -1,15 +1,14 @@
-import logging
 import numpy as np
 from ksptrack.utils import my_utils as utls
 from ksptrack.utils import optical_flow_extractor as oflowx
-import progressbar
-import os
+from ksptrack.utils.regionprops import regionprops
 import pickle as pk
+import os
+from os.path import join as pjoin
 import matplotlib.pyplot as plt
 import networkx as nx
 import collections
 import pandas as pd
-import networkx as nx
 import tqdm
 
 
@@ -22,90 +21,73 @@ class HOOFExtractor:
     For improved precision, decrease the grid_size_ratio parameter
     Descriptors are mapped to superpixel labels according to overlap priority
     """
-
     def __init__(self,
-                 conf,
-                 flows_path,
+                 root_path,
+                 desc_dir,
                  labels,
-                 grid_size_ratio,
-                 bag_n_bins=30,
+                 n_bins=30,
                  directions=['forward', 'backward']):
 
         self.directions = directions
-        self.conf = conf
+        self.root_path = root_path
+        self.desc_path = pjoin(root_path, desc_dir)
+        self.path_flow = pjoin(self.desc_path, 'flows.npz')
         self.labels = labels
-        self.bins_hoof = np.linspace(-np.pi / 2, np.pi / 2, bag_n_bins + 1)
-        self.logger = logging.getLogger('HOOFExtractor')
-        self.flows_path = flows_path
+        self.n_bins_hoof = n_bins
 
-        self.grid = self.make_grid_array(self.labels[..., 0].shape,
-                                         grid_size_ratio,
-                                         self.conf.precomp_desc_path)
-        self.mapping = self.make_mapping(self.conf.precomp_desc_path)
-
-    def make_mapping(self, path):
-        # make mapping from labels to grid on all frames
-
-        file_mapping = os.path.join(path, 'grid_mapping.npz')
-        if (not os.path.exists(file_mapping)):
-            self.logger.info('Making labels-to-grid mappings')
-            mapping = dict()
-            for f in range(self.labels.shape[-1]):
-                print('{}/{}'.format(f + 1, self.labels.shape[-1]))
-                mapping[f] = dict()
-                map_ = sp_to_grid_map(self.labels[..., f], self.grid).tolist()
-                mapping[f] = {ls[0]: ls[1] for ls in map_}
-            np.savez(file_mapping, **{'mapping': mapping})
-        else:
-            mapping = np.load(file_mapping, allow_pickle=True)['mapping'][()]
-
-        return mapping
-
-    def make_hoof_on_grid(self):
+    def make_hoof(self):
         """
         Compute HOOF on _grid_ labels
         """
 
-        hoof = dict()
-        path_flow = self.flows_path
+        if (not os.path.exists(self.path_flow)):
+            self.calc_oflow(save=True, save_path=self.path_flow)
 
-        if (not os.path.exists(path_flow)):
-            self.calc_oflow(save=True, save_path=path_flow)
+        file_hoof = os.path.join(self.desc_path, 'hoof.p')
 
-        flows = self.get_flows(path_flow)
-        file_hoof_grid = os.path.join(self.conf.precomp_desc_path, 'hoof.npz')
+        hoof = []
 
-        if (not os.path.exists(file_hoof_grid)):
-            for dir_ in self.directions:
-                self.logger.info('Computing HOOF in {} direction on grid of {} elements'\
-                                .format(dir_, np.unique(self.grid).size))
+        if (not os.path.exists(file_hoof)):
+            print('computing HOOF on superpixels with {} bins'.format(
+                self.n_bins_hoof))
+            flows = self.get_flows()
+            fvx = np.concatenate(
+                (flows['fvx'], flows['fvx'][..., -1][..., None]), axis=-1)
+            fvy = np.concatenate(
+                (flows['fvy'], flows['fvy'][..., -1][..., None]), axis=-1)
+            bvx = np.concatenate(
+                (flows['bvx'][..., 0][..., None], flows['bvx']), axis=-1)
+            bvy = np.concatenate(
+                (flows['bvy'][..., 0][..., None], flows['bvy']), axis=-1)
+            pbar = tqdm.tqdm(total=self.labels.shape[-1])
+            for f in range(self.labels.shape[-1]):
 
-                frames = np.arange(self.labels.shape[-1] - 1)
-                if (dir_ == 'forward'):
-                    vx = flows['fvx']
-                    vy = flows['fvy']
-                else:
-                    vx = flows['bvx']
-                    vy = flows['bvy']
+                regions_for = regionprops(self.labels[..., f] + 1,
+                                          flow=np.stack((fvx[..., f],
+                                                         fvy[..., f])),
+                                          n_bins_hoof=self.n_bins_hoof)
+                regions_back = regionprops(self.labels[..., f] + 1,
+                                           flow=np.stack((bvx[..., f],
+                                                          bvy[..., f])),
+                                           n_bins_hoof=self.n_bins_hoof)
 
-                hoof[dir_] = list()
-
-                bar = tqdm.tqdm(total=frames.size)
-                for f in frames:
-                    bar.update(1)
-                    hoof[dir_].append(
-                        make_hoof_labels(vx[..., f], vy[..., f], self.grid,
-                                            self.bins_hoof))
-                bar.close()
-            self.logger.info('Saving HOOF on grid ...')
-            np.savez(file_hoof_grid, **{'hoof': hoof, 'grid': self.grid})
-            self.hoof_grid = hoof
+                hoof += [{
+                    'frame': f,
+                    'label': p_for.label - 1,
+                    'hoof_forward': p_for.hoof,
+                    'hoof_backward': p_back.hoof
+                } for p_for, p_back in zip(regions_for, regions_back)]
+                pbar.update(1)
+            pbar.close()
+            print('Saving HOOF to {}'.format(file_hoof))
+            self.hoof = pd.DataFrame(hoof)
+            self.hoof.to_pickle(file_hoof)
         else:
-            self.logger.info('Loading HOOF on grid {}'.format(file_hoof_grid))
-            self.logger.info('... (delete to re-run)')
-            self.hoof_grid = np.load(file_hoof_grid, allow_pickle=True)['hoof'][()]
+            print('Loading HOOF {}'.format(file_hoof))
+            print('... (delete to re-run)')
+            self.hoof = pd.read_pickle(file_hoof)
 
-        return self.hoof_grid
+        return self.hoof
 
     def make_hoof_inters(self, g, file_out):
         """
@@ -114,153 +96,75 @@ class HOOFExtractor:
         """
 
         if (not os.path.exists(file_out)):
-            self.hoof_grid = self.make_hoof_on_grid()
+            self.hoof = self.make_hoof()
+
+            edges_ = np.array([e for e in g.edges()])
             for dir_ in self.directions:
-                self.logger.info(
-                    'Computing HOOF in {} direction on superpixels'.format(
-                        dir_))
+                print('Computing HOOF intersections in {} direction'.format(
+                    dir_))
 
-                edges = g.edges()
                 if (dir_ == 'forward'):
-                    keys = ['fvx', 'fvy']
+                    ind_hoof = self.hoof.columns == 'hoof_forward'
                 else:
-                    keys = ['bvx', 'bvy']
+                    ind_hoof = self.hoof.columns == 'hoof_backward'
 
-                bar = tqdm.tqdm(total=len(g.edges()))
-                for i, e in enumerate(edges):
-                    i_0 = np.argmin((e[0][0], e[1][0]))
-                    i_1 = np.argmax((e[0][0], e[1][0]))
-                    f_0 = e[i_0][0]
-                    f_1 = e[i_1][0]
-                    s_0 = e[i_0][1]
-                    s_1 = e[i_1][1]
+                bar = tqdm.tqdm(total=self.labels.shape[-1] - 1)
+                for f in range(self.labels.shape[-1] - 1):
 
-                    hoof_0 = \
-                        self.hoof_grid[dir_][f_0]\
-                        [self.mapping[f_0][s_0]]
-                    hoof_1 = \
-                        self.hoof_grid[dir_][f_0]\
-                        [self.mapping[f_1][s_1]]
+                    # get indices of edges from from f
+                    edges_idx_0 = (edges_[..., 0] == f)[:, 0].astype(bool)
+                    edges_idx_1 = (edges_[..., 0] == f + 1)[:, 1].astype(bool)
+                    edges_idx = np.argwhere(edges_idx_0 + edges_idx_1).ravel()
 
-                    g[e[0]][e[1]][dir_] = utls.hist_inter(hoof_0, hoof_1)
+                    # labels of frame f are on first row
+                    labels_0 = edges_[edges_idx, 0, 1]
+                    # labels of frame f+1 are on second row
+                    labels_1 = edges_[edges_idx, 1, 1]
+
+                    # get HOOF of labels of frame f
+                    hoof_0 = self.hoof.loc[self.hoof['frame'] == f].to_numpy()
+                    hoof_0 = np.vstack(hoof_0[labels_0, ind_hoof])
+
+                    # get HOOF of labels of frame f+1
+                    hoof_1 = self.hoof.loc[self.hoof['frame'] == f +
+                                           1].to_numpy()
+                    hoof_1 = np.vstack(hoof_1[labels_1, ind_hoof])
+
+                    stack = np.stack((hoof_0, hoof_1))
+                    mins = stack.min(axis=0)
+                    inters = mins.sum(axis=1)
+
+                    edges_to_add = [((f, l0), (f + 1, l1), {
+                        dir_: inter
+                    }) for l0, l1, inter in zip(labels_0, labels_1, inters)]
+                    g.add_edges_from(edges_to_add)
 
                     bar.update(1)
                 bar.close()
 
-            self.logger.info('Saving HOOF on sps ...')
+            g = nx.Graph(g)
+            print('Saving HOOF intersections to {}'.format(file_out))
             with open(file_out, 'wb') as f:
                 pk.dump(g, f, pk.HIGHEST_PROTOCOL)
             self.g = g
         else:
-            self.logger.info('Loading HOOF graph {} on sps'.format(file_out))
-            self.logger.info('... (delete to re-run)')
+            print('Loading HOOF intersections at {}'.format(file_out))
             with open(file_out, 'rb') as f:
                 self.g = pk.load(f)
 
         return self.g
 
-    def make_grid_array(self, shape, grid_size_ratio, path):
-        """
-        Builds the grid with grid_size_ratio to determine size of cells
-        """
-
-        file_grid = os.path.join(path, 'hoof_grid.npz')
-        if (not os.path.exists(file_grid)):
-            max_size = np.max(shape)
-            grid_size = int(grid_size_ratio * max_size)
-            print('block_size: {}'.format(grid_size))
-
-            n_blocks = int(np.ceil((max_size**2) / (grid_size**2)))
-            print('n_blocks: {}'.format(n_blocks))
-
-            grid = np.empty((max_size, max_size), dtype=np.uint16)
-
-            val = 1
-            for i in range(n_blocks // 2):
-                for j in range(n_blocks // 2):
-                    grid[i * grid_size:(i + 1) * grid_size, j *
-                         grid_size:(j + 1) * grid_size] = val
-                    val += 1
-
-            print('n_blocks before reshape: {}'.format(np.unique(grid).size))
-            grid = grid[0:shape[0], 0:shape[1]]
-            np.savez(file_grid, **{'grid': grid})
-        else:
-            grid = np.load(file_grid)['grid']
-
-        return grid
-
-    def get_flows(self, path):
+    def get_flows(self):
         flows = dict()
-        self.logger.info('Loading optical flows...')
-        npzfile = np.load(path)
+        npzfile = np.load(self.path_flow)
         flows['bvx'] = npzfile['bvx']
         flows['fvx'] = npzfile['fvx']
         flows['bvy'] = npzfile['bvy']
         flows['fvy'] = npzfile['fvy']
         return flows
 
-    def calc_oflow(self, save=True, save_path=None):
+    def calc_oflow(self):
 
-        oflow_extractor = oflowx.OpticalFlowExtractor(
-            save_path, self.conf.oflow_alpha, self.conf.oflow_ratio,
-            self.conf.oflow_min_width, self.conf.oflow_outer_iters,
-            self.conf.oflow_inner_iters, self.conf.oflow_sor_iters)
-        oflow_extractor.extract(self.conf.frameFileNames, save_path)
-
-
-def sp_to_grid_map(labels, grid):
-    """
-    Performs the mapping function from label to grid values
-    """
-
-    map_ = list()
-
-    concat_ = np.concatenate((labels[..., np.newaxis], grid[..., np.newaxis]),
-                             axis=-1)
-    concat_ = concat_.reshape((-1, 2))
-    concat_ = list(map(tuple, concat_))
-    counts = collections.Counter(concat_)
-
-    for l in np.unique(labels):
-        candidates_with_counts = [(k[0], k[1], c) for k, c in counts.items()
-                                  if k[0] == l]
-        candidates_with_counts.sort(key=lambda tup: tup[-1], reverse=True)
-        map_.append((l, candidates_with_counts[0][1]))
-
-    return np.asarray(map_)
-
-
-def make_hoof_labels(fx, fy, labels, bins_hoof):
-
-    unq_labels = np.unique(labels)
-    bins_label = range(unq_labels.size + 1)
-    angle = np.arctan2(fx, fy)
-    norm = np.linalg.norm(
-        np.concatenate((fx[..., np.newaxis], fy[..., np.newaxis]), axis=-1),
-        axis=-1).ravel()
-
-    # Get superpixel indices for each label
-    l_mask = [np.where(labels.ravel() == l)[0].tolist() for l in unq_labels]
-
-    # Get angle-bins for each pixel
-    b_angles = np.digitize(angle.ravel(), bins_hoof).ravel()
-
-    # Get angle-bins indices for each pixel
-    b_mask = [
-        np.where(b_angles.ravel() == b)[0].tolist()
-        for b in range(1, len(bins_hoof))
-    ]
-
-    # Sum norms for each bin and each label
-    hoof__ = np.asarray(
-        [[np.sum(norm[list(set(l_ + b_))]) for b_ in b_mask] for l_ in l_mask])
-
-    # Normalize w.r.t. L1-norm
-    l1_norm = np.sum(hoof__, axis=1).reshape((unq_labels.size, 1))
-    hoof__ = np.nan_to_num(hoof__ / l1_norm)
-
-    # Store HOOF in dictionary
-    hoof = {unq_labels[i]: hoof__[i, :] for i in range(len(unq_labels))}
-
-    return hoof
+        oflow_extractor = oflowx.OpticalFlowExtractor(0.012, 0.75, 50., 7, 1,
+                                                      30)
+        oflow_extractor.extract(self.root_path, self.path_flow)

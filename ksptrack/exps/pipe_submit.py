@@ -4,7 +4,7 @@ import shutil
 import fileinput
 import subprocess
 
-job_prefix = 'ksp_'
+job_prefix = 'trans_'
 args = {
     'job_name': [job_prefix+j for j in ['tw', 'co', 'sl', 'br', 'sp', 'lv']],
     'sets': [
@@ -15,7 +15,7 @@ args = {
     'labeled_frames': ['15', '52', '15', '52', '102', '59']
 }
 
-job_mask = [False, True, True, False, False, False]
+job_mask = [False, False, False, False, True, True]
 n_jobs = len(job_mask)
 template = 'mysubmit_tmpl.sh'
 file_ = 'mysubmit_tmp.sh'

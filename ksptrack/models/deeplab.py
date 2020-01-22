@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import init
-from ksptrack.models.dataset import Dataset
+from ksptrack.utils.loc_prior_dataset import LocPriorDataset
 from torch.utils.data import DataLoader, SubsetRandomSampler
 from imgaug import augmenters as iaa
 from ksptrack.utils.my_augmenters import rescale_augmenter, Normalize
@@ -28,7 +28,7 @@ class DeepLabv3Plus(nn.Module):
 
         self.sigmoid = nn.Sigmoid()
 
-        self.feats_dim = self.aspp.conv1.out_channels
+        self.feats_dim = 304
 
     def forward(self, input):
         x, low_level_feats = self.encoder(input)
@@ -110,26 +110,14 @@ if __name__ == "__main__":
     model = DeepLabv3()
 
     in_path = '/home/ubelix/lejeune/data/medical-labeling/Dataset00'
-    locs_dir = 'gaze-measurements'
-    csv_fname = 'video1.csv'
-    frame_dir = 'input-frames'
-    gt_dir = 'ground_truth-frames'
-    sigma = 0.1
     cuda = False
 
-    frame_fnames = utls.get_images(os.path.join(in_path, frame_dir))
-    truth_fnames = utls.get_images(os.path.join(in_path, gt_dir))
-
-    locs2d = utls.readCsv(os.path.join(in_path, locs_dir, csv_fname))
     transf = iaa.Sequential([rescale_augmenter,
                              Normalize(mean=[0.485, 0.456, 0.406],
                                        std=[0.229, 0.224, 0.225])
     ])
-    dl = Dataset(im_paths=frame_fnames,
-                truth_paths=truth_fnames,
-                locs2d=locs2d,
-                sig_prior=sigma,
-                augmentations=transf)
+    dl = LocPriorDataset(root_path=in_path,
+                         augmentations=transf)
     dataloader = DataLoader(dl,
                             batch_size=2,
                             shuffle=True,
@@ -149,7 +137,6 @@ if __name__ == "__main__":
 
             out = model(im)
 
-            import pdb; pdb.set_trace() ## DEBUG ##
             im_ = sample['image'][0].detach().cpu().numpy()
             im_ = np.rollaxis(im_, 0, 3)
             plt.imshow(im_);plt.show()

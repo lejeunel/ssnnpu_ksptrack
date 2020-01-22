@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
-from siamese_sp.modeling.cluster import ClusterAssignment
-from siamese_sp.modeling.deeplab import DeepLabv3Plus
-from siamese_sp import utils as utls
+from ksptrack.siamese.modeling.cluster import ClusterAssignment
+from ksptrack.models.deeplab import DeepLabv3Plus
+from ksptrack.siamese import utils as utls
 import numpy as np
 from torchvision.ops import RoIPool
 import torch.nn.functional as F

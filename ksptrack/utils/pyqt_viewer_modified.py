@@ -152,7 +152,7 @@ class Window(QtGui.QMainWindow):
                 contour = segmentation.find_boundaries(imread(truths[i]),
                                                        mode='thick')
                 idx_contour = np.where(contour)
-            f_[idx_contour[0], idx_contour[1], :] = (255, 0, 0)
+                f_[idx_contour[0], idx_contour[1], :] = (255, 0, 0)
             self.frames.append(f_)
             pbar.update(1)
         pbar.close()

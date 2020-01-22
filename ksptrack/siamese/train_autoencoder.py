@@ -14,8 +14,8 @@ from tensorboardX import SummaryWriter
 import utils as utls
 import tqdm
 from skimage.future.graph import show_rag
-from siamese_sp.modeling.deeplab import DeepLabv3Plus
-from siamese_sp import im_utils
+from ksptrack.models.deeplab import DeepLabv3Plus
+from ksptrack.siamese import im_utils
 from skimage import color, io
 
 
@@ -30,20 +30,20 @@ class PriorMSELoss(torch.nn.Module):
         return L
 
 
-def train(cfg, model, dataloaders, run_dir, batch_to_device,
-                  optimizer, logger):
+def train(cfg, model, dataloaders, run_path, batch_to_device,
+          optimizer, logger):
 
-    check_cp_exist = pjoin(run_dir, 'checkpoints', 'checkpoint_autoenc.pth.tar')
+    check_cp_exist = pjoin(run_path, 'checkpoints', 'checkpoint_autoenc.pth.tar')
     if(os.path.exists(check_cp_exist)):
         print('found checkpoint at {}. Skipping.'.format(check_cp_exist))
         return
 
-    test_im_dir = pjoin(run_dir, 'recons')
+    test_im_dir = pjoin(run_path, 'recons')
     if(not os.path.exists(test_im_dir)):
         os.makedirs(test_im_dir)
 
     criterion = PriorMSELoss()
-    writer = SummaryWriter(run_dir)
+    writer = SummaryWriter(run_path)
 
     # activate RAG generation
     for dl in dataloaders.values():
@@ -109,7 +109,7 @@ def train(cfg, model, dataloaders, run_dir, batch_to_device,
                 if (loss_ < best_loss):
                     is_best = True
                     best_loss = loss_
-                path = pjoin(run_dir, 'checkpoints')
+                path = pjoin(run_path, 'checkpoints')
                 utls.save_checkpoint(
                     {
                         'epoch': epoch + 1,
@@ -122,6 +122,7 @@ def train(cfg, model, dataloaders, run_dir, batch_to_device,
                     fname_bm='best_autoenc.pth.tar',
                     path=path)
 
+
 def main(cfg):
 
     device = torch.device('cuda' if cfg.cuda else 'cpu')
@@ -129,12 +130,16 @@ def main(cfg):
     model = DeepLabv3Plus()
     model.to(device)
 
+    run_path = pjoin(cfg.out_root, cfg.run_dir)
+
+    if(not os.path.exists(run_path)):
+        os.makedirs(run_path)
+
+
     transf, transf_normal = im_utils.make_data_aug(cfg)
 
     dl_train = Loader(pjoin(cfg.in_root, 'Dataset'+cfg.train_dir),
-                      augmentation=transf,
-                      n_segments=cfg.n_segments_train,
-                      delta_segments=cfg.delta_segments_train,
+                      augmentations=transf,
                       normalization=transf_normal)
 
     dataloader_train = DataLoader(dl_train,
@@ -153,15 +158,8 @@ def main(cfg):
 
     dataloaders = {'train': dataloader_train, 'test': dataloader_test}
 
-    ds_dir = os.path.split('Dataset'+cfg.train_dir)[-1]
-
-    run_dir = pjoin(cfg.out_dir, '{}'.format(ds_dir))
-
-    if(not os.path.exists(run_dir)):
-        os.makedirs(run_dir)
-
     # Save cfg
-    with open(pjoin(run_dir, 'cfg.yml'), 'w') as outfile:
+    with open(pjoin(run_path, 'cfg.yml'), 'w') as outfile:
         yaml.dump(cfg.__dict__, stream=outfile, default_flow_style=False)
 
 
@@ -177,22 +175,23 @@ def main(cfg):
                           momentum=cfg.momentum,
                           weight_decay=cfg.decay)
 
-    utls.setup_logging(run_dir)
+    utls.setup_logging(run_path)
     logger = logging.getLogger('siam')
 
-    logger.info('run_dir: {}'.format(run_dir))
+    logger.info('run_path: {}'.format(run_path))
 
     train(cfg, model, dataloaders,
-          run_dir, batch_to_device, optimizer, logger)
+          run_path, batch_to_device, optimizer, logger)
 
 
 if __name__ == "__main__":
 
     p = params.get_params()
 
-    p.add('--out-dir', required=True)
+    p.add('--out-root', required=True)
     p.add('--in-root', required=True)
     p.add('--train-dir', required=True)
+    p.add('--run-dir', requird=True)
 
     cfg = p.parse_args()
 

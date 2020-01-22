@@ -5,6 +5,8 @@ from os.path import join as pjoin
 from ksptrack.utils import my_utils as utls
 from ksptrack import gc_optimize
 from ksptrack import gc_refinement
+from itertools import product
+
 
 masks_paths_unet = {
     ('Dataset00', 'Dataset01', 'Dataset02', 'Dataset03', 'Dataset04', 'Dataset05'):
@@ -67,17 +69,34 @@ if __name__ == "__main__":
     ]
 
     gc_params = {}
+
+    sigmas = [0.2, 0.25, 0.3]
+    trans_mode = ['overlap', 'radius']
+    combs = list(product(sigmas, trans_mode))
+
     for i, dset in enumerate(cfg.sets):
         cfg.in_path = pjoin(cfg.root_path, 'data/medical-labeling', dset)
         cfg.out_path = pjoin(cfg.root_path, 'runs/ksptrack', dset)
 
         # constant radius ---------------------------------------------------
-        # 0 frames
         cfg.feats_mode = 'autoenc'
         cfg.entrance_masks_path = None
         cfg.model_path = None
-        cfg.exp_name = '{}_feats_disk_entr'.format(cfg.feats_mode)
-        iterative_ksp.main(cfg)
+
+        for sig_, m_ in zip(combs):
+            cfg.exp_name = 'sigma_{}_trans_{}'.format(sig_, m_)
+            cfg.ml_sigma = sig_
+            cfg.trans_init_mode = m_
+            
+            iterative_ksp.main(cfg)
+
+        # constant radius ---------------------------------------------------
+        # 0 frames
+        # cfg.feats_mode = 'autoenc'
+        # cfg.entrance_masks_path = None
+        # cfg.model_path = None
+        # cfg.exp_name = '{}_feats_disk_entr'.format(cfg.feats_mode)
+        # iterative_ksp.main(cfg)
 
         # 1 frame
         # cfg.feats_mode = 'pred'

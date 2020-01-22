@@ -34,7 +34,6 @@ def get_params():
     p.add('--lr-assign', type=float)
     p.add('--lr-power', type=float)
     p.add('--decay', type=float)
-    p.add('--gamma', type=float)
 
     p.add('--lr', type=float)
     p.add('--ds-split', type=float)
@@ -70,6 +69,10 @@ def get_params():
     p.add('--roi-output-size', type=int)
     p.add('--roi-spatial-scale', type=float)
 
-    p.add('--with-pck', type=bool)
-    p.add('--with-flow', type=bool)
+    p.add('--with-pck', default=False, action='store_true')
+    p.add('--with-agglo', default=False, action='store_true')
+    p.add('--with-flow', default=False, action='store_true')
+
+    p.add('--beta', type=float)
+    p.add('--gamma', type=float)
     return p

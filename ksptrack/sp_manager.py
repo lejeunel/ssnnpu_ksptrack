@@ -18,64 +18,51 @@ class SuperpixelManager:
     """
 
     def __init__(self,
-                 dataset,
-                 conf,
+                 dm,
                  directions=['forward', 'backward'],
-                 init_mode='overlap',
-                 init_radius=0.07,
-                 with_flow=False,
-                 hoof_grid_ratio=0.07):
+                 init_radius=0.15,
+                 hoof_n_bins=30):
 
-        self.dataset = dataset
-        self.init_mode = init_mode
+        self.dm = dm
         self.init_radius = init_radius
-        self.labels = dataset.labels
-        self.c_loc = dataset.centroids_loc
-        self.with_flow = with_flow
+        self.labels = dm.labels
+        self.c_loc = dm.centroids_loc
+        self.hoof_n_bins = hoof_n_bins
         self.logger = logging.getLogger('SuperpixelManager')
-        self.norm_dist_t = 0.2  #Preliminary threshold (normalized coord.)
-        self.hoof_grid_ratio = hoof_grid_ratio
         self.directions = directions
-        self.conf = conf
+        self.desc_path = dm.desc_path
         self.graph = self.make_dicts()
 
-    def make_init_constraint(self):
-        if (self.init_mode == 'overlap'):
-            return self.make_overlap_constraint()
-        elif (self.init_mode == 'radius'):
-            return self.make_radius_constraint()
 
     def make_dicts(self):
         #self.dict_init = self.make_init_dicts()
-        if (self.with_flow):
-            file_hoof_sps = os.path.join(self.conf.precomp_desc_path,
-                                         'hoof_inters_{}_graph.npz'.format(self.init_mode))
+        self.graph = self.make_transition_constraint()
+        file_hoof_sps = os.path.join(self.desc_path,
+                                        'hoof_inters_graph.npz')
 
-            self.graph = self.make_init_constraint()
-            flows_path = os.path.join(self.conf.precomp_desc_path, 'flows.npz')
+        hoof_extr = HOOFExtractor(self.dm.root_path,
+                                  self.dm.desc_dir,
+                                  self.labels,
+                                  n_bins=self.hoof_n_bins)
 
-            hoof_extr = HOOFExtractor(self.conf, flows_path, self.labels,
-                                      self.hoof_grid_ratio)
-
-            # This will add fields in original graph
-            self.graph = hoof_extr.make_hoof_inters(self.graph, file_hoof_sps)
-        else:
-            self.graph = self.make_init_constraint()
+        # This will add fields in original graph
+        self.graph = hoof_extr.make_hoof_inters(self.graph, file_hoof_sps)
 
         return self.graph
 
-    def make_radius_constraint(self):
+    def make_transition_constraint(self):
         """
         Makes a first "gross" filtering of transition.
         """
 
-        file_graph = os.path.join(self.conf.precomp_desc_path,
-                                  'radius_constraint.p')
+        file_graph = os.path.join(self.desc_path,
+                                  'transition_constraint.p')
         if (not os.path.exists(file_graph)):
             f = self.c_loc['frame']
             s = self.c_loc['label']
 
-            g = nx.Graph()
+            # this is a directed graph with lowest-frame first
+            g = nx.DiGraph()
 
             frames = np.unique(f)
 
@@ -83,7 +70,7 @@ class SuperpixelManager:
                           for i in range(frames.shape[0] - 1)]
             dict_ = dict()
 
-            self.logger.info('Building SP radius dictionary')
+            self.logger.info('Building superpixel transition graph')
             bar = tqdm.tqdm(total=len(frames_tup))
             for i in range(len(frames_tup)):
                 bar.update(1)
@@ -108,17 +95,30 @@ class SuperpixelManager:
                 df_combs['dist'] = dists
                 df_combs = df_combs.loc[
                     df_combs['dist'] < self.init_radius]
-                edges = [((row[1], row[2]), (row[5], row[6]))
+
+                # add edges with overlap=False by default, will change below
+                edges = [((row[1], row[2]), (row[5], row[6]),
+                          dict(dist=row[10], overlap=False))
                             for row in df_combs.itertuples()]
+                g.add_edges_from(edges)
+
+                # Find overlapping labels between consecutive frames
+                l_0 = self.labels[..., frames_tup[i][0]][..., np.newaxis]
+                l_1 = self.labels[..., frames_tup[i][1]][..., np.newaxis]
+                concat_ = np.concatenate((l_0, l_1), axis=-1)
+                concat_ = concat_.reshape((-1, 2))
+                ovl = np.asarray(list(set(list(map(tuple, concat_)))))
+                edges = [((f0, l[0]), (f1, l[1]), dict(overlap=True))
+                         for l in ovl]
                 g.add_edges_from(edges)
 
             bar.close()
 
-            self.logger.info('Saving radius graph to ' + file_graph)
+            self.logger.info('Saving transition graph to ' + file_graph)
             with open(file_graph, 'wb') as f:
                 pk.dump(g, f, pk.HIGHEST_PROTOCOL)
         else:
-            self.logger.info('Loading radius graph... (delete to re-run)')
+            self.logger.info('Loading transition graph... (delete to re-run)')
             with open(file_graph, 'rb') as f:
                 g = pk.load(f)
         self.graph_init = g
@@ -129,7 +129,7 @@ class SuperpixelManager:
         Makes a first "gross" filtering of transition.
         """
 
-        file_graph = os.path.join(self.conf.precomp_desc_path,
+        file_graph = os.path.join(self.desc_path,
                                   'overlap_constraint.p')
         if (not os.path.exists(file_graph)):
             f = self.c_loc['frame']

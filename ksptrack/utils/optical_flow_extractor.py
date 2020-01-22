@@ -2,19 +2,15 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import pickle as pk
-import progressbar
-from ksptrack.utils import my_utils as utls
 from skimage import (color, io, segmentation)
-from sklearn import (mixture, metrics, preprocessing, decomposition)
-from scipy import (ndimage)
-import glob, itertools
+import glob
 import logging
 import pyflow
+from ksptrack.utils.base_dataset import BaseDataset
 
 class OpticalFlowExtractor:
 
     def __init__(self,
-                 save_path,
                  alpha=0.012,
                  ratio=0.75,
                  minWidth=50.,
@@ -24,7 +20,6 @@ class OpticalFlowExtractor:
 
         self.logger = logging.getLogger('OpticalFlowExtractor')
 
-
         self.alpha = alpha
         self.ratio = ratio
         self.minWidth = minWidth
@@ -33,10 +28,9 @@ class OpticalFlowExtractor:
         self.nSORIterations = nSORIterations
 
     def extract(self,
-                im_paths,
+                root_path,
                 save_path):
 
-        self.logger.info('Got {} images'.format(len(im_paths)))
         flows_bvx = []
         flows_bvy = []
         flows_fvx = []
@@ -44,14 +38,14 @@ class OpticalFlowExtractor:
 
 
         if(os.path.isfile(save_path)):
-            self.logger.info("""Output file {} exists. Delete it
-                    or change output path """.format(save_path))
+            self.logger.info("Output file {} exists.".format(save_path))
         else:
+            dset = BaseDataset(root_path)
             self.logger.info('Precomputing the optical flows...')
-            for f in np.arange(1, len(im_paths)):
-                self.logger.info('{}/{}'.format(f, len(im_paths)))
-                im1 = utls.imread(im_paths[f-1]) / 255.
-                im2 = utls.imread(im_paths[f]) / 255.
+            for f in np.arange(1, len(dset)):
+                self.logger.info('{}/{}'.format(f, len(dset)))
+                im1 = dset['image'][f-1] / 255.
+                im2 = dset['image'][f] / 255.
                 fvx, fvy, _ = pyflow.coarse2fine_flow(im1,
                                                       im2,
                                                       self.alpha,

@@ -6,8 +6,7 @@ import os
 from os.path import join as pjoin
 import yaml
 import utils as utls
-from siamese_sp import train_autoencoder, train_dec
-
+from ksptrack.siamese import train_autoencoder, train_dec
 
 if __name__ == "__main__":
 
@@ -16,6 +15,7 @@ if __name__ == "__main__":
     p.add('--out-dir', required=True)
     p.add('--in-root', required=True)
     p.add('--train-dirs', nargs='+', required=True)
+    p.add('--run-dir', default=None)
 
     cfg = p.parse_args()
 

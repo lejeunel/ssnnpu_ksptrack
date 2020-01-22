@@ -16,6 +16,7 @@ decay : 0.00004
 lr-power : 0.9
 momentum: 0.9
 gamma: 0.8
+beta: 0.8
 
 # batch
 batch-size: 2
@@ -53,5 +54,6 @@ n-clusters: 10
 roi-output-size: 1
 roi-spatial-scale: 1.0
 
-with-pck: True
-with-flow: True
+with-agglo: False
+with-pck: False
+with-flow: False

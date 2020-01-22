@@ -34,7 +34,7 @@ class LinkAgentRadius(LinkAgent):
         sps = []
 
         for f in range(self.labels.shape[-1]):
-            if(f in self.locs['frame']):
+            if(f in self.locs['frame'].to_numpy()):
                 for i, loc in self.locs[self.locs['frame'] == f].iterrows():
                     i, j = self.get_i_j(loc)
                     label = self.labels[i, j, f]
@@ -94,7 +94,7 @@ class LinkAgentRadius(LinkAgent):
     def get_proba(self, sp_desc, f1, l1, f2, l2):
 
         dist = self.get_distance(sp_desc, f1, l1, f2, l2)
-        proba = np.exp((-dist**2) / (2 * self.sigma**2))
+        proba = np.exp((-dist**2) * self.sigma)
         proba = np.clip(proba, a_min=self.thr_clip, a_max=1 - self.thr_clip)
 
         return proba

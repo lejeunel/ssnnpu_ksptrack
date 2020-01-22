@@ -11,7 +11,7 @@ from skimage import io, color, segmentation
 from imgaug.augmenters import Augmenter
 from multiprocessing import Pool
 from imgaug import augmenters as iaa
-from siamese_sp.my_augmenters import rescale_augmenter, Normalize
+from ksptrack.models.my_augmenters import rescale_augmenter, Normalize
 from skimage.future.graph import show_rag
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
@@ -48,13 +48,21 @@ def make_grid_rag(im, labels, rag, probas, truth=None):
 def make_tiled_clusters(im, labels, predictions):
 
     cmap = plt.get_cmap('viridis')
-    cluster_map = np.zeros_like(im)
+    shape = labels.shape
     n_clusters = predictions.shape[1]
-    for i, l in enumerate(np.unique(labels)):
-        color = cmap(np.argmax(predictions[i]) / n_clusters)[:3]
-        cluster_map[labels == l, ...] = (np.array(color) * 255).astype(np.uint8)
+    mapping = {label: (np.array(cmap(cluster / n_clusters)[:3]) * 255).astype(np.uint8)
+               for label, cluster in zip(np.unique(labels),
+                                         np.argmax(predictions,
+                                                   axis=1))}
+    mapping = np.array([(np.array(cmap(c / n_clusters)[:3]) * 255).astype(np.uint8)
+                    for c in np.argmax(predictions, axis=1)])
+    mapping = np.concatenate((np.unique(labels)[..., None], mapping), axis=1)
 
-    return np.concatenate((im, cluster_map), axis=1)
+    clusters_colorized = np.zeros((shape[0]*shape[1], 3)).astype(np.uint8)
+    _, ind = np.unique(labels, return_inverse=True)
+    clusters_colorized = mapping[mapping[:,0]][:, 1:].reshape((shape[0], shape[1], 3))
+
+    return np.concatenate((im, clusters_colorized), axis=1)
 
 
 def make_data_aug(cfg):
