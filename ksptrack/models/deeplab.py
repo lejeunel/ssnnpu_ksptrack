@@ -11,40 +11,74 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 from ksptrack.models import drn
-from ksptrack.models.decoder import build_decoder
+from ksptrack.models.decoder import Decoder
 from ksptrack.models.aspp import build_aspp
 
 
 class DeepLabv3Plus(nn.Module):
-    def __init__(self):
+    def __init__(self, pretrained=True, n_clusters=None):
 
         super(DeepLabv3Plus, self).__init__()
 
         self.encoder = drn.__dict__.get('drn_d_22')(
-            pretrained=True, num_classes=1000)
+            pretrained=pretrained, num_classes=1000)
         self.encoder.out_middle = True
         self.aspp = build_aspp('drn', output_stride=8, BatchNorm=nn.BatchNorm2d)
-        self.decoder = build_decoder(num_classes=3, backbone='drn', BatchNorm=nn.BatchNorm2d)
+        self.aspp_out_dims = 256
+        if(n_clusters is not None):
+            self.reduce_conv = nn.Sequential(nn.Conv2d(self.aspp_out_dims,
+                                                       self.aspp_out_dims // 2,
+                                                       kernel_size=3,
+                                                       stride=1,
+                                                       padding=1,
+                                                       bias=False),
+                                        nn.BatchNorm2d(self.aspp_out_dims // 2),
+                                        nn.ReLU(),
+                                        nn.Dropout(0.5),
+                                        nn.Conv2d(self.aspp_out_dims // 2,
+                                                  self.aspp_out_dims // 2,
+                                                  kernel_size=3,
+                                                  stride=1,
+                                                  padding=1,
+                                                  bias=False),
+                                        nn.BatchNorm2d(self.aspp_out_dims // 2),
+                                        nn.ReLU(),
+                                        nn.Dropout(0.1),
+                                        nn.Conv2d(self.aspp_out_dims // 2,
+                                                  n_clusters,
+                                                  kernel_size=1,
+                                                  stride=1),
+                                        nn.BatchNorm2d(n_clusters),
+                                        nn.ReLU(),
+                                        nn.Dropout(0.1))
+            self.aspp_out_dims = n_clusters
+        else:
+            self.reduce_conv = nn.Identity()
+
+        self.decoder = Decoder(num_classes=3,
+                               backbone='drn',
+                               BatchNorm=nn.BatchNorm2d,
+                               aspp_out_dims=n_clusters if n_clusters is not None else 256)
 
         self.sigmoid = nn.Sigmoid()
-
-        self.feats_dim = 304
+        self.n_clusters = n_clusters
 
     def forward(self, input):
         x, low_level_feats = self.encoder(input)
         low_level_feat = low_level_feats[4]
         aspp_feats = self.aspp(x)
+        aspp_feats = self.reduce_conv(aspp_feats)
         x, cat_feats = self.decoder(aspp_feats, low_level_feat)
         x = F.interpolate(x,
                           size=input.size()[2:],
                           mode='bilinear',
                           align_corners=True)
-        cat_feats = F.interpolate(cat_feats,
-                                  size=input.size()[2:],
-                                  mode='bilinear',
-                                  align_corners=True)
+        aspp_feats = F.interpolate(aspp_feats,
+                                   size=input.size()[2:],
+                                   mode='bilinear',
+                                   align_corners=True)
 
-        return x, cat_feats
+        return x, aspp_feats
 
     def to_autoenc(self, in_channels=3, out_channels=3):
         self.decoder.last_conv[-1] = nn.Conv2d(256,

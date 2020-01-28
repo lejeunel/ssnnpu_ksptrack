@@ -37,7 +37,8 @@ class MyKMeans:
             labels = np.argmax(distances, axis=1)
 
         else:
-            labels = self.clf.fit_predict(whiten(feats))
+            # feats = whiten(feats)
+            labels = self.clf.fit_predict(feats)
             self.cluster_centers = self.clf.cluster_centers_
 
         return labels, self.cluster_centers

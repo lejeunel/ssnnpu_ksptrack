@@ -44,8 +44,8 @@ class OpticalFlowExtractor:
             self.logger.info('Precomputing the optical flows...')
             for f in np.arange(1, len(dset)):
                 self.logger.info('{}/{}'.format(f, len(dset)))
-                im1 = dset['image'][f-1] / 255.
-                im2 = dset['image'][f] / 255.
+                im1 = dset[f-1]['image'] / 255.
+                im2 = dset[f]['image'] / 255.
                 fvx, fvy, _ = pyflow.coarse2fine_flow(im1,
                                                       im2,
                                                       self.alpha,

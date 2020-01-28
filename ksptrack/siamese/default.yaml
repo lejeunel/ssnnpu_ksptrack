@@ -2,20 +2,25 @@ frames: []
 
 epochs-autoenc: 30
 epochs-all: 100
-epochs-dec: 10
-epochs-dist: 10
+epochs-dec: 80
+epochs-dist: 20
 
 # generate previews every x epochs
-prev-period: 5
+prev-period: 1
+
+tgt-update-period: 100
+cp-period: 2
 
 # optimizer
 lr-dist: 0.01
 lr-autoenc: 0.001
-lr-assign: 0.01
+lr-assign: 0.001
 decay : 0.00004
-lr-power : 0.9
+lr-power : 0.98
 momentum: 0.9
-gamma: 0.8
+gamma: 0.1
+alpha: 1
+lambda-: 1e-7
 beta: 0.8
 
 # batch
@@ -33,7 +38,6 @@ n-ims-test: 5
 
 # network input size
 in-shape: 600
-
 n-frames-epoch: 100
 
 # augmentation
@@ -49,7 +53,7 @@ aug-shear: 12.5
 # sampling
 n-edges: 100
 
-n-clusters: 10
+n-clusters: 15
 
 roi-output-size: 1
 roi-spatial-scale: 1.0
@@ -57,3 +61,5 @@ roi-spatial-scale: 1.0
 with-agglo: False
 with-pck: False
 with-flow: False
+
+linkage: 'ward'

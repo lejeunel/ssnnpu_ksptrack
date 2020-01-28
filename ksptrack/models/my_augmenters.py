@@ -21,11 +21,9 @@ class Normalize(Augmenter):
         nb_images = len(images)
         for i in range(nb_images):
             if (images[i].dtype == np.uint8):
-                images[i] = [(images[i][..., c] - self.mean[c] * 255) /
-                             (self.std[c] * 255) for c in range(self.n_chans)]
-            else:
-                images[i] = [(images[i][..., c] - self.mean[c]) /
-                             self.std[c] for c in range(self.n_chans)]
+                images[i] = images[i] / 255
+            images[i] = [(images[i][..., c] - self.mean[c]) /
+                            self.std[c] for c in range(self.n_chans)]
                 
             images[i] = np.moveaxis(np.array(images[i]), 0, -1)
             images[i] = images[i].astype(float)

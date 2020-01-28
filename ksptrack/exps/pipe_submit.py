@@ -15,7 +15,8 @@ args = {
     'labeled_frames': ['15', '52', '15', '52', '102', '59']
 }
 
-job_mask = [False, False, False, False, True, True]
+
+job_mask = [False, False, True, False, False, False]
 n_jobs = len(job_mask)
 template = 'mysubmit_tmpl.sh'
 file_ = 'mysubmit_tmp.sh'

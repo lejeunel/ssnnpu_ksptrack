@@ -20,8 +20,7 @@ if __name__ == "__main__":
 
     sigmas = [0.6, 0.8, 1., 1.2, 1.4]
     r_trans = [0.05, 0.08, 0.1, 0.12]
-    hoof_tau = [0., 0.3, 0.5, 0.7]
-    combs = list(product(sigmas, r_trans, hoof_tau))
+    combs = list(product(sigmas, r_trans))
 
     for i, dset in enumerate(cfg.sets):
         cfg.in_path = pjoin(cfg.root_path, 'data/medical-labeling', dset)
@@ -32,9 +31,9 @@ if __name__ == "__main__":
         cfg.entrance_masks_path = None
         cfg.model_path = None
 
-        for sig_, r, hoof_t in combs:
-            cfg.exp_name = 'transexp_sig_{}_r_{}_hof_{}'.format(sig_, r, hoof_t)
-            cfg.hoof_tau_u = hoof_t
+        for sig_, r in combs:
+            cfg.exp_name = 'transexp_sig_{}_r_{}'.format(sig_, r)
+            cfg.hoof_tau_u = 0
             cfg.ml_sigma = sig_
             cfg.norm_neighbor = r
             

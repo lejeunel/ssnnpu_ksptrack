@@ -35,7 +35,8 @@ class BaseDataset(data.Dataset):
     """
     Loads and augments images and ground truths
     """
-    def __init__(self, root_path, augmentations=None, normalization=None):
+    def __init__(self, root_path, augmentations=None, normalization=None,
+                 got_labels=True):
 
         self.root_path = root_path
 
@@ -57,8 +58,13 @@ class BaseDataset(data.Dataset):
         ]
         self.imgs = [imread(f, scale=False) for f in self.img_paths]
 
-        self.labels = np.load(pjoin(root_path, 'precomp_desc',
-                                    'sp_labels.npz'))['sp_labels']
+        if(got_labels):
+            self.labels = np.load(pjoin(root_path, 'precomp_desc',
+                                        'sp_labels.npz'))['sp_labels']
+        else:
+            self.labels = np.zeros((self.imgs[0].shape[0],
+                                    self.imgs[0].shape[1],
+                                    len(self.imgs))).astype(int)
 
         self.augmentations = augmentations
         self.normalization = normalization

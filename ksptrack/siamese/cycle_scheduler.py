@@ -39,11 +39,9 @@ class TrainCycleScheduler:
         self.epochs_per_cycle[self.get_cycle()] += 1
 
 
-
 if __name__ == "__main__":
 
-    sch = TrainCycleScheduler([10, 20], 100, ['feats', 'siam'],
-                              [0.1, 0.01], [.9, .9])
+    sch = TrainCycleScheduler([80, 20], 100, ['feats', 'siam'])
 
     for ep in range(100):
         print('ep: {}, cycle: {}'.format(ep, sch.get_cycle()))

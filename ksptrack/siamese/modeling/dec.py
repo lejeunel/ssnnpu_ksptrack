@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from ksptrack.siamese.modeling.cluster import ClusterAssignment
+from ksptrack.models.deeplab_resnet import DeepLabv3_plus
 from ksptrack.models.deeplab import DeepLabv3Plus
 from ksptrack.siamese import utils as utls
 import numpy as np
@@ -79,7 +80,8 @@ class DEC(nn.Module):
                  n_edges=100,
                  roi_size=1,
                  roi_scale=1.0,
-                 alpha: float = 1.0):
+                 alpha: float = 1.0,
+                 use_locations=False):
         """
         Module which holds all the moving parts of the DEC algorithm, as described in
         Xie/Girshick/Farhadi; this includes the AutoEncoder stage and the ClusterAssignment stage.
@@ -92,23 +94,28 @@ class DEC(nn.Module):
         """
 
         super(DEC, self).__init__()
-        self.autoencoder = DeepLabv3Plus()
+        self.autoencoder = DeepLabv3Plus(n_clusters=cluster_number)
+        # self.autoencoder = DeepLabv3_plus(n_classes=3, pretrained=True)
         self.cluster_number = cluster_number
         self.alpha = alpha
         self.n_edges = n_edges
+
+        self.use_locations = use_locations
 
         self.roi_pool = RoIPooling((roi_size, roi_size), roi_scale)
         # self.roi_pool = AveSupPixPool()
         # self.roi_pool = SuperpixelPooling()
 
+        embedding_dims = self.autoencoder.aspp_out_dims
+        if(self.use_locations):
+            embedding_dims += 2
         self.assignment = ClusterAssignment(cluster_number,
-                                            self.autoencoder.feats_dim,
+                                            embedding_dims,
                                             alpha)
 
-        self.feats_dim = self.autoencoder.feats_dim
-        self.linear1 = nn.Linear(self.feats_dim, self.feats_dim // 2,
+        self.linear1 = nn.Linear(embedding_dims, embedding_dims // 2,
                                  bias=True)
-        self.linear2 = nn.Linear(self.feats_dim // 2, 1,
+        self.linear2 = nn.Linear(embedding_dims // 2, 1,
                                  bias=True)
         self.sigmoid = nn.Sigmoid()
 
@@ -124,19 +131,12 @@ class DEC(nn.Module):
         for param in self.assignment.parameters():
             param.requires_grad = switch
 
-    def calc_all_probas(self, feats, graphs):
+    def calc_all_probas(self, feats, graph):
 
-        if(isinstance(feats, torch.Tensor)):
-            n_labels = [g.number_of_nodes() for g in graphs]
-            feats = torch.split(feats, n_labels)
-
-        probas = []
-        for feat, graph in zip(feats, graphs):
-
-            X = torch.stack([torch.stack((feat[n0], feat[n1]), dim=0)
-                             for n0, n1 in graph.edges()], dim=1)
-            X = X.unsqueeze(0)
-            probas.append(self.sigmoid(self.calc_probas(X)))
+        X = torch.stack([torch.stack((feats[n0], feats[n1]), dim=0)
+                            for n0, n1 in graph.edges()], dim=1)
+        X = X.unsqueeze(0)
+        probas = self.sigmoid(self.calc_probas(X))
 
         return probas
 
@@ -171,6 +171,8 @@ class DEC(nn.Module):
 
         im_recons, feats = self.autoencoder(data['image'])
         sp_feats = self.roi_pool(feats, data['bboxes'])
+        if(self.use_locations):
+            sp_feats = torch.cat((data['centroids'], sp_feats), dim=-1)
         clusters = self.assignment(sp_feats)
 
         return {'recons': im_recons,

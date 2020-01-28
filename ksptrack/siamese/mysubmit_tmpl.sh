@@ -16,6 +16,6 @@ script=train_all.py
 
 export OMP_NUM_THREADS=1
 
-args="--cuda --in-root $HOME/data/medical-labeling --out-dir $HOME/runs/siamese_dec --train-dir ###train_dirs### "
+args="--cuda --in-root $HOME/data/medical-labeling --out-root $HOME/runs/siamese_dec --train-dir ###train_dir### --run-dir ###run_dir###"
 
 singularity exec --nv $simg /bin/bash -c "source $HOME/.bashrc && pyenv activate $pyversion && cd $dir && $exec $script $args"

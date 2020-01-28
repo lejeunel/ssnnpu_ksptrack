@@ -11,6 +11,7 @@ import itertools
 from tqdm import tqdm
 import pandas as pd
 from ksptrack.utils.loc_prior_dataset import LocPriorDataset
+import copy
 
 
 class Loader(LocPriorDataset):
@@ -127,8 +128,11 @@ class Loader(LocPriorDataset):
         sample = super().__getitem__(idx)
 
         # make tensor of bboxes
+        # graph = copy.deepcopy(self.graphs[idx])
         graph = self.graphs[idx]
         bboxes = np.array([graph.nodes[n]['bbox'] for n in graph.nodes()])
+
+        centroids = np.array([graph.nodes[n]['centroid'] for n in graph.nodes()])
 
         kps = sample['loc_keypoints'].keypoints
         coords = [(np.round(kp.y).astype(int), np.round_(kp.x).astype(int))
@@ -139,6 +143,7 @@ class Loader(LocPriorDataset):
         sample['graph'] = graph
         sample['labels'] = self.labels[..., idx][..., None]
         sample['bboxes'] = bboxes
+        sample['centroids'] = centroids
         return sample
 
     def collate_fn(self, samples):
@@ -152,6 +157,10 @@ class Loader(LocPriorDataset):
         ]
         bboxes = np.concatenate(bboxes, axis=0)
         out['bboxes'] = torch.from_numpy(bboxes).float()
+
+        centroids = [torch.from_numpy(s['centroids']).float()
+                     for s in samples]
+        out['centroids'] = torch.cat(centroids)
         
         out['graph'] = [s['graph'] for s in samples]
         out['labels_clicked'] = [s['labels_clicked'] for s in samples]

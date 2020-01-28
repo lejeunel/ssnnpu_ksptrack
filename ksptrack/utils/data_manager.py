@@ -286,7 +286,7 @@ class DataManager:
         """
 
         if(not os.path.exists(pjoin(self.desc_path, 'sp_labels.npz'))):
-            dset = BaseDataset(self.root_path)
+            dset = BaseDataset(self.root_path, got_labels=False)
 
             self.logger.info('Running SLIC on {} images with {} labels'.format(len(dset),
                                                                                n_segments))
@@ -294,6 +294,12 @@ class DataManager:
                                                  n_segments=n_segments,
                                                  compactness=compactness)
                                for s in dset])
+            self.logger.info('Saving labels to {}'.format(
+                self.desc_path))
+            np.savez(
+                os.path.join(self.desc_path, 'sp_labels.npz'), **{
+                    'sp_labels': labels
+                })
 
             self.labels_contours_ = list()
             self.logger.info("Generating label contour maps")
@@ -304,20 +310,13 @@ class DataManager:
                     segmentation.find_boundaries(self.labels[:, :, im]))
 
             self.labels_contours_ = np.array(self.labels_contours_)
-            self.logger.info("Saving label contour maps")
+            self.logger.info("Saving labels")
             data = dict()
             data['labels_contours'] = self.labels_contours
             np.savez(
                 os.path.join(self.desc_path,
                             'sp_labels_contours.npz'), **data)
 
-            if (do_save):
-                self.logger.info('Saving labels to {}'.format(
-                    self.desc_path))
-                np.savez(
-                    os.path.join(self.desc_path, 'sp_labels.npz'), **{
-                        'sp_labels': self.labels
-                    })
 
             if (do_save):
                 self.logger.info('Saving slic previews to {}'.format(
@@ -434,7 +433,6 @@ class DataManager:
             feats_df = self.centroids_loc.assign(desc=feats_sp)
             self.logger.info('Saving  features to {}.'.format(df_path.format(self.feats_mode)))
             feats_df.to_pickle(os.path.join(df_path.format(self.feats_mode)))
-
 
     def get_pm_array(self, mode='foreground', save=False, frames=None):
         """ Returns array same size as labels with probabilities of bagging model

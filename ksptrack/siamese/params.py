@@ -26,6 +26,8 @@ def get_params():
     p.add('--epochs-dist', type=int)
     p.add('--epochs-dec', type=int)
     p.add('--prev-period', type=int)
+    p.add('--cp-period', type=int)
+    p.add('--tgt-update-period', type=int)
 
     p.add('--n-frames-epoch', type=int)
     p.add('--momentum', type=float)
@@ -73,6 +75,10 @@ def get_params():
     p.add('--with-agglo', default=False, action='store_true')
     p.add('--with-flow', default=False, action='store_true')
 
+    p.add('--linkage', type=str)
+
     p.add('--beta', type=float)
     p.add('--gamma', type=float)
+    p.add('--alpha', type=float)
+    p.add('--lambda-', type=float)
     return p

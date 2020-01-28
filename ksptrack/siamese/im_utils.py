@@ -7,14 +7,70 @@ from scipy.ndimage.interpolation import map_coordinates
 import collections
 import os
 import torch
-from skimage import io, color, segmentation
+from skimage import io, color, segmentation, draw
 from imgaug.augmenters import Augmenter
 from multiprocessing import Pool
 from imgaug import augmenters as iaa
 from ksptrack.models.my_augmenters import rescale_augmenter, Normalize
+from ksptrack.siamese import utils as utls
 from skimage.future.graph import show_rag
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
+
+def show_sampled_edges(image, labels, graph,
+                       edges_pw):
+    """Show a Region Adjacency Graph on an image.
+    """
+
+    out = image.copy()
+    out[segmentation.find_boundaries(labels), :] = (0, 0, 255)
+    # Defining the end points of the edges
+    # The tuple[::-1] syntax reverses a tuple as matplotlib uses (x,y)
+    # convention while skimage uses (row, column)
+    pos_edges = edges_pw.loc[edges_pw['clust_sim'] == 1].to_numpy()[:, :2]
+    neg_edges = edges_pw.loc[edges_pw['clust_sim'] == 0].to_numpy()[:, :2]
+
+    pos_lines = np.array([graph.nodes[n1]['centroid'][::-1] + \
+                          graph.nodes[n2]['centroid'][::-1]
+                          for n1, n2 in pos_edges])
+    neg_lines = np.array([graph.nodes[n1]['centroid'][::-1] + \
+                          graph.nodes[n2]['centroid'][::-1]
+                          for n1, n2 in neg_edges])
+
+    cvt = np.array([labels.shape[0], labels.shape[1],
+                    labels.shape[0], labels.shape[1]])
+    pos_lines *= cvt
+    neg_lines *= cvt
+    pos_lines = pos_lines.astype(int)
+    neg_lines = neg_lines.astype(int)
+
+    pos_lines = np.concatenate([draw.line(*r) for r in pos_lines], axis=1)
+    neg_lines = np.concatenate([draw.line(*r) for r in neg_lines], axis=1)
+
+    out[pos_lines[0], pos_lines[1], :] = (0, 255, 0)
+    out[neg_lines[0], neg_lines[1], :] = (255, 0, 0)
+
+    return out
+
+def make_grid_samples(batch, edges_pw, n_clusters):
+    res = []
+    for i in range(len(batch['graph'])):
+        im = batch['image_unnormal'][i].cpu().detach().numpy()
+        im = np.rollaxis(im, 0, 3).astype(np.uint8)
+        labels = batch['labels'][i].squeeze().cpu().detach().numpy()
+        graph = batch['graph'][i]
+        predictions = np.array([graph.nodes[n]['cluster'] for n in graph.nodes()])
+        predictions = utls.to_onehot(predictions, n_clusters)
+
+        tile = make_tiled_clusters(im, labels, predictions)
+        im_graph = show_sampled_edges(im,
+                                      labels.astype(int),
+                                      graph,
+                                      edges_pw[i])
+        res.append(np.concatenate((tile, im_graph), axis=1))
+
+    return np.concatenate(res, axis=0)
+    
 
 def make_grid_rag(im, labels, rag, probas, truth=None):
 
@@ -44,23 +100,23 @@ def make_grid_rag(im, labels, rag, probas, truth=None):
     plt.close(fig)
     return im_plot
 
-
-def make_tiled_clusters(im, labels, predictions):
-
+def make_clusters(labels, predictions):
     cmap = plt.get_cmap('viridis')
     shape = labels.shape
     n_clusters = predictions.shape[1]
-    mapping = {label: (np.array(cmap(cluster / n_clusters)[:3]) * 255).astype(np.uint8)
-               for label, cluster in zip(np.unique(labels),
-                                         np.argmax(predictions,
-                                                   axis=1))}
     mapping = np.array([(np.array(cmap(c / n_clusters)[:3]) * 255).astype(np.uint8)
                     for c in np.argmax(predictions, axis=1)])
     mapping = np.concatenate((np.unique(labels)[..., None], mapping), axis=1)
 
-    clusters_colorized = np.zeros((shape[0]*shape[1], 3)).astype(np.uint8)
     _, ind = np.unique(labels, return_inverse=True)
-    clusters_colorized = mapping[mapping[:,0]][:, 1:].reshape((shape[0], shape[1], 3))
+    clusters_colorized = mapping[ind, 1:].reshape((shape[0], shape[1], 3))
+    clusters_colorized = clusters_colorized.astype(np.uint8)
+
+    return clusters_colorized
+
+def make_tiled_clusters(im, labels, predictions):
+
+    clusters_colorized = make_clusters(labels, predictions)
 
     return np.concatenate((im, clusters_colorized), axis=1)
 

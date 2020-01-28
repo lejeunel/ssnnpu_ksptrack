@@ -41,7 +41,7 @@ class HOOFExtractor:
         """
 
         if (not os.path.exists(self.path_flow)):
-            self.calc_oflow(save=True, save_path=self.path_flow)
+            self.calc_oflow()
 
         file_hoof = os.path.join(self.desc_path, 'hoof.p')
 
@@ -50,6 +50,7 @@ class HOOFExtractor:
         if (not os.path.exists(file_hoof)):
             print('computing HOOF on superpixels with {} bins'.format(
                 self.n_bins_hoof))
+            import pdb; pdb.set_trace() ## DEBUG ##
             flows = self.get_flows()
             fvx = np.concatenate(
                 (flows['fvx'], flows['fvx'][..., -1][..., None]), axis=-1)

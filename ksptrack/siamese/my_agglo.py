@@ -8,7 +8,7 @@ from tqdm import tqdm
 import networkx as nx
 
 
-def prepare_full_rag(graphs, labels):
+def prepare_full_rag(graphs, labels, do_inter_frame=False):
 
     # we relabel nodes so that labels are unique accross sequence
     max_label = 0
@@ -30,19 +30,20 @@ def prepare_full_rag(graphs, labels):
         pbar.update(1)
     pbar.close()
 
-    print('making full RAG')
-    pbar = tqdm(total=len(relabeled) - 1)
-    for i in range(len(relabeled) - 1):
-        # find overlaps between consecutive label maps
-        labels0 = relabeled[i]
-        labels1 = relabeled[i+1]
-        concat_ = np.concatenate((labels0, labels1), axis=-1)
-        concat_ = concat_.reshape((-1, 2))
-        ovl = np.asarray(list(set(list(map(tuple, concat_)))))
-        edges = [(n[0], n[1]) for n in ovl]
-        full_rag.add_edges_from(edges)
-        pbar.update(1)
-    pbar.close()
+    if(do_inter_frame):
+        print('making full RAG')
+        pbar = tqdm(total=len(relabeled) - 1)
+        for i in range(len(relabeled) - 1):
+            # find overlaps between consecutive label maps
+            labels0 = relabeled[i]
+            labels1 = relabeled[i+1]
+            concat_ = np.concatenate((labels0, labels1), axis=-1)
+            concat_ = concat_.reshape((-1, 2))
+            ovl = np.asarray(list(set(list(map(tuple, concat_)))))
+            edges = [(n[0], n[1]) for n in ovl]
+            full_rag.add_edges_from(edges)
+            pbar.update(1)
+        pbar.close()
 
     return full_rag
 
@@ -56,7 +57,19 @@ class MyAggloClustering:
         clf = AgglomerativeClustering(n_clusters=self.n_clusters,
                                       linkage=self.linkage,
                                       connectivity=connectivity_matrix)
-        return clf.fit_predict(X)
+        # X = whiten(X)
+        labels = clf.fit_predict(X)
+
+        # compute centers for each label
+        cluster_centers = []
+        for l in np.unique(labels):
+            X_ = np.mean(X[labels == l, :], axis=0)
+            cluster_centers.append(X_)
+
+        self.cluster_centers = np.array(cluster_centers)
+
+        return labels, self.cluster_centers
+
 
 if __name__ == "__main__":
 
