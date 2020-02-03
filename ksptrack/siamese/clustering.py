@@ -5,7 +5,7 @@ import os
 from os.path import join as pjoin
 from ksptrack.siamese import im_utils
 import glob
-from skimage import color, io
+from skimage import color, io, segmentation
 import utils as utls
 from ksptrack.siamese.my_kmeans import MyKMeans
 from ksptrack.siamese.my_agglo import MyAggloClustering, prepare_full_rag
@@ -13,61 +13,69 @@ import networkx as nx
 
 
 def do_prev_clusters_init(dataloader,
-                          predictions,
-                          frames=[]):
+                          predictions):
     # form initial cluster centres
 
     prev_ims = {}
-    if(len(frames) == 0):
-        frames = [i for i in range(len(dataloader))]
 
-    print('generating init clusters')
+    print('generating init clusters maps')
     pbar = tqdm(total=len(dataloader))
-    for i, (data, preds) in enumerate(zip(dataloader.dataset, predictions)):
-        if(i in frames):
-            labels = data['labels']
-            im = data['image_unnormal']
-            all = im_utils.make_tiled_clusters(im, labels[..., 0], preds)
-            prev_ims[data['frame_name']] = all
+    for data in dataloader.dataset:
+        labels = data['labels']
+        im = data['image_unnormal']
+        truth = data['label/segmentation']
+        truth_cntr = segmentation.find_boundaries(np.squeeze(truth))
+        im[truth_cntr, ...] = (255, 0, 0)
+        all = im_utils.make_tiled_clusters(im, labels[..., 0],
+                                           predictions[data['frame_idx']])
+        prev_ims[data['frame_name']] = all
         pbar.update(1)
     pbar.close()
 
     return prev_ims
 
 
-def do_prev_rags(model, device, dataloader, frames=[]):
+def do_prev_rags(model, device, dataloader, X):
+    """
+    Generate preview images on region adjacency graphs
+    """
 
     model.eval()
 
     prevs = {}
 
-    if(len(frames) == 0):
-        frames = [i for i in range(len(dataloader))]
-
     pbar = tqdm(total=len(dataloader))
     for i, data in enumerate(dataloader):
-        if(i in frames):
-            data = utls.batch_to_device(data, device)
+        data = utls.batch_to_device(data, device)
 
-            # forward
-            with torch.no_grad():
-                res = model(data)
+        # keep only adjacent edges
+        edges_to_keep = [e for e in data['graph'][0].edges()
+                     if(data['graph'][0].edges[e]['adjacent'])]
+        rag = data['graph'][0].edge_subgraph(edges_to_keep).copy()
+        data['rag'] = [rag]
 
-            graph = data['graph'][0]
-            to_remove = [e for e in graph.edges() if(not graph.edges[e]['adjacent'])]
-            graph.remove_edges_from(to_remove)
-            probas = model.calc_all_probas(res['feats'], graph)
-            probas = probas.detach().cpu().numpy()
-            im = data['image_unnormal'].cpu().squeeze().numpy().astype(np.uint8)
-            im = np.rollaxis(im, 0, 3)
-            labels = data['labels'].cpu().squeeze().numpy()
-            truth = data['label/segmentation'].cpu().squeeze().numpy()
-            plot = im_utils.make_grid_rag(im,
-                                        labels,
-                                        graph,
-                                        probas,
-                                        truth=truth)
-            prevs[data['frame_name'][0]] = plot
+        # forward
+        with torch.no_grad():
+            res = model(data)
+
+        probas = res['probas_preds'][0].detach().cpu().squeeze().numpy()
+        im = data['image_unnormal'].cpu().squeeze().numpy().astype(np.uint8)
+        im = np.rollaxis(im, 0, 3)
+        truth = data['label/segmentation'].cpu().squeeze().numpy()
+        labels = data['labels'].cpu().squeeze().numpy()
+
+        predictions = torch.argmax(res['clusters'], dim=1).cpu().numpy()
+        predictions = utls.to_onehot(predictions, res['clusters'].shape[1])
+        clusters_colorized = im_utils.make_clusters(labels, predictions)
+        truth = data['label/segmentation'].cpu().squeeze().numpy()
+        rag_im = im_utils.my_show_rag(rag, im, labels, probas, truth=truth)
+        # plot = im_utils.make_grid_rag(im,
+        #                               labels,
+        #                               rag,
+        #                               probas,
+        #                               truth=truth)
+        plot = np.concatenate((im, rag_im, clusters_colorized), axis=1)
+        prevs[data['frame_name'][0]] = plot
 
         pbar.update(1)
     pbar.close()
@@ -75,31 +83,30 @@ def do_prev_rags(model, device, dataloader, frames=[]):
     return prevs
 
 
-def do_prev_clusters(model, device, dataloader, frames=[]):
+def do_prev_clusters(model, device, dataloader):
 
     model.eval()
 
     prevs = {}
 
-    if(len(frames) == 0):
-        frames = [i for i in range(len(dataloader))]
-
     pbar = tqdm(total=len(dataloader))
 
-    for i, data in enumerate(dataloader):
-        if(i in frames):
-            data = utls.batch_to_device(data, device)
+    for data in dataloader:
+        data = utls.batch_to_device(data, device)
 
-            # forward
-            with torch.no_grad():
-                res = model(data)
+        # forward
+        with torch.no_grad():
+            res = model(data)
 
-            im = data['image_unnormal'].cpu().squeeze().numpy()
-            im = np.rollaxis(im, 0, 3).astype(np.uint8)
-            labels = data['labels'].cpu().squeeze().numpy()
-            clusters = res['clusters'].cpu().squeeze().numpy()
-            im = im_utils.make_tiled_clusters(im, labels, clusters)
-            prevs[data['frame_name'][0]] = im
+        im = data['image_unnormal'].cpu().squeeze().numpy()
+        im = np.rollaxis(im, 0, 3).astype(np.uint8)
+        truth = data['label/segmentation'].cpu().squeeze().numpy()
+        truth_cntr = segmentation.find_boundaries(truth)
+        im[truth_cntr, ...] = (255, 0, 0)
+        labels = data['labels'].cpu().squeeze().numpy()
+        clusters = res['clusters'].cpu().squeeze().numpy()
+        im = im_utils.make_tiled_clusters(im, labels, clusters)
+        prevs[data['frame_name'][0]] = im
 
         pbar.update(1)
     pbar.close()

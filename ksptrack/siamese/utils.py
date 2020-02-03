@@ -7,6 +7,40 @@ from skimage import segmentation
 import numpy as np
 import torch
 import shutil
+from tqdm import tqdm
+import networkx as nx
+from itertools import combinations
+
+
+def prepare_couple_graphs(graphs, nn_radius):
+
+    couple_graphs = []
+    print('making NN-graphs')
+    for i in tqdm(range(len(graphs) - 1)):
+        mapping_1 = {n: n + graphs[i].number_of_nodes() for n in graphs[i+1]}
+        g_1 = nx.relabel_nodes(graphs[i+1], mapping_1, copy=True)
+        g = nx.compose(graphs[i], g_1)
+        all_nodes = np.concatenate(([n for n in graphs[i].nodes()],
+                                    [n for n in g_1.nodes()]))
+        all_edges = np.array(list(combinations(all_nodes, 2)))
+
+        centroids_x_0 = [graphs[i].nodes[n]['centroid'][0] for n in graphs[i].nodes()]
+        centroids_x_1 = [g_1.nodes[n]['centroid'][0] for n in g_1.nodes()]
+        centroids_x = np.concatenate((centroids_x_0, centroids_x_1), axis=0)
+        centroids_y_0 = [graphs[i].nodes[n]['centroid'][1]
+                         for n in graphs[i].nodes()]
+        centroids_y_1 = [g_1.nodes[n]['centroid'][1] for n in g_1.nodes()]
+        centroids_y = np.concatenate((centroids_y_0, centroids_y_1), axis=0)
+
+        dists = np.sqrt((centroids_x[all_edges[:, 0]] - centroids_x[all_edges[:, 1]])**2 +
+                        (centroids_y[all_edges[:, 0]] - centroids_y[all_edges[:, 1]])**2)
+        inds = np.argwhere(dists < nn_radius).ravel()
+
+        edges_nn = torch.from_numpy(all_edges[inds, :])
+        couple_graphs.append(edges_nn)
+    
+    return couple_graphs
+
 
 
 def batch_to_device(batch, device):

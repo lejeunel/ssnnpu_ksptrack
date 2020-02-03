@@ -51,8 +51,8 @@ def get_features(model, cfg, dataloader, checkpoint, mode='autoenc'):
     for i, sample in enumerate(dataloader):
         with torch.no_grad():
             inputs = sample['image'].to(device)
-            _, feat = model(inputs)
-            feat = feat.detach().cpu().numpy()
+            res = model(inputs)
+            feat = res['aspp_feats'].detach().cpu().numpy()
             sp_labels = np.array([s[0, ...].cpu().numpy() for s in sample['labels']])[0]
             feat = [feat[0, :, sp_labels == l].mean(axis=0)
                     for l in np.unique(sp_labels)]
@@ -134,8 +134,8 @@ def train_model(model, cfg, dataloader, checkpoint, out_dir,
             optimizer.zero_grad()
 
             with torch.set_grad_enabled(True):
-                output, _ = model(input)
-                loss = criterion(output, input, prior)
+                res = model(input)
+                loss = criterion(res['output'], input, prior)
 
                 loss.backward()
                 optimizer.step()
@@ -294,6 +294,7 @@ class DataManager:
                                                  n_segments=n_segments,
                                                  compactness=compactness)
                                for s in dset])
+            labels = np.rollaxis(labels, 0, 3)
             self.logger.info('Saving labels to {}'.format(
                 self.desc_path))
             np.savez(

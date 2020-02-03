@@ -6,6 +6,7 @@ import numpy as np
 import imgaug as ia
 from torch.utils import data
 import torch
+import matplotlib.pyplot as plt
 
 
 def make_1d_gauss(length, std, x0):
@@ -108,8 +109,11 @@ class LocPriorDataset(BaseDataset, data.Dataset):
                                     (kp.y, kp.x)) for kp in keypoints.keypoints
             ]
             obj_prior = np.asarray(obj_prior).sum(axis=0)[..., None]
-            obj_prior += obj_prior.min()
+            offset = np.ones_like(obj_prior) * 0.5
+            obj_prior -= obj_prior.min()
             obj_prior /= obj_prior.max()
+            obj_prior *= 0.5
+            obj_prior += offset
         else:
             obj_prior = (
                 np.ones((shape[0], shape[1])))[..., None]
@@ -132,3 +136,14 @@ class LocPriorDataset(BaseDataset, data.Dataset):
         out['prior'] = obj_prior
 
         return out
+
+if __name__ == "__main__":
+
+    dl = LocPriorDataset('/home/ubelix/lejeune/data/medical-labeling/Dataset00')
+    sample = dl[10]
+
+    plt.subplot(211)
+    plt.imshow(sample['image_unnormal'])
+    plt.subplot(212)
+    plt.imshow(sample['prior'][..., 0])
+    plt.show()

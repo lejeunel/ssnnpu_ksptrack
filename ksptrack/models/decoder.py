@@ -17,12 +17,10 @@ class Decoder(nn.Module):
             raise NotImplementedError
 
 
-        self.conv1 = nn.Conv2d(low_level_inplanes, 48, 1, bias=False)
-        self.bn1 = BatchNorm(48)
         self.relu = nn.ReLU()
 
         self.aspp_out_dims = aspp_out_dims
-        cat_dims = self.aspp_out_dims + 48
+        cat_dims = self.aspp_out_dims
 
         self.last_conv = nn.Sequential(nn.Conv2d(cat_dims, 256, kernel_size=3, stride=1, padding=1, bias=False),
                                        BatchNorm(256),
@@ -37,16 +35,12 @@ class Decoder(nn.Module):
         self.feats_dim = cat_dims
 
 
-    def forward(self, x, low_level_feat):
-        low_level_feat = self.conv1(low_level_feat)
-        low_level_feat = self.bn1(low_level_feat)
-        low_level_feat = self.relu(low_level_feat)
+    def forward(self, x):
 
-        x = F.interpolate(x, size=low_level_feat.size()[2:], mode='bilinear', align_corners=True)
-        cat_feats = torch.cat((x, low_level_feat), dim=1)
-        x = self.last_conv(cat_feats)
+        feats = F.interpolate(x, scale_factor=4, mode='bilinear', align_corners=True)
+        x = self.last_conv(feats)
 
-        return x, cat_feats
+        return x
 
     def _init_weight(self):
         for m in self.modules():

@@ -22,7 +22,7 @@ args = {
 template = 'mysubmit_tmpl.sh'
 file_ = 'mysubmit_tmp.sh'
 
-job_mask = [True, True, True, True, False, False]
+job_mask = [True, False, False, False, False, False]
 
 for j in range(len(args['job_name'])):
     shutil.copyfile(template, file_)

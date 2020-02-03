@@ -13,7 +13,9 @@ class MyKMeans:
         self.max_samples = max_samples
         self.use_locs = use_locs
 
-        self.clf = PCKMeans(n_clusters) if use_locs else KMeans(n_clusters)
+        self.clf = PCKMeans(n_clusters) if use_locs else KMeans(n_clusters,
+                                                                n_init=20,
+                                                                max_iter=500)
 
     def fit_predict(self, feats, clicked_mask):
 

@@ -16,7 +16,7 @@ from ksptrack.models.deeplab import DeepLabv3Plus
 from ksptrack.siamese.modeling.dec import DEC
 from ksptrack.siamese.cycle_scheduler import TrainCycleScheduler
 from ksptrack.siamese.distrib_buffer import DistribBuffer
-from ksptrack.siamese.losses import PairwiseConstrainedClustering, SiameseLoss
+from ksptrack.siamese.losses import PairwiseConstrainedClustering
 from ksptrack.siamese import im_utils
 import numpy as np
 from skimage import color, io
@@ -26,25 +26,14 @@ import clustering as clst
 
 def train_one_epoch(model, dataloaders, optimizers,
                     device,
-                    train_sch,
                     distrib_buff,
+                    couple_graphs,
                     cfg):
 
     criterion_clust = PairwiseConstrainedClustering(cfg.lambda_, cfg.n_edges)
     criterion_recons = torch.nn.MSELoss()
-    criterion_siam = SiameseLoss(cfg.beta, cfg.n_edges, cfg.with_flow)
-
-    mode = train_sch.get_cycle()
-    curr_epoch = train_sch.curr_epoch
 
     model.train()
-
-    if (mode == 'feats'):
-        model.grad_linears(False)
-        model.grad_dec(True)
-    else:
-        model.grad_linears(True)
-        model.grad_dec(False)
 
     running_loss = 0.0
     running_loss_pur = 0.0
@@ -56,60 +45,48 @@ def train_one_epoch(model, dataloaders, optimizers,
 
         # forward
         with torch.set_grad_enabled(True):
-            # backward + optimize only if in training phase
             res = model(data)
 
-            distrib_buff.maybe_update(model, dataloaders['prev'], device)
+            distrib_buff.maybe_update(model, dataloaders['buff'], device)
             distribs, targets = distrib_buff[data['frame_idx']]
 
-            if (mode == 'feats'):
-                optimizers['autoenc'].zero_grad()
-                optimizers['assign'].zero_grad()
+            optimizers['encoder'].zero_grad()
+            optimizers['decoder'].zero_grad()
+            optimizers['aspp'].zero_grad()
+            optimizers['assign'].zero_grad()
 
-                loss_clust, _ = criterion_clust(data['graph'],
-                                                res['feats'],
-                                                res['clusters'],
-                                                targets)
+            loss_clust = criterion_clust(couple_graphs[data['frame_idx'][0]],
+                                         res['pooled_reduced_feats'],
+                                         res['clusters'],
+                                         targets)
 
-                loss_recons = criterion_recons(res['recons'], data['image'])
-                loss = cfg.gamma * loss_clust + loss_recons
-                loss.backward()
-                optimizers['autoenc'].step()
-                optimizers['assign'].step()
-                running_loss += loss.cpu().detach().numpy()
-                running_loss_recons += loss_recons.cpu().detach().numpy()
-                running_loss_pur += loss_clust.cpu().detach().numpy()
-                loss_ = running_loss / ((i + 1) * cfg.batch_size)
-                loss_pur_ = running_loss_pur / ((i + 1) * cfg.batch_size)
-                loss_recons_ = running_loss_recons / ((i + 1) * cfg.batch_size)
-            else:
-                optimizers['siam'].zero_grad()
-                optimizers['autoenc'].zero_grad()
-                sampled = criterion_siam(data['graph'], res['clusters'],
-                                         targets,
-                                         res['feats'], model.calc_probas)
-                sampled['loss'].backward()
-                optimizers['siam'].step()
-                optimizers['autoenc'].step()
-                running_loss += sampled['loss'].cpu().detach().numpy()
-                loss_ = running_loss / ((i + 1) * cfg.batch_size)
+            loss_recons = criterion_recons(res['output'], data['image'])
+            loss = cfg.gamma * loss_clust + loss_recons
+            loss.backward()
+            optimizers['encoder'].step()
+            optimizers['decoder'].step()
+            optimizers['aspp'].step()
+            optimizers['assign'].step()
+            running_loss += loss.cpu().detach().numpy()
+            running_loss_recons += loss_recons.cpu().detach().numpy()
+            running_loss_pur += loss_clust.cpu().detach().numpy()
+            loss_ = running_loss / ((i + 1) * cfg.batch_size)
+            loss_pur_ = running_loss_pur / ((i + 1) * cfg.batch_size)
+            loss_recons_ = running_loss_recons / ((i + 1) * cfg.batch_size)
 
-        pbar.set_description('[{}] ep {}/{}, lss {:.4f}'.format(
-            train_sch.get_cycle(), curr_epoch + 1, cfg.epochs_all, loss_))
+        pbar.set_description('lss {:.4f}'.format(loss_))
         pbar.update(1)
 
     pbar.close()
 
-    if (mode == 'feats'):
-        losses = {
-            'recons_pur': loss_,
-            'recons': loss_recons_,
-            'pur': loss_pur_
-        }
-    else:
-        losses = {'siam': loss_}
+    out = {
+        'ratio_changed': distrib_buff.ratio_changed,
+        'loss_recons_pur': loss_,
+        'loss_recons': loss_recons_,
+        'loss_pur': loss_pur_
+    }
 
-    return losses
+    return out
 
 
 
@@ -119,17 +96,9 @@ def train(cfg, model, device, dataloaders, run_path):
         print('found checkpoint at {}. Skipping.'.format(check_cp_exist))
         return
 
-    rags_prevs_path = pjoin(run_path, 'rags_prevs')
     clusters_prevs_path = pjoin(run_path, 'clusters_prevs')
-    if (not os.path.exists(rags_prevs_path)):
-        os.makedirs(rags_prevs_path)
     if (not os.path.exists(clusters_prevs_path)):
         os.makedirs(clusters_prevs_path)
-
-    frames_tnsr_brd = np.linspace(0,
-                                  len(dataloaders['prev']) - 1,
-                                  num=cfg.n_ims_test,
-                                  dtype=int)
 
     init_clusters_path = pjoin(run_path, 'init_clusters.npz')
     init_clusters_prev_path = pjoin(clusters_prevs_path, 'init')
@@ -139,11 +108,11 @@ def train(cfg, model, device, dataloaders, run_path):
 
         if (not cfg.with_agglo):
             init_clusters, preds = clst.train_kmeans(model,
-                                                     dataloaders['prev'],
+                                                     dataloaders['buff'],
                                                      device, cfg.n_clusters,
                                                      cfg.with_pck)
         else:
-            init_clusters, preds = clst.train_agglo(model, dataloaders['prev'],
+            init_clusters, preds = clst.train_agglo(model, dataloaders['buff'],
                                                     device, cfg.n_clusters,
                                                     cfg.linkage)
         np.savez(init_clusters_path, **{
@@ -153,8 +122,7 @@ def train(cfg, model, device, dataloaders, run_path):
 
     preds = np.load(init_clusters_path, allow_pickle=True)['preds']
     init_clusters = np.load(init_clusters_path, allow_pickle=True)['clusters']
-    prev_ims = clst.do_prev_clusters_init(dataloaders['prev'], preds,
-                                          frames=frames_tnsr_brd)
+    prev_ims = clst.do_prev_clusters_init(dataloaders['prev'], preds)
 
     # save initial clusterings to disk
     if (not os.path.exists(init_clusters_prev_path)):
@@ -170,10 +138,6 @@ def train(cfg, model, device, dataloaders, run_path):
     writer = SummaryWriter(run_path)
 
     # can choose order of cycles here
-    # train_sch = TrainCycleScheduler([cfg.epochs_dec, cfg.epochs_dist],
-    #                                 cfg.epochs_all, ['feats', 'siam'])
-    train_sch = TrainCycleScheduler([cfg.epochs_dec, cfg.epochs_dist],
-                                    cfg.epochs_all, ['feats', 'siam'])
     distrib_buff = DistribBuffer(cfg.tgt_update_period)
 
     writer.add_image('clusters',
@@ -181,8 +145,10 @@ def train(cfg, model, device, dataloaders, run_path):
                      0,
                      dataformats='HWC')
 
-    milestones = [cfg.epochs_dec]
-    milestones = [milestones]
+    couple_graphs = utls.prepare_couple_graphs([s['graph']
+                                                for s in dataloaders['buff'].dataset],
+                                               0.1)
+
     init_clusters = torch.tensor(init_clusters,
                                  dtype=torch.float,
                                  requires_grad=True)
@@ -193,14 +159,28 @@ def train(cfg, model, device, dataloaders, run_path):
         model.state_dict()['assignment.cluster_centers'].copy_(init_clusters)
 
     best_loss = float('inf')
-    print('training for {} epochs'.format(cfg.epochs_all))
+    print('training for {} epochs'.format(cfg.epochs_dec))
 
     model.to(device)
 
     optimizers = {
-        'autoenc':
+        'encoder':
         optim.SGD(params=[{
-            'params': model.autoencoder.parameters(),
+            'params': model.autoencoder.encoder.parameters(),
+            'lr': cfg.lr_autoenc / 10
+        }],
+                  momentum=cfg.momentum,
+                  weight_decay=cfg.decay),
+        'decoder':
+        optim.SGD(params=[{
+            'params': model.autoencoder.decoder.parameters(),
+            'lr': cfg.lr_autoenc / 10
+        }],
+                  momentum=cfg.momentum,
+                  weight_decay=cfg.decay),
+        'aspp':
+        optim.SGD(params=[{
+            'params': model.autoencoder.aspp.parameters(),
             'lr': cfg.lr_autoenc
         }],
                   momentum=cfg.momentum,
@@ -211,88 +191,71 @@ def train(cfg, model, device, dataloaders, run_path):
             'lr': cfg.lr_assign
         }],
                   momentum=cfg.momentum,
-                  weight_decay=cfg.decay),
-        'siam':
-        optim.SGD(params=[{
-            'params': model.linear1.parameters(),
-            'lr': cfg.lr_dist
-        }, {
-            'params': model.linear2.parameters(),
-            'lr': cfg.lr_dist
-        }],
-                  momentum=cfg.momentum,
                   weight_decay=cfg.decay)
     }
 
-    for epoch in range(1, cfg.epochs_all + 1):
+    for epoch in range(1, cfg.epochs_dec + 1):
 
-        # if(distrib_buff.converged):
-        #     print('labels assignments threshold hit!')
-        #     break
+        if(distrib_buff.converged):
+            print('clustering assignment hit threshold. Ending training.')
+            break
 
-        losses = train_one_epoch(model, dataloaders, optimizers,
-                                 device, train_sch,
-                                 distrib_buff,
-                                 cfg)
+        print('epoch {}/{}'.format(epoch, cfg.epochs_dec))
+        for phase in ['train', 'prev']:
 
-        # write losses to tensorboard
-        for k, v in losses.items():
-            writer.add_scalar('loss_{}'.format(k), v, epoch)
+            if phase == 'train':
+                # if(distrib_buff.converged):
+                #     print('labels assignments threshold hit!')
+                #     break
 
-        # save previews
-        if (epoch % cfg.prev_period == 0):
-            print('generating previews')
-            prev_ims_clst = clst.do_prev_clusters(model, device,
-                                                  dataloaders['prev'],
-                                                  frames_tnsr_brd)
-            prev_ims_rags = clst.do_prev_rags(model, device,
-                                              dataloaders['prev'],
-                                              frames_tnsr_brd)
+                res = train_one_epoch(model, dataloaders, optimizers,
+                                      device,
+                                      distrib_buff,
+                                      couple_graphs,
+                                      cfg)
 
-            out_paths = [
-                pjoin(p, 'epoch_{:04d}'.format(epoch))
-                for p in [rags_prevs_path, clusters_prevs_path]
-            ]
-            types = ['rags', 'clusters']
-            prev_ims = [prev_ims_rags, prev_ims_clst]
+                # write losses to tensorboard
+                for k, v in res.items():
+                    writer.add_scalar(k, v, epoch)
 
-            for ims, out_path, type_ in zip(prev_ims, out_paths, types):
-                print('saving previews to {}'.format(out_path))
-                if (not os.path.exists(out_path)):
-                    os.makedirs(out_path)
-                for k, v in tqdm.tqdm(ims.items()):
-                    io.imsave(pjoin(out_path, k), v)
+                # save checkpoint
+                if (epoch % cfg.cp_period == 0):
+                    is_best = False
+                    if(res['loss_pur'] < best_loss):
+                        is_best = True
+                        best_loss = res['loss_pur']
+                    path = pjoin(run_path, 'checkpoints')
+                    utls.save_checkpoint(
+                        {
+                            'epoch': epoch + 1,
+                            'model': model,
+                            'best_loss': best_loss,
+                        },
+                        is_best,
+                        fname_cp='checkpoint_dec_epoch_{:04d}.pth.tar'.format(epoch),
+                        fname_bm='best_dec.pth.tar',
+                        path=path)
+            else:
+                # save previews
+                if (epoch % cfg.prev_period == 0):
+                    out_path = pjoin(clusters_prevs_path, 'epoch_{:04d}'.format(epoch))
+                    print('generating previews to {}'.format(out_path))
+                    if (not os.path.exists(out_path)):
+                        os.makedirs(out_path)
+                    prev_ims = clst.do_prev_clusters(model, device,
+                                                     dataloaders[phase])
 
-                # write previews to tensorboard
-                prev_ims_pt = np.vstack([
-                    ims[k] for k in ims.keys()
-                ])
-                writer.add_image('{}'.format(type_),
-                                 prev_ims_pt,
-                                 epoch,
-                                 dataformats='HWC')
+                    for k, v in prev_ims.items():
+                        io.imsave(pjoin(out_path, k), v)
 
-        # save checkpoint
-        if (epoch > 1 and (epoch % cfg.cp_period == 0)):
-            is_best = False
-            if ('siam' in losses.keys()):
-                if(losses['siam'] < best_loss):
-                    is_best = True
-                    best_loss = losses['siam']
-            path = pjoin(run_path, 'checkpoints')
-            utls.save_checkpoint(
-                {
-                    'epoch': epoch + 1,
-                    'model': model,
-                    'best_loss': best_loss,
-                },
-                is_best,
-                fname_cp='checkpoint_dec_epoch_{:04d}.pth.tar'.format(epoch),
-                fname_bm='best_dec.pth.tar',
-                path=path)
-
-        train_sch.step()
-
+                    # write previews to tensorboard
+                    prev_ims_pt = np.vstack([
+                        im for im in prev_ims.values()
+                    ])
+                    writer.add_image('clusters',
+                                     prev_ims_pt,
+                                     epoch,
+                                     dataformats='HWC')
 
 def main(cfg):
 
@@ -303,37 +266,48 @@ def main(cfg):
 
     device = torch.device('cuda' if cfg.cuda else 'cpu')
 
-    model = DEC(cfg.n_clusters, roi_size=1, roi_scale=cfg.roi_spatial_scale,
-                alpha=cfg.alpha)
-
+    autoenc = DeepLabv3Plus(pretrained=True, embedded_dims=cfg.embedded_dims)
     path_cp = pjoin(run_path, 'checkpoints', 'checkpoint_autoenc.pth.tar')
     if (os.path.exists(path_cp)):
         print('loading checkpoint {}'.format(path_cp))
         state_dict = torch.load(path_cp,
                                 map_location=lambda storage, loc: storage)
-        model.autoencoder.load_state_dict(state_dict)
-        model.autoencoder
+        autoenc.load_state_dict(state_dict)
     else:
         print(
             'checkpoint {} not found. Train autoencoder first'.format(path_cp))
         return
+    model = DEC(autoenc,
+                cfg.n_clusters,
+                roi_size=1,
+                roi_scale=cfg.roi_spatial_scale,
+                alpha=cfg.alpha)
 
-    transf, transf_normal = im_utils.make_data_aug(cfg)
 
-    dl_train = Loader(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
+    _, transf_normal = im_utils.make_data_aug(cfg)
+
+    dl = Loader(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
                       normalization=transf_normal)
 
-    dataloader_prev = DataLoader(dl_train,
-                                 batch_size=1,
-                                 collate_fn=dl_train.collate_fn)
-    dataloader_train = DataLoader(dl_train,
-                                  batch_size=cfg.batch_size,
-                                  shuffle=True,
-                                  collate_fn=dl_train.collate_fn,
+    frames_tnsr_brd = np.linspace(0,
+                                  len(dl) - 1,
+                                  num=cfg.n_ims_test,
+                                  dtype=int)
+
+    dataloader_prev = DataLoader(torch.utils.data.Subset(dl, frames_tnsr_brd),
+                                 collate_fn=dl.collate_fn)
+    dataloader_train = DataLoader(dl,
+                                  batch_size=2,
+                                  collate_fn=dl.collate_fn,
                                   drop_last=True,
                                   num_workers=cfg.n_workers)
+    dataloader_buff = DataLoader(dl,
+                                 collate_fn=dl.collate_fn,
+                                 num_workers=cfg.n_workers)
 
-    dataloaders = {'train': dataloader_train, 'prev': dataloader_prev}
+    dataloaders = {'train': dataloader_train,
+                   'buff': dataloader_buff,
+                   'prev': dataloader_prev}
 
     # Save cfg
     with open(pjoin(run_path, 'cfg.yml'), 'w') as outfile:

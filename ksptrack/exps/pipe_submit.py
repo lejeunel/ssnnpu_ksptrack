@@ -16,7 +16,7 @@ args = {
 }
 
 
-job_mask = [False, False, True, False, False, False]
+job_mask = [True, False, False, False, False, False]
 n_jobs = len(job_mask)
 template = 'mysubmit_tmpl.sh'
 file_ = 'mysubmit_tmp.sh'

@@ -67,6 +67,7 @@ def get_params():
     p.add('--exp-name', default='')
     p.add('--n-edges', type=int)
     p.add('--n-clusters', type=int)
+    p.add('--embedded-dims', type=int)
 
     p.add('--roi-output-size', type=int)
     p.add('--roi-spatial-scale', type=float)

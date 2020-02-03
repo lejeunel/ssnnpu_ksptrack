@@ -8,7 +8,7 @@
 #SBATCH --gres=gpu
 #SBATCH --output=/home/ubelix/artorg/lejeune/runs/logs/%x.out
 
-dir=$HOME/Documents/software/siamese_sp/siamese_sp
+dir=$HOME/Documents/software/ksptrack/ksptrack/siamese
 simg=$HOME/ksptrack-ubelix.simg
 pyversion=my-3.7
 exec=python

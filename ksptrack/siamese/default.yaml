@@ -1,9 +1,9 @@
 frames: []
 
-epochs-autoenc: 30
+epochs-autoenc: 60
 epochs-all: 100
 epochs-dec: 80
-epochs-dist: 20
+epochs-dist: 50
 
 # generate previews every x epochs
 prev-period: 1
@@ -12,9 +12,9 @@ tgt-update-period: 100
 cp-period: 2
 
 # optimizer
-lr-dist: 0.01
-lr-autoenc: 0.001
-lr-assign: 0.001
+lr-dist: 0.1
+lr-autoenc: 0.01
+lr-assign: 0.01
 decay : 0.00004
 lr-power : 0.98
 momentum: 0.9
@@ -51,9 +51,10 @@ aug-rotate: 5.
 aug-shear: 12.5
 
 # sampling
-n-edges: 100
+n-edges: 200
 
-n-clusters: 15
+n-clusters: 30
+embedded-dims: 64
 
 roi-output-size: 1
 roi-spatial-scale: 1.0

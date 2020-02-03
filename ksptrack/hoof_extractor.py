@@ -50,7 +50,6 @@ class HOOFExtractor:
         if (not os.path.exists(file_hoof)):
             print('computing HOOF on superpixels with {} bins'.format(
                 self.n_bins_hoof))
-            import pdb; pdb.set_trace() ## DEBUG ##
             flows = self.get_flows()
             fvx = np.concatenate(
                 (flows['fvx'], flows['fvx'][..., -1][..., None]), axis=-1)

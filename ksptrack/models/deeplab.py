@@ -16,16 +16,18 @@ from ksptrack.models.aspp import build_aspp
 
 
 class DeepLabv3Plus(nn.Module):
-    def __init__(self, pretrained=True, n_clusters=None):
+    def __init__(self, pretrained=True, embedded_dims=None):
 
         super(DeepLabv3Plus, self).__init__()
 
         self.encoder = drn.__dict__.get('drn_d_22')(
             pretrained=pretrained, num_classes=1000)
         self.encoder.out_middle = True
-        self.aspp = build_aspp('drn', output_stride=8, BatchNorm=nn.BatchNorm2d)
+        self.aspp = build_aspp('drn',
+                               output_stride=8,
+                               BatchNorm=nn.BatchNorm2d)
         self.aspp_out_dims = 256
-        if(n_clusters is not None):
+        if(embedded_dims is not None):
             self.reduce_conv = nn.Sequential(nn.Conv2d(self.aspp_out_dims,
                                                        self.aspp_out_dims // 2,
                                                        kernel_size=3,
@@ -45,30 +47,29 @@ class DeepLabv3Plus(nn.Module):
                                         nn.ReLU(),
                                         nn.Dropout(0.1),
                                         nn.Conv2d(self.aspp_out_dims // 2,
-                                                  n_clusters,
+                                                  embedded_dims,
                                                   kernel_size=1,
                                                   stride=1),
-                                        nn.BatchNorm2d(n_clusters),
+                                        nn.BatchNorm2d(embedded_dims),
                                         nn.ReLU(),
                                         nn.Dropout(0.1))
-            self.aspp_out_dims = n_clusters
+            self.aspp_out_dims = embedded_dims
         else:
             self.reduce_conv = nn.Identity()
 
         self.decoder = Decoder(num_classes=3,
                                backbone='drn',
                                BatchNorm=nn.BatchNorm2d,
-                               aspp_out_dims=n_clusters if n_clusters is not None else 256)
+                               aspp_out_dims=embedded_dims if embedded_dims is not None else 256)
 
         self.sigmoid = nn.Sigmoid()
-        self.n_clusters = n_clusters
+        self.n_clusters = embedded_dims
 
     def forward(self, input):
-        x, low_level_feats = self.encoder(input)
-        low_level_feat = low_level_feats[4]
+        x, _ = self.encoder(input)
         aspp_feats = self.aspp(x)
-        aspp_feats = self.reduce_conv(aspp_feats)
-        x, cat_feats = self.decoder(aspp_feats, low_level_feat)
+        reduced_feats = self.reduce_conv(aspp_feats)
+        x = self.decoder(reduced_feats)
         x = F.interpolate(x,
                           size=input.size()[2:],
                           mode='bilinear',
@@ -77,8 +78,14 @@ class DeepLabv3Plus(nn.Module):
                                    size=input.size()[2:],
                                    mode='bilinear',
                                    align_corners=True)
+        reduced_feats = F.interpolate(reduced_feats,
+                                   size=input.size()[2:],
+                                   mode='bilinear',
+                                   align_corners=True)
 
-        return x, aspp_feats
+        return {'output': x,
+                'aspp_feats': aspp_feats,
+                'reduced_feats': reduced_feats}
 
     def to_autoenc(self, in_channels=3, out_channels=3):
         self.decoder.last_conv[-1] = nn.Conv2d(256,
@@ -141,7 +148,7 @@ class DeepLabv3(nn.Module):
 
 
 if __name__ == "__main__":
-    model = DeepLabv3()
+    model = DeepLabv3Plus(n_clusters=15)
 
     in_path = '/home/ubelix/lejeune/data/medical-labeling/Dataset00'
     cuda = False
@@ -160,14 +167,11 @@ if __name__ == "__main__":
 
     device = torch.device('cuda' if cuda else 'cpu')
     model.to(device)
-    model.to_feat_extractor()
 
     for e in range(10):
         for i, sample in enumerate(dataloader):
 
             im = sample['image'].to(device)
-            truth = sample['label/segmentation'].to(device)
-            prior = sample['prior'].to(device)
 
             out = model(im)
 

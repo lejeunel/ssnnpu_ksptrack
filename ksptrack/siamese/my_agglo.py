@@ -18,9 +18,6 @@ def prepare_full_rag(graphs, labels, do_inter_frame=False):
     print('making frame-by-frame RAGs')
     pbar = tqdm(total=len(graphs))
     for labs, g in zip(labels, graphs):
-        # keep only adjacent nodes
-        to_remove = [e for e in g.edges() if not g.edges[e]['adjacent']]
-        g.remove_edges_from(to_remove)
         # relabel nodes
         mapping = {n: n+max_label for n in g.nodes()}
         max_label += max(g.nodes()) + 1

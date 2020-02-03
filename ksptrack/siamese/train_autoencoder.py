@@ -33,136 +33,144 @@ class PriorMSELoss(torch.nn.Module):
         return L
 
 
-def train(cfg, model, dataloader, run_path, batch_to_device,
-          optimizer):
+def train(cfg, model, dataloaders, run_path, batch_to_device, optimizer):
 
-    check_cp_exist = pjoin(run_path, 'checkpoints', 'checkpoint_autoenc.pth.tar')
-    if(os.path.exists(check_cp_exist)):
+    check_cp_exist = pjoin(run_path, 'checkpoints',
+                           'checkpoint_autoenc.pth.tar')
+    if (os.path.exists(check_cp_exist)):
         print('found checkpoint at {}. Skipping.'.format(check_cp_exist))
         return
 
     test_im_dir = pjoin(run_path, 'recons')
-    if(not os.path.exists(test_im_dir)):
+    if (not os.path.exists(test_im_dir)):
         os.makedirs(test_im_dir)
 
     # criterion = PriorMSELoss()
     criterion = torch.nn.MSELoss()
     writer = SummaryWriter(run_path)
-    lr_sch = torch.optim.lr_scheduler.ExponentialLR(optimizer,
-                                                    cfg.lr_power)
-    
-    frames_tnsr_brd = np.linspace(0,
-                                  len(dataloader) - 1,
-                                  num=cfg.n_ims_test,
-                                  dtype=int)
+    lr_sch = torch.optim.lr_scheduler.ExponentialLR(optimizer, cfg.lr_power)
+
     best_loss = float('inf')
     for epoch in range(cfg.epochs_autoenc):
+        for phase in dataloaders.keys():
 
             running_loss = 0.0
 
-            prev_ims = []
-            prev_ims_recons = []
+            prev_ims = {}
+            prev_ims_recons = {}
             # Iterate over data.
-            pbar = tqdm.tqdm(total=len(dataloader))
-            for i, data in enumerate(dataloader):
+            pbar = tqdm.tqdm(total=len(dataloaders[phase]))
+            for i, data in enumerate(dataloaders[phase]):
+                if (phase == 'train'):
+                    model.train()
+                else:
+                    model.eval()
                 data = batch_to_device(data)
 
-                # zero the parameter gradients
-                optimizer.zero_grad()
+                with torch.set_grad_enabled(phase == 'train'):
+                    im_recons, _, _ = model(data['image'])
 
-                # forward
-                # track history if only in train
-                # im_recons, feats = model(data['image'])
-                im_recons, _ = model(data['image'])
+                if (phase == 'train'):
+                    # zero the parameter gradients
+                    optimizer.zero_grad()
 
-                # loss = criterion(im_recons, data['image'], data['prior'])
-                loss = criterion(im_recons, data['image'])
+                    loss = criterion(im_recons, data['image'])
 
-                loss.backward()
-                optimizer.step()
+                    loss.backward()
+                    optimizer.step()
+                    running_loss += loss.cpu().detach().numpy()
+                    loss_ = running_loss / ((i + 1) * cfg.batch_size)
 
-                prev_ims += [np.rollaxis(im.cpu().detach().numpy(), 0, 3)
-                             for im in data['image']]
-                prev_ims_recons += [np.rollaxis(im.cpu().detach().numpy(), 0, 3)
-                                    for im in im_recons]
+                else:
+                    prev_ims.update({
+                        data['frame_name'][0]:
+                        np.rollaxis(data['image'][0].cpu().detach().numpy(), 0,
+                                    3)
+                    })
+                    prev_ims_recons.update({
+                        data['frame_name'][0]:
+                        np.rollaxis(im_recons[0].cpu().detach().numpy(), 0, 3)
+                    })
 
-                running_loss += loss.cpu().detach().numpy()
-                loss_ = running_loss / ((i + 1) * cfg.batch_size)
-                pbar.set_description('epoch {}/{} lss: {:.6f} lr: {:.2f}'.format(
-                    epoch+1,
-                    cfg.epochs_autoenc,
-                    loss_,
-                    lr_sch.get_lr()[0]))
+                pbar.set_description(
+                    '[{}] epch {}/{} lss: {:.6f} lr: {:.2f}'.format(
+                        phase, epoch + 1, cfg.epochs_autoenc,
+                        loss_ if phase == 'train' else 0,
+                        lr_sch.get_lr()[0] if phase == 'train' else 0))
 
                 pbar.update(1)
 
             pbar.close()
-            writer.add_scalar('loss_autoenc',
-                                loss_,
-                                epoch)
-            lr_sch.step()
+            if (phase == 'train'):
+                writer.add_scalar('loss_autoenc', loss_, epoch)
+                lr_sch.step()
 
-            # save previews
-            prev_ims = np.vstack([prev_ims[i] for i in frames_tnsr_brd])
-            prev_ims_recons = np.vstack([prev_ims_recons[i] for i in frames_tnsr_brd])
-            all = np.concatenate((prev_ims, prev_ims_recons), axis=1)
+                # save checkpoint
+                is_best = False
+                if (loss_ < best_loss):
+                    is_best = True
+                    best_loss = loss_
+                path = pjoin(run_path, 'checkpoints')
+                utls.save_checkpoint(
+                    {
+                        'epoch': epoch + 1,
+                        'model': model,
+                        'best_loss': best_loss,
+                        'optimizer': optimizer.state_dict()
+                    },
+                    is_best,
+                    fname_cp='checkpoint_autoenc.pth.tar',
+                    fname_bm='best_autoenc.pth.tar',
+                    path=path)
+            else:
 
-            io.imsave(
-                pjoin(test_im_dir, 'im_{:04d}.png'.format(epoch)),
-                all)
-            # writer.add_image('autoenc',
-            #                  all, epoch, dataformats='HWC')
+                # save previews
+                prev_ims = np.vstack([prev_ims[k] for k in prev_ims.keys()])
+                prev_ims_recons = np.vstack(
+                    [prev_ims_recons[k] for k in prev_ims_recons.keys()])
+                all = np.concatenate((prev_ims, prev_ims_recons), axis=1)
 
-            # save checkpoint
-            is_best = False
-            if (loss_ < best_loss):
-                is_best = True
-                best_loss = loss_
-            path = pjoin(run_path, 'checkpoints')
-            utls.save_checkpoint(
-                {
-                    'epoch': epoch + 1,
-                    'model': model,
-                    'best_loss': best_loss,
-                    'optimizer': optimizer.state_dict()
-                },
-                is_best,
-                fname_cp='checkpoint_autoenc.pth.tar',
-                fname_bm='best_autoenc.pth.tar',
-                path=path)
+                io.imsave(pjoin(test_im_dir, 'im_{:04d}.png'.format(epoch)),
+                          all)
 
 
 def main(cfg):
 
     device = torch.device('cuda' if cfg.cuda else 'cpu')
 
-    model = DeepLabv3Plus(pretrained=True, n_clusters=cfg.n_clusters)
+    model = DeepLabv3Plus(pretrained=True, embedded_dims=cfg.embedded_dims)
     # model = DeepLabv3_plus(n_classes=3, pretrained=True)
     model.to(device)
 
     run_path = pjoin(cfg.out_root, cfg.run_dir)
 
-    if(not os.path.exists(run_path)):
+    if (not os.path.exists(run_path)):
         os.makedirs(run_path)
 
     _, transf_normal = im_utils.make_data_aug(cfg)
     # transf_rescale = iaa.Sequential([
     #     rescale_augmenter])
 
-    dl_train = Loader(pjoin(cfg.in_root, 'Dataset'+cfg.train_dir),
-                      normalization=transf_normal)
+    dl = Loader(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
+                normalization=transf_normal)
 
-    dataloader_train = DataLoader(dl_train,
+    prev_sampler = SubsetRandomSampler(
+        np.random.choice(len(dl), size=cfg.n_ims_test, replace=False))
+    dataloader_prev = DataLoader(dl,
+                                 sampler=prev_sampler,
+                                 collate_fn=dl.collate_fn)
+
+    dataloader_train = DataLoader(dl,
                                   batch_size=cfg.batch_size,
                                   shuffle=True,
-                                  collate_fn=dl_train.collate_fn,
+                                  collate_fn=dl.collate_fn,
                                   drop_last=True,
                                   num_workers=cfg.n_workers)
+    dataloaders = {'train': dataloader_train, 'prev': dataloader_prev}
 
     # Save cfg
     with open(pjoin(run_path, 'cfg.yml'), 'w') as outfile:
         yaml.dump(cfg.__dict__, stream=outfile, default_flow_style=False)
-
 
     # convert batch to device
     batch_to_device = lambda batch: {
@@ -170,16 +178,16 @@ def main(cfg):
         for k, v in batch.items()
     }
 
-    optimizer = optim.SGD(params=[
-        {'params': model.parameters(), 'lr': cfg.lr_autoenc}
-    ],
+    optimizer = optim.SGD(params=[{
+        'params': model.parameters(),
+        'lr': cfg.lr_autoenc
+    }],
                           momentum=cfg.momentum,
                           weight_decay=cfg.decay)
 
     print('run_path: {}'.format(run_path))
 
-    train(cfg, model, dataloader_train,
-          run_path, batch_to_device, optimizer)
+    train(cfg, model, dataloaders, run_path, batch_to_device, optimizer)
 
 
 if __name__ == "__main__":

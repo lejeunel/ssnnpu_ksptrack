@@ -6,7 +6,7 @@ import os
 from os.path import join as pjoin
 import yaml
 import utils as utls
-from ksptrack.siamese import train_autoencoder, train_dec
+from ksptrack.siamese import train_autoencoder, train_dec, train_init_clst
 
 
 if __name__ == "__main__":
@@ -22,6 +22,8 @@ if __name__ == "__main__":
 
     cfg.lr_autoenc = 0.1
     train_autoencoder.main(cfg)
+
+    train_init_clst.main(cfg)
 
     cfg.lr_autoenc = 0.001
     train_dec.main(cfg)

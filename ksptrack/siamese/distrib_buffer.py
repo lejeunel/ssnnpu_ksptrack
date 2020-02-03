@@ -24,8 +24,9 @@ class DistribBuffer:
 
         self.tgt_distribs = []
         self.distribs = []
-        self.old_assignments = None
+        self.assignments = []
         self.converged = False
+        self.ratio_changed = 1
 
     def maybe_update(self, model, dataloader, device):
         """
@@ -54,21 +55,21 @@ class DistribBuffer:
             self.tgt_distribs = torch.split(tgt, splits)
             self.distribs = torch.split(distrib, splits)
 
+            curr_assignments = [torch.argmax(f, dim=-1).cpu().detach().numpy()
+                                for f in self.distribs]
+            curr_assignments = np.concatenate(curr_assignments, axis=0)
+            self.assignments.append(curr_assignments)
+
+            if(len(self.assignments) > 1):
+
+                n_changed = np.sum(self.assignments[-1] != self.assignments[-2])
+                n = self.assignments[-1].size
+                self.ratio_changed = n_changed / n
+                print('ratio_changed: {}'.format(self.ratio_changed))
+                if(self.ratio_changed < self.thr_assign):
+                    self.converged = True
+
         self.batch += 1
-
-        # curr_assignments = [torch.argmax(f, dim=-1).cpu().detach().numpy()
-        #                     for f in self.distribs]
-        # curr_assignments = np.concatenate(curr_assignments, axis=0)
-        # if(self.old_assignments is not None):
-
-        #     n_changed = np.sum(curr_assignments != self.old_assignments)
-        #     n = curr_assignments.size
-        #     ratio_changed = n_changed / n < self.thr_assign
-        #     print('ratio_changed: {}'.format(ratio_changed))
-        #     if(ratio_changed):
-        #         self.converged = True
-
-        # self.old_assignments = curr_assignments.copy()
 
         model.train()
 

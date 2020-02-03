@@ -4,13 +4,17 @@ import torch
 import networkx as nx
 import pandas as pd
 
-
-def sample_edges(g, n_edges, adjacent=True):
-
+def graph_to_pd(g, adjacent=True):
     df = nx.to_pandas_edgelist(g, source='n0', target='n1')
 
     if(adjacent):
         df = df.loc[df['adjacent']]
+
+    return df
+
+def sample_edges(g, n_edges, adjacent=True):
+
+    df = graph_to_pd(g, adjacent)
 
     df_pos = df.loc[df['clust_sim'] == 1]
     df_neg = df.loc[df['clust_sim'] == 0]
@@ -22,7 +26,7 @@ def sample_edges(g, n_edges, adjacent=True):
     pos_idx = np.random.choice(df_pos.index,
                                size=n_edges,
                                p=probas_pos,
-                               replace=False)
+                               replace=True)
                 # p=df_pos['avg_conf'] / df_pos['avg_conf'].sum())
     neg_dists = df_neg['feat_dist']
     probas_neg = neg_dists
@@ -30,7 +34,7 @@ def sample_edges(g, n_edges, adjacent=True):
     neg_idx = np.random.choice(df_neg.index,
                                size=n_edges,
                                p=probas_neg,
-                               replace=False)
+                               replace=True)
                 # p=df_neg['avg_conf'] / df_neg['avg_conf'].sum())
 
     edges_pw = pd.concat((df_pos.ix[pos_idx], df_neg.ix[neg_idx]))
@@ -38,58 +42,60 @@ def sample_edges(g, n_edges, adjacent=True):
 
     return edges_pw
 
+def set_cluster_assignments_to_graph(graph, clusters):
+    node_list = [(n,
+                    dict(cluster=torch.argmax(c).cpu().item()))
+                    for n, c in zip(graph.nodes(), clusters)]
+    graph.add_nodes_from(node_list)
+    edge_list = [
+        (n0, n1,
+            dict(clust_sim=0 if
+                 (graph.nodes[n0]['cluster'] != graph.nodes[n1]['cluster']) else 1))
+        for n0, n1 in graph.edges()
+    ]
+    graph.add_edges_from(edge_list)
 
-def sample_batch(graphs, clusters, targets, feats, n_edges):
+    return graph
 
-    sampled_edges = []
+
+def get_featured_edges(edges_nn, clusters, feats, sample_n_edges=None):
+
     X = []
     Y = []
 
-    n_labels = [g.number_of_nodes() for g in graphs]
-    if (isinstance(clusters, torch.Tensor)):
-        clusters = torch.split(clusters, n_labels, dim=0)
-    if (isinstance(targets, torch.Tensor)):
-        targets = torch.split(targets, n_labels, dim=0)
+    edge_distribs = torch.stack((clusters[edges_nn[:, 0]],
+                                 clusters[edges_nn[:, 1]]))
+    bat_coeff = torch.prod(edge_distribs, dim=0).sqrt().sum(dim=1)
 
-    if (isinstance(feats, torch.Tensor)):
-        feats = torch.split(feats, n_labels, dim=0)
+    clst_assign_nodes = torch.argmax(clusters, dim=1)
 
-    # set cluster indices and cluster similarities to graphs
-    for g, tgt, clst, feat in zip(graphs, targets, clusters, feats):
-        feat_np = feat.clone().detach().cpu().numpy()
-        node_list = [(n,
-                      dict(cluster=torch.argmax(c).cpu().item(),
-                           feat=feat_np[n],
-                           confidence=torch.max(c).cpu().item()))
-                     for n, c in zip(g.nodes(), clst)]
-        g.add_nodes_from(node_list)
-        edge_list = [
-            (n0, n1,
-             dict(clust_sim=0 if
-                  (g.nodes[n0]['cluster'] != g.nodes[n1]['cluster']) else 1,
-                  feat_dist=np.linalg.norm(g.nodes[n0]['feat'] - g.nodes[n1]['feat']),
-                  avg_conf=np.mean(
-                      (g.nodes[n0]['confidence'], g.nodes[n1]['confidence']))))
-            for n0, n1 in g.edges()
-        ]
-        g.add_edges_from(edge_list)
+    pos_edges = clst_assign_nodes[edges_nn[:, 0]] == clst_assign_nodes[edges_nn[:, 1]]
+    pos_edges_idx = pos_edges.nonzero().squeeze()
+    pos_bat_coeff = bat_coeff[pos_edges_idx].squeeze()
+    neg_edges = clst_assign_nodes[edges_nn[:, 0]] != clst_assign_nodes[edges_nn[:, 1]]
+    neg_edges_idx = neg_edges.nonzero().squeeze()
+    neg_bat_coeff = 1 - bat_coeff[neg_edges_idx].squeeze()
 
-        edges_pw = sample_edges(g, n_edges)
+    if(sample_n_edges is not None):
+        smpld_pos = torch.multinomial(pos_bat_coeff, sample_n_edges).squeeze()
+        smpld_neg = torch.multinomial(neg_bat_coeff, sample_n_edges).squeeze()
+        Y = torch.cat((torch.ones(sample_n_edges), torch.zeros(sample_n_edges)), dim=0)
+    else:
+        smpld_pos = pos_edges_idx
+        smpld_neg = neg_edges_idx
+        Y = torch.cat((torch.ones(pos_edges_idx.numel()),
+                       torch.zeros(neg_edges_idx.numel())), dim=0)
 
-        X_ = torch.stack(
-            [torch.stack((feat[e['n0']], feat[e['n1']]), dim=0)
-             for _, e in edges_pw[['n0', 'n1']].iterrows()],
-            dim=1)
-        Y_ = torch.tensor(edges_pw['clust_sim'].to_numpy())
+    X_pos = torch.stack((feats[edges_nn[pos_edges_idx[smpld_pos], 0]],
+                         feats[edges_nn[pos_edges_idx[smpld_pos], 1]]))
+    X_neg = torch.stack((feats[edges_nn[neg_edges_idx[smpld_neg], 0]],
+                         feats[edges_nn[neg_edges_idx[smpld_neg], 1]]))
 
-        X.append(X_)
-        Y.append(Y_)
-        sampled_edges.append(edges_pw)
+    X = torch.cat((X_pos, X_neg), dim=1)
 
-    X = torch.stack(X)
-    Y = torch.stack(Y).to(X)
+    Y = Y.to(X)
 
-    return X, Y, sampled_edges
+    return X, Y
 
 
 class PairwiseConstrainedClustering(nn.Module):
@@ -100,10 +106,11 @@ class PairwiseConstrainedClustering(nn.Module):
 
         self.criterion_clust = torch.nn.KLDivLoss(reduction='sum')
 
-    def forward(self, graphs, feats, clusters, targets):
+    def forward(self, edges_nn, feats, clusters, targets):
 
-        X, Y, edges_pw = sample_batch(graphs, clusters, targets,
-                                      feats, self.n_edges)
+        X, Y = get_featured_edges(edges_nn, clusters,
+                                  feats,
+                                  self.n_edges)
         loss_clust = self.criterion_clust(clusters.log(),
                                           targets) / clusters.shape[0]
         Y = Y[0, :]
@@ -114,31 +121,5 @@ class PairwiseConstrainedClustering(nn.Module):
 
         loss = loss_clust + self.lambda_ * loss_pw
 
-        return loss, edges_pw
+        return loss
 
-
-class SiameseLoss(nn.Module):
-    def __init__(self, lambda_, n_edges, with_flow):
-        super(SiameseLoss, self).__init__()
-        self.lambda_ = lambda_
-        self.n_edges = n_edges
-        self.with_flow = with_flow
-
-        self.criterion_clust = nn.BCEWithLogitsLoss()
-        self.criterion_flow = nn.BCEWithLogitsLoss()
-
-    def forward(self, graphs, clusters, targets, feats, fn_probas):
-
-        X, Y, sampled_edges = sample_batch(graphs, clusters, targets,
-                                           feats, self.n_edges)
-        pred_simil = fn_probas(X)
-        loss = self.criterion_clust(pred_simil, Y)
-
-        if(self.with_flow):
-            tgt_flow = torch.stack([[g[(n0, n1)]['hoof_inter'] for n0, n1 in g.edges()]
-                                    for g in graphs])
-            loss *= self.lambda_
-            loss += (1 - self.lambda_) * self.criterion_flow(pred_simil, tgt_flow)
-        return {'loss': loss,
-                'feats': X,
-                'Y': Y}

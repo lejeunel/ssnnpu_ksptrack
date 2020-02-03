@@ -71,6 +71,36 @@ def make_grid_samples(batch, edges_pw, n_clusters):
 
     return np.concatenate(res, axis=0)
     
+def my_show_rag(graph, image, labels, probas, truth=None):
+
+    cmap = plt.get_cmap('viridis')
+    centroids = np.array([graph.nodes[n1]['centroid'][::-1] + \
+                          graph.nodes[n2]['centroid'][::-1]
+                          for n1, n2 in graph.edges()])
+
+    cvt = np.array([labels.shape[0], labels.shape[1],
+                    labels.shape[0], labels.shape[1]])
+    centroids *= cvt
+    centroids = centroids.astype(int)
+
+    lines = [np.array(draw.line(*r)) for r in centroids]
+
+    colors = np.concatenate([np.repeat((np.array(cmap(p)[:3]))[..., None],
+                                       l.shape[1],
+                                       axis=1)
+                             for l, p in zip(lines, probas)], axis=1)
+    colors = (colors * 255).astype(int)
+
+    lines = np.concatenate(lines, axis=1)
+
+    out = image.copy()
+    out[segmentation.find_boundaries(labels), ...] = (0, 0, 0)
+    if(truth is not None):
+        out[segmentation.find_boundaries(truth), ...] = (255, 0, 0)
+
+    out[lines[0], lines[1], :] = colors.T
+
+    return out
 
 def make_grid_rag(im, labels, rag, probas, truth=None):
 
@@ -96,7 +126,7 @@ def make_grid_rag(im, labels, rag, probas, truth=None):
 
     fig.tight_layout(pad=0, w_pad=0)
     fig.canvas.draw()
-    im_plot = np.array(fig.canvas.renderer.buffer_rgba())
+    im_plot = np.array(fig.canvas.renderer.buffer_rgba())[..., :3]
     plt.close(fig)
     return im_plot
 
