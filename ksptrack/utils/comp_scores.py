@@ -37,7 +37,7 @@ def main(cfg, out_path, logger=None):
             'pr_ksp': precision[1],
             'rc_ksp': recall[1]}
 
-    fpr, tpr, _ = roc_curve(truths.ravel(), res['pm_scores_mat'].ravel())
+    
     precision, recall, _ = precision_recall_curve(truths.ravel(),
                                                   res['pm_scores_mat'].ravel())
     f1 = (2 * (precision * recall) / (precision + recall)).max()

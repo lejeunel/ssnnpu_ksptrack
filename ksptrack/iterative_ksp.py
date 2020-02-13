@@ -1,48 +1,61 @@
 import os
 from os.path import join as pjoin
 import yaml
-import pandas as pd
 import numpy as np
 import ksptrack.graph_tracking as gtrack
 from ksptrack.utils import my_utils as utls
 from ksptrack.utils.data_manager import DataManager
-from ksptrack.utils.link_agent import LinkAgent
 from ksptrack.utils.link_agent_radius import LinkAgentRadius
-from ksptrack.utils.link_agent_mask import LinkAgentMask
+from ksptrack.utils.link_agent_model import LinkAgentModel
 import logging
 import ksptrack.sp_manager as spm
+from ksptrack.siamese.modeling.siamese import Siamese
 from ksptrack.utils import write_frames_results
 from ksptrack.utils import comp_scores
-import matplotlib.pyplot as plt
 import datetime
 from ksptrack.cfgs import params
+import torch
+
+
+class Bunch(object):
+    def __init__(self, adict):
+        self.__dict__.update(adict)
 
 
 def make_link_agent(labels, cfg):
-    if(cfg.model_path is not None):
-        return
-    elif(cfg.entrance_masks_path is not None):
-        return LinkAgentMask(csv_path=os.path.join(cfg.in_path, cfg.locs_dir,
-                                                   cfg.csv_fname),
-                             labels=labels,
-                             thr_entrance=cfg.thr_entrance,
-                             sigma=cfg.ml_sigma,
-                             mask_path=cfg.entrance_masks_path)
+
+    if (cfg.siam_run_path):
+        with open(pjoin(cfg.siam_run_path, 'cfg.yml')) as f:
+            cfg_siam = Bunch(yaml.load(f, Loader=yaml.FullLoader))
+        model = Siamese(cfg_siam.embedded_dims, cfg_siam.n_clusters,
+                        cfg_siam.roi_output_size, cfg_siam.roi_spatial_scale,
+                        cfg_siam.alpha)
+        model_path = pjoin(cfg.siam_run_path, 'checkpoints',
+                           'best_siam.pth.tar')
+        print('loading checkpoint {}'.format(model_path))
+        state_dict = torch.load(model_path,
+                                map_location=lambda storage, loc: storage)
+        model.load_state_dict(state_dict)
+        return LinkAgentModel(csv_path=pjoin(cfg.in_path, cfg.locs_dir,
+                                             cfg.csv_fname),
+                              data_path=cfg.in_path,
+                              model=model,
+                              entrance_radius=cfg.norm_neighbor_in,
+                              cuda=cfg.cuda)
     else:
-        return LinkAgentRadius(csv_path=os.path.join(cfg.in_path, cfg.locs_dir,
-                                                     cfg.csv_fname),
+        return LinkAgentRadius(csv_path=pjoin(cfg.in_path, cfg.locs_dir,
+                                              cfg.csv_fname),
                                data_path=cfg.in_path,
                                thr_entrance=cfg.thr_entrance,
                                sigma=cfg.ml_sigma,
-                               entrance_radius=cfg.norm_neighbor)
+                               entrance_radius=cfg.norm_neighbor_in)
 
 
 def main(cfg):
+
     data = dict()
 
     d = datetime.datetime.now()
-    # cfg.run_dir = pjoin(cfg.out_path,
-    #                     '{:%Y-%m-%d_%H-%M-%S}_{}'.format(d, cfg.exp_name))
     cfg.run_dir = pjoin(cfg.out_path, '{}'.format(cfg.exp_name))
 
     if (os.path.exists(cfg.run_dir)):
@@ -65,13 +78,11 @@ def main(cfg):
     if (not os.path.exists(precomp_desc_path)):
         os.makedirs(precomp_desc_path)
 
-    with open(os.path.join(cfg.run_dir, 'cfg.yml'), 'w') as outfile:
+    with open(pjoin(cfg.run_dir, 'cfg.yml'), 'w') as outfile:
         yaml.dump(cfg.__dict__, stream=outfile, default_flow_style=False)
 
     # ---------- Descriptors/superpixel costs
-    dm = DataManager(cfg.in_path,
-                     cfg.precomp_dir,
-                     feats_mode=cfg.feats_mode)
+    dm = DataManager(cfg.in_path, cfg.precomp_dir, feats_mode=cfg.feats_mode)
     dm.calc_superpix(cfg.slic_compactness, cfg.slic_n_sp)
 
     logger.info('Building superpixel managers')
@@ -85,15 +96,11 @@ def main(cfg):
 
     locs2d_sps = link_agent.get_all_entrance_sps(dm.sp_desc_df)
 
-    dm.calc_pm(np.array(locs2d_sps),
-               cfg.bag_n_feats,
-               cfg.bag_t,
-               cfg.bag_max_depth,
-               cfg.bag_max_samples,
-               cfg.bag_jobs)
+    dm.calc_pm(np.array(locs2d_sps), cfg.bag_n_feats, cfg.bag_t,
+               cfg.bag_max_depth, cfg.bag_max_samples, cfg.bag_jobs)
 
-    link_agent.update_trans_transform(dm.sp_desc_df,
-                                      dm.fg_pm_df,
+    link_agent.update_trans_transform(np.vstack(dm.sp_desc_df['desc'].values),
+                                      dm.fg_pm_df['proba'].values,
                                       [cfg.ml_down_thr, cfg.ml_up_thr],
                                       cfg.ml_n_samps,
                                       cfg.lfda_dim,
@@ -204,23 +211,19 @@ def main(cfg):
             logger.info("""Number hit pixels of ksp at iteration {}:
                         {}""".format(i + 1, n_pix_ksp))
 
-            fileOut = os.path.join(cfg.run_dir,
-                                   'pm_scores_iter_{}.npz'.format(i))
+            fileOut = pjoin(cfg.run_dir, 'pm_scores_iter_{}.npz'.format(i))
             data = dict()
             data['ksp_scores_mat'] = ksp_scores_mat
             np.savez(fileOut, **data)
 
             # Recompute PM values
             if (i + 1 < cfg.n_iters_ksp):
-                dm.calc_pm(np.array(
-                    list(set(locs2d_sps + marked_back + marked_for))),
-                        cfg.bag_n_feats,
-                        cfg.bag_t,
-                        cfg.bag_max_depth,
-                        cfg.bag_max_samples,
-                        cfg.bag_jobs)
-            link_agent.update_trans_transform(dm.sp_desc_df,
-                                              dm.fg_pm_df,
+                dm.calc_pm(
+                    np.array(list(set(locs2d_sps + marked_back + marked_for))),
+                    cfg.bag_n_feats, cfg.bag_t, cfg.bag_max_depth,
+                    cfg.bag_max_samples, cfg.bag_jobs)
+            link_agent.update_trans_transform(dm.sp_desc_df['desc'].values,
+                                              dm.fg_pm_df['proba'].values,
                                               [cfg.ml_down_thr, cfg.ml_up_thr],
                                               cfg.ml_n_samps,
                                               cfg.lfda_dim,
@@ -230,7 +233,7 @@ def main(cfg):
             i += 1
 
     # Saving
-    fileOut = os.path.join(cfg.run_dir, 'results.npz')
+    fileOut = pjoin(cfg.run_dir, 'results.npz')
     data = dict()
     data['n_iters_ksp'] = cfg.n_iters_ksp
     data['ksp_scores_mat'] = ksp_scores_mat
@@ -239,9 +242,6 @@ def main(cfg):
     data['paths_for'] = dict_ksp['forward_sets']
     logger.info("Saving results and cfg to: " + fileOut)
     np.savez(fileOut, **data)
-
-    # g_for.save_all(os.path.join(cfg.run_dir, 'g_for'))
-    # g_back.save_all(os.path.join(cfg.run_dir, 'g_back'))
 
     logger.info("done")
 
@@ -259,8 +259,7 @@ if __name__ == "__main__":
 
     p.add('--out-path', required=True)
     p.add('--in-path', required=True)
-    p.add('--entrance-masks-path', default=None)
-    p.add('--model-path', default=None)
+    p.add('--siam-run-path', default='')
 
     cfg = p.parse_args()
 

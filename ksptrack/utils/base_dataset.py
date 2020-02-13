@@ -83,7 +83,6 @@ class BaseDataset(data.Dataset):
         # When truths are resized, the values change
         # we apply a threshold to get back to binary
 
-
         im = self.imgs[idx]
         shape = im.shape
 

@@ -1,17 +1,32 @@
 import os
 from os.path import join as pjoin
-from skimage import io, segmentation, measure, future
-import glob
+from skimage import future, measure
 import numpy as np
-import matplotlib.pyplot as plt
-import imgaug as ia
 import torch
-import networkx as nx
-import itertools
+from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 import pandas as pd
 from ksptrack.utils.loc_prior_dataset import LocPriorDataset
-import copy
+
+
+def scale_boxes(bboxes, factor):
+    # boxes are (x0, y0, x1, y1)
+
+    # align boxes on their centers
+    offsets = np.concatenate((((bboxes[:, 2] - bboxes[:, 0]) // 2)[:, None],
+                              ((bboxes[:, 3] - bboxes[:, 1]) // 2)[:, None]),
+                             axis=1)
+    offsets = np.concatenate((offsets[:, 0][:, None],
+                              offsets[:, 1][:, None],
+                              offsets[:, 0][:, None],
+                              offsets[:, 1][:, None]),
+                             axis=1)
+    bboxes_shifted = bboxes - offsets
+    bboxes_scaled = bboxes_shifted * factor
+
+    bboxes_recentered = bboxes_scaled + offsets
+
+    return bboxes_recentered
 
 
 class Loader(LocPriorDataset):
@@ -113,15 +128,13 @@ class Loader(LocPriorDataset):
             stack = np.stack((hoof_0, hoof_1))
             mins = stack.min(axis=0)
             inters = mins.sum(axis=1)
-            edges = [(n0, n1,
-                      dict(hoof_inter=inter))
+            edges = [(n0, n1, dict(hoof_inter=inter))
                      for (n0, n1), inter in zip(graph.edges(), inters)]
             graph.add_edges_from(edges)
 
             self.graphs.append(graph)
             pbar.update(1)
         pbar.close()
-
 
     def __getitem__(self, idx):
 
@@ -132,14 +145,14 @@ class Loader(LocPriorDataset):
         graph = self.graphs[idx]
         bboxes = np.array([graph.nodes[n]['bbox'] for n in graph.nodes()])
 
-        centroids = np.array([graph.nodes[n]['centroid'] for n in graph.nodes()])
+        centroids = np.array(
+            [graph.nodes[n]['centroid'] for n in graph.nodes()])
 
         kps = sample['loc_keypoints'].keypoints
         coords = [(np.round(kp.y).astype(int), np.round_(kp.x).astype(int))
                   for kp in kps]
 
-        sample['labels_clicked'] = [self.labels[i, j, idx]
-                                    for i,j in coords]
+        sample['labels_clicked'] = [self.labels[i, j, idx] for i, j in coords]
         sample['graph'] = graph
         sample['labels'] = self.labels[..., idx][..., None]
         sample['bboxes'] = bboxes
@@ -150,19 +163,46 @@ class Loader(LocPriorDataset):
         out = super(Loader, Loader).collate_fn(samples)
 
         bboxes = [
-            np.concatenate((i * np.ones((sample['bboxes'].shape[0], 1)),
-                            sample['bboxes']),
-                           axis=1)
-            for i, sample in enumerate(samples)
+            np.concatenate((i * np.ones(
+                (sample['bboxes'].shape[0], 1)), sample['bboxes']),
+                           axis=1) for i, sample in enumerate(samples)
         ]
         bboxes = np.concatenate(bboxes, axis=0)
         out['bboxes'] = torch.from_numpy(bboxes).float()
 
-        centroids = [torch.from_numpy(s['centroids']).float()
-                     for s in samples]
+        centroids = [torch.from_numpy(s['centroids']).float() for s in samples]
         out['centroids'] = torch.cat(centroids)
-        
+
         out['graph'] = [s['graph'] for s in samples]
         out['labels_clicked'] = [s['labels_clicked'] for s in samples]
 
         return out
+
+
+class StackLoader(Dataset):
+    def __init__(self, depth, *args, **kwargs):
+        self.loader = Loader(*args, **kwargs)
+        self.depth = depth
+
+    def __getitem__(self, index):
+        sample = [self.loader[i] for i in range(index, index + self.depth)]
+        return sample
+
+    def __len__(self):
+        return len(self.loader) - (self.depth - 1)
+
+    def collate_fn(self, samples):
+        samples = samples[0]
+        return self.loader.collate_fn(samples)
+
+
+if __name__ == "__main__":
+
+    dset = StackLoader(
+        depth=2,
+        root_path=pjoin(
+            '/home/ubelix/lejeune/data/medical-labeling/Dataset00'))
+    dl = DataLoader(dset, shuffle=True, collate_fn=dset.collate_fn)
+
+    for s in dl:
+        print(s['frame_idx'])

@@ -76,8 +76,8 @@ class RoIPooling(nn.Module):
 
 class DEC(nn.Module):
     def __init__(self,
-                 autoencoder,
-                 cluster_number: int,
+                 embedded_dims=None,
+                 cluster_number: int = 30,
                  roi_size=1,
                  roi_scale=1.0,
                  alpha: float = 1.0,
@@ -94,7 +94,7 @@ class DEC(nn.Module):
         """
 
         super(DEC, self).__init__()
-        self.autoencoder = autoencoder
+        self.autoencoder = DeepLabv3Plus(True, embedded_dims)
         self.cluster_number = cluster_number
         self.alpha = alpha
 

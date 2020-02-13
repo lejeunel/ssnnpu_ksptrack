@@ -1,17 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.nn import init
-import numpy as np
-import operator
-from ksptrack.models.my_augmenters import rescale_augmenter, Normalize
-import im_utils as iutls
-from loader import Loader
-from torch.utils.data import DataLoader, SubsetRandomSampler, RandomSampler
-from imgaug import augmenters as iaa
-from itertools import chain
-from sklearn.utils.class_weight import compute_class_weight
-import random
+from ksptrack.siamese.modeling.dec import DEC
 
 
 class Siamese(nn.Module):
@@ -30,8 +20,12 @@ class Siamese(nn.Module):
         the tranpose convolution (specified by upmode='transpose')
     """
     def __init__(self,
-                 dec,
-                 embedding_dims):
+                 embedded_dims=None,
+                 cluster_number: int = 30,
+                 roi_size=1,
+                 roi_scale=1.0,
+                 alpha: float = 1.0,
+                 use_locations=False):
         """
         Arguments:
             in_channels: int, number of channels in the input tensor.
@@ -39,27 +33,21 @@ class Siamese(nn.Module):
         """
         super(Siamese, self).__init__()
 
-        self.embedding_dims = embedding_dims
+        self.dec = DEC(embedded_dims, cluster_number,
+                       roi_size,
+                       roi_scale,
+                       alpha,
+                       use_locations)
 
-        self.dec = dec
-        self.sigmoid = nn.Sigmoid()
+        self.tanh = nn.Tanh()
 
-        self.linear1 = nn.Linear(self.embedding_dims,
-                                 self.embedding_dims // 2,
+        self.linear1 = nn.Linear(256,
+                                 256 // 2,
                                  bias=True)
-        self.linear2 = nn.Linear(self.embedding_dims // 2,
+        self.linear2 = nn.Linear(256 // 2,
                                  1, bias=False)
 
-    def forward(self, data, graph):
-
-        import pdb; pdb.set_trace() ## DEBUG ##
-        res = self.dec(data)
-
-        # make (node0, node1, featdim) tensor for each edge in graph
-        edges = torch.tensor([e for e in graph.edges()])
-        X = torch.stack((res['pooled_aspp_feats'][0, edges[:, 0]],
-                         res['pooled_aspp_feats'][1, edges[:, 1]]))
-
+    def get_probas(self, X):
         out = []
         for br in range(2):
             x_ = self.linear1(X[br, ...])
@@ -67,11 +55,23 @@ class Siamese(nn.Module):
 
         out = torch.abs(out[1] - out[0])
         out = self.linear2(out)
-        out = self.sigmoid(out)
+        out = self.tanh(out)
+        out = 1 - out
 
         out = out.squeeze()
 
-        res = {}
+        return out
+
+    def forward(self, data, edges_nn):
+
+        res = self.dec(data)
+
+        # make (node0, node1, featdim) tensor for each edge in graph
+        X = torch.stack((res['pooled_aspp_feats'][edges_nn[:, 0], :],
+                         res['pooled_aspp_feats'][edges_nn[:, 1], :]))
+
+        out = self.get_probas(X)
+
         res['probas_preds'] = out
 
         return res
@@ -79,27 +79,3 @@ class Siamese(nn.Module):
         return res
 
 
-if __name__ == "__main__":
-    path = '/home/ubelix/lejeune/data/medical-labeling/Dataset30/'
-    transf = iaa.Sequential([rescale_augmenter])
-
-    dl = Loader(path, augmentation=transf)
-
-    dataloader_prev = DataLoader(dl,
-                                 batch_size=2,
-                                 shuffle=True,
-                                 collate_fn=dl.collate_fn,
-                                 num_workers=0)
-
-    model = Siamese()
-
-    for data in dataloader_prev:
-
-        edges_to_pool = [[e for e in g.edges] for g in data['rag']]
-        res = model(data['image'], data['rag'], data['labels'], edges_to_pool)
-        fig = utls.make_grid_rag(
-            data, [F.sigmoid(r) for r in res['similarities_labels']])
-
-        # fig.show()
-        fig.savefig('test.png', dpi=200)
-        break

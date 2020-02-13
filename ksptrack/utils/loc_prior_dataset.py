@@ -134,6 +134,7 @@ class LocPriorDataset(BaseDataset, data.Dataset):
             [torch.from_numpy(i).float() for i in obj_prior])
 
         out['prior'] = obj_prior
+        out['loc_keypoints'] = [d['loc_keypoints'] for d in data]
 
         return out
 

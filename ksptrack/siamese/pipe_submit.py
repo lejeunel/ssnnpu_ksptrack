@@ -4,27 +4,33 @@ import shutil
 import fileinput
 import subprocess
 
+job_prefix = 'sm'
+job_names = ['tw', 'co', 'sl', 'br', 'sp', 'lv']
+seq_type = list(range(6))
+n_seqs_per_type = [6, 4, 6, 6, 6, 5]
+
+run_dirs = [
+    ' '.join([
+        'Dataset' + str(t) + str(n) for n in list(range((n_seqs_per_type[t])))
+    ]) for t in seq_type
+]
+train_dirs = [
+    ' '.join([str(t) + str(n) for n in list(range(n_seqs_per_type[t]))])
+    for t in seq_type
+]
+
 args = {
-    'job_name':
-    ['siam_tw', 'siam_co', 'siam_sl', 'siam_br', 'siam_sp', 'siam_lv'],
-    'train_dir': [
-        '00', '10', '20',
-        '30', '40', '50'],
-    'run_dir': [
-        'Dataset00',
-        'Dataset10',
-        'Dataset20',
-        'Dataset30',
-        'Dataset40',
-        'Dataset50']
+    'job_name': [job_prefix + n for n in job_names],
+    'run_dirs': run_dirs,
+    'train_dirs': train_dirs
 }
 
 template = 'mysubmit_tmpl.sh'
 file_ = 'mysubmit_tmp.sh'
 
-job_mask = [True, False, False, False, False, False]
+job_mask = [True, True, True, True, True, True]
 
-for j in range(len(args['job_name'])):
+for j in range(len(job_names)):
     shutil.copyfile(template, file_)
     if (job_mask[j]):
         for k, v in args.items():

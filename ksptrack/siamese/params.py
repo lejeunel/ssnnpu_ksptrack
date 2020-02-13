@@ -1,5 +1,7 @@
 import configargparse
 import argparse
+from os.path import join as pjoin
+
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -11,10 +13,10 @@ def str2bool(v):
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
-def get_params():
+def get_params(path='.'):
     p = configargparse.ArgParser(
         config_file_parser_class=configargparse.YAMLConfigFileParser,
-        default_config_files=['default.yaml'])
+        default_config_files=[pjoin(path, 'default.yaml')])
 
     p.add('-v', help='verbose', action='store_true')
 
@@ -22,7 +24,6 @@ def get_params():
     p.add('--frames', action='append', type=int)
     p.add('--n-patches', type=int)
     p.add('--epochs-autoenc', type=int)
-    p.add('--epochs-all', type=int)
     p.add('--epochs-dist', type=int)
     p.add('--epochs-dec', type=int)
     p.add('--prev-period', type=int)
@@ -66,6 +67,7 @@ def get_params():
 
     p.add('--exp-name', default='')
     p.add('--n-edges', type=int)
+    p.add('--nn-radius', type=float)
     p.add('--n-clusters', type=int)
     p.add('--embedded-dims', type=int)
 
@@ -82,4 +84,6 @@ def get_params():
     p.add('--gamma', type=float)
     p.add('--alpha', type=float)
     p.add('--lambda-', type=float)
+
+    p.add('--thr-assign', type=float)
     return p

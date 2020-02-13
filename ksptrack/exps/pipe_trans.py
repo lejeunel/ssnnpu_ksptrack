@@ -4,6 +4,7 @@ from ksptrack.cfgs import params
 from os.path import join as pjoin
 from ksptrack.utils import my_utils as utls
 from itertools import product
+from sklearn.model_selection import ParameterGrid
 
 
 if __name__ == "__main__":
@@ -12,15 +13,15 @@ if __name__ == "__main__":
 
     p.add('--out-path', required=True)
     p.add('--root-path', required=True)
+    p.add('--siam-run-path', default='')
     p.add('--sets', nargs='+', required=True)
 
     cfg = p.parse_args()
 
     cfg.sets = ['Dataset{}'.format(set_) for set_ in cfg.sets]
-
-    sigmas = [0.6, 0.8, 1., 1.2, 1.4]
-    r_trans = [0.05, 0.08, 0.1, 0.12]
-    combs = list(product(sigmas, r_trans))
+    params_ = {'hoof_tau_u': [0., 0.5],
+            'norm_neighbor': [0., 0.08]}
+    param_grid = ParameterGrid(params_)
 
     for i, dset in enumerate(cfg.sets):
         cfg.in_path = pjoin(cfg.root_path, 'data/medical-labeling', dset)
@@ -28,14 +29,18 @@ if __name__ == "__main__":
 
         # constant radius ---------------------------------------------------
         cfg.feats_mode = 'autoenc'
-        cfg.entrance_masks_path = None
-        cfg.model_path = None
 
-        for sig_, r in combs:
-            cfg.exp_name = 'transexp_sig_{}_r_{}'.format(sig_, r)
-            cfg.hoof_tau_u = 0
-            cfg.ml_sigma = sig_
-            cfg.norm_neighbor = r
-            
+        for params__ in param_grid:
+            cfg.ml_up_thr = 0.7
+            cfg.ml_down_thr = 0.3
+            cfg.hoof_tau_u = params__['hoof_tau_u']
+            cfg.norm_neighbor = params__['norm_neighbor']
+            cfg.exp_name = 'transexp_up_{:.2f}_down_{:.2f}_neigh_{:.2f}_hoof_{:.2f}'.format(
+                cfg.ml_up_thr,
+                cfg.ml_down_thr,
+                cfg.norm_neighbor,
+                cfg.hoof_tau_u)
+            # print(dset)
+            # print(cfg.exp_name)
+            # print(params__)
             iterative_ksp.main(cfg)
-

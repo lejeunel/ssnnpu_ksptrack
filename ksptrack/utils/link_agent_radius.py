@@ -56,15 +56,18 @@ class LinkAgentRadius(LinkAgent):
             mask[rr, cc] = True
         return mask
 
-    def get_proba_entrance(self, tl, tl_loc, sp_desc):
+    def get_proba_entrance(self, sp, sp_desc):
 
-        label_user = self.get_closest_label(tl, tl_loc)
-        label_tl = tl.get_in_label()
-        frame_tl = tl.get_in_frame()
-        frame_user = tl.get_in_frame()
+        label_user = self.get_closest_label(sp)
 
-        return self.get_proba(sp_desc, frame_user, label_user, frame_tl,
-                              label_tl)
+        if(label_user is not None):
+
+            return self.get_proba(sp['frame'], label_user,
+                                  sp['frame'],
+                                  sp['label'],
+                                  sp_desc)
+        else:
+            return self.thr_clip
 
     def get_proba_inter_frame(self, tracklet1, tracklet2, sp_desc):
 
@@ -76,7 +79,7 @@ class LinkAgentRadius(LinkAgent):
         frame_2 = t2.get_in_frame()
         label_2 = t2.get_in_label()
 
-        proba = self.get_proba(sp_desc, frame_1, label_1, frame_2, label_2)
+        proba = self.get_proba(frame_1, label_1, frame_2, label_2, sp_desc)
 
         return proba
 
@@ -91,7 +94,7 @@ class LinkAgentRadius(LinkAgent):
         dist = np.linalg.norm(d1 - d2, ord=p)
         return dist
 
-    def get_proba(self, sp_desc, f1, l1, f2, l2):
+    def get_proba(self, f1, l1, f2, l2, sp_desc):
 
         dist = self.get_distance(sp_desc, f1, l1, f2, l2)
         proba = np.exp((-dist**2) * self.sigma)
@@ -100,23 +103,17 @@ class LinkAgentRadius(LinkAgent):
         return proba
 
     def update_trans_transform(self,
-                               sp_desc,
-                               pm,
+                               features,
+                               probas,
                                threshs,
                                n_samps,
                                n_dims,
                                k,
                                embedding_type='weighted'):
 
-        # descs_cat = utls.concat_arr(sp_desc['desc'])
-        descs_cat = np.vstack(sp_desc['desc'].values)
-        if (descs_cat.shape[1] == sp_desc.shape[0]):
-            descs_cat = descs_cat.T
-
         self.trans_transform = myLFDA(n_components=n_dims,
                                       k=k,
                                       embedding_type=embedding_type)
-        probas = pm['proba'].values
         if ((probas < threshs[0]).sum() < n_samps):
             sorted_probas = np.sort(probas)
             threshs[0] = sorted_probas[n_samps]
@@ -127,5 +124,5 @@ class LinkAgentRadius(LinkAgent):
             threshs[1] = sorted_probas[n_samps]
             warnings.warn('Not enough positives. Setting thr to {}'.format(
                 threshs[1]))
-        self.trans_transform.fit(descs_cat, pm['proba'].values, threshs,
+        self.trans_transform.fit(features, probas, threshs,
                                  n_samps)

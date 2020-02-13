@@ -28,7 +28,7 @@ def fit_trees(args):
         bs_u_idx = np.random.choice(
             np.arange(data_U.shape[0]), replace=True, size=K)
         data_bootstrap = np.concatenate(
-            (data_P[bs_p_idx, 2:], data_U[bs_u_idx, 2:]),
+            (data_P[bs_p_idx, :], data_U[bs_u_idx, :]),
             axis=0)
 
         model = DecisionTreeClassifier(
@@ -44,22 +44,19 @@ def fit_trees(args):
             set(range(data_U.shape[0])) -
             set(np.unique(bs_u_idx)))
         f_oob[idx_oob] += model.predict_proba(
-            data_U[idx_oob, 2:])
+            data_U[idx_oob, :])
         n_oob[idx_oob] += 1
-        predict_proba = f_oob[:, 1] / n_oob
-
-    #print('thread {} finished'.format(thread_id))
+        predict_proba = f_oob[:, 1] / np.clip(n_oob, a_min=1, a_max=T)
 
     return predict_proba
 
-def calc_bagging(T,
+
+def calc_bagging(feats,
+                 class_labels,
+                 T,
                  bag_max_depth,
                  bag_n_feats,
-                 marked_arr,
-                 marked_feats=None,
                  all_feats_df=None,
-                 feat_fields=['desc'],
-                 remove_marked=False,
                  bag_max_samples=500,
                  n_jobs=4):
     #marked_arr: has index of frame and corresponding superpixel label. Taken as positive samples
@@ -69,43 +66,11 @@ def calc_bagging(T,
     #remove_marked (boolean): If True, marked SPs will be removed from all_feats_df
 
 
-    if (marked_feats is None):
-        print("Extracting marked features")
-
-        marked_feats = []
-        #with progressbar.ProgressBar(maxval=int(marked_arr.shape[0])) as bar:
-        for i in range(marked_arr.shape[0]):
-
-            if (not np.any(
-                    marked_arr[i, :] == -1)):  #Some points might be missing
-                this_idx = np.where((all_feats_df['frame']==marked_arr[i,0])\
-                        & (all_feats_df['label']==marked_arr[i,1]) )[0][0]
-
-                this_feat = np.hstack([
-                    all_feats_df[feat_field].iloc[this_idx].reshape(1, -1)
-                    for feat_field in feat_fields
-                ]).ravel()
-                this_feat = np.hstack(
-                    (all_feats_df.frame.iloc[this_idx],
-                     all_feats_df['label'].iloc[this_idx], this_feat))
-                marked_feats.append(this_feat)
-        marked_feats = np.asarray(marked_feats)
-
     #Remove positive samples from all_feats_df
-    data_U_df = all_feats_df
-    if (remove_marked):
-        for i in range(marked_arr.shape[0]):
-            data_U_df = data_U_df[~((data_U_df.frame == marked_arr[i, 0]) &
-                                    (data_U_df['label'] == marked_arr[i, 1]))]
-
     global data_U
-    data_U = merge_feats(data_U_df, feat_fields=feat_fields)
-
-    #In case of background, some frames have no marked SP, thus need to filter them out
-    nan_idx = np.sum(np.isnan(marked_feats), axis=1).astype(bool)
     global data_P
-    data_P = marked_feats[~nan_idx, :]
-
+    data_U = feats[np.logical_not(class_labels)]
+    data_P = feats[class_labels]
 
     NP = np.min((data_P.shape[0], bag_max_samples))
     #NP = data_P.shape[0]
@@ -134,7 +99,6 @@ def calc_bagging(T,
         pool = Pool()
         predict_probas = pool.map(fit_trees, args)
 
-        #print(predict_probas)
         predict_proba = np.mean(np.asarray(predict_probas), axis=0)
     else:
         predict_proba = fit_trees((T_per_jobs,
@@ -145,29 +109,12 @@ def calc_bagging(T,
 
     elapsed = time.time() - t_start
     print('Done estimation in {} seconds.'.format(elapsed))
-    #Concatenate probas to data_U
-    if (not remove_marked):
-        data_frames = data_U[:, 0].reshape(-1, 1).astype(int)
-        data_labels = data_U[:, 1].reshape(-1, 1).astype(int)
-        data_probas = predict_proba.reshape(-1, 1)
 
-    else:
-        data_frames = np.vstack((data_U[:, 0].reshape(-1, 1),
-                                 data_P[:, 0].reshape(-1, 1))).astype(int)
-        data_labels = np.vstack((data_U[:, 1].reshape(-1, 1),
-                                 data_P[:, 1].reshape(-1, 1))).astype(int)
-        data_probas = np.vstack((predict_proba.reshape(-1, 1),
-                                 np.ones((data_P.shape[0], 1))))
+    probas = np.zeros(feats.shape[0])
+    probas[np.logical_not(class_labels)] = predict_proba
+    probas[class_labels] = 1.
 
-    pm_df = pd.DataFrame({
-        'frame': data_frames.ravel(),
-        'label': data_labels.ravel(),
-        'proba': data_probas.ravel()
-    })
-
-    pm_df.sort_values(['frame', 'label'], inplace=True)
-
-    return marked_feats, pm_df
+    return probas
 
 def merge_feats(df, feat_fields):
     out = []
@@ -222,7 +169,6 @@ def make_samples(marked_arr,
                                     (data_U_df.label == marked_arr[i, 1]))]
 
     data_U = merge_feats(data_U_df, feat_fields=feat_fields)
-    #data_U = data_U[:,2:]
 
     #In case of background, some frames have no marked SP, thus need to filter them out
     nan_idx = np.sum(np.isnan(marked_feats), axis=1).astype(bool)

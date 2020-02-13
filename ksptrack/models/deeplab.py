@@ -16,51 +16,46 @@ from ksptrack.models.aspp import build_aspp
 
 
 class DeepLabv3Plus(nn.Module):
-    def __init__(self, pretrained=True, embedded_dims=None):
+    def __init__(self, pretrained=True, embedded_dims=None, num_classes=3):
 
         super(DeepLabv3Plus, self).__init__()
 
-        self.encoder = drn.__dict__.get('drn_d_22')(
-            pretrained=pretrained, num_classes=1000)
+        self.encoder = drn.__dict__.get('drn_d_22')(pretrained=pretrained,
+                                                    num_classes=1000)
         self.encoder.out_middle = True
         self.aspp = build_aspp('drn',
                                output_stride=8,
                                BatchNorm=nn.BatchNorm2d)
         self.aspp_out_dims = 256
-        if(embedded_dims is not None):
-            self.reduce_conv = nn.Sequential(nn.Conv2d(self.aspp_out_dims,
-                                                       self.aspp_out_dims // 2,
-                                                       kernel_size=3,
-                                                       stride=1,
-                                                       padding=1,
-                                                       bias=False),
-                                        nn.BatchNorm2d(self.aspp_out_dims // 2),
-                                        nn.ReLU(),
-                                        nn.Dropout(0.5),
-                                        nn.Conv2d(self.aspp_out_dims // 2,
-                                                  self.aspp_out_dims // 2,
-                                                  kernel_size=3,
-                                                  stride=1,
-                                                  padding=1,
-                                                  bias=False),
-                                        nn.BatchNorm2d(self.aspp_out_dims // 2),
-                                        nn.ReLU(),
-                                        nn.Dropout(0.1),
-                                        nn.Conv2d(self.aspp_out_dims // 2,
-                                                  embedded_dims,
-                                                  kernel_size=1,
-                                                  stride=1),
-                                        nn.BatchNorm2d(embedded_dims),
-                                        nn.ReLU(),
-                                        nn.Dropout(0.1))
+        if (embedded_dims is not None):
+            dims = np.linspace(self.aspp_out_dims, embedded_dims,
+                               3).astype(int)
+            self.reduce_conv = nn.Sequential(
+                nn.Conv2d(dims[0],
+                          dims[1],
+                          kernel_size=3,
+                          stride=1,
+                          padding=1,
+                          bias=False), nn.BatchNorm2d(dims[1]), nn.ReLU(),
+                nn.Dropout(0.5),
+                nn.Conv2d(dims[1],
+                          dims[1],
+                          kernel_size=3,
+                          stride=1,
+                          padding=1,
+                          bias=False), nn.BatchNorm2d(dims[1]), nn.ReLU(),
+                nn.Dropout(0.1),
+                nn.Conv2d(dims[1], dims[2], kernel_size=1, stride=1),
+                nn.BatchNorm2d(dims[2]), nn.ReLU(), nn.Dropout(0.1))
             self.aspp_out_dims = embedded_dims
         else:
             self.reduce_conv = nn.Identity()
 
-        self.decoder = Decoder(num_classes=3,
-                               backbone='drn',
-                               BatchNorm=nn.BatchNorm2d,
-                               aspp_out_dims=embedded_dims if embedded_dims is not None else 256)
+        self.decoder = Decoder(
+            num_classes=num_classes,
+            backbone='drn',
+            BatchNorm=nn.BatchNorm2d,
+            aspp_out_dims=embedded_dims if embedded_dims is not None else 256)
 
         self.sigmoid = nn.Sigmoid()
         self.n_clusters = embedded_dims
@@ -79,13 +74,15 @@ class DeepLabv3Plus(nn.Module):
                                    mode='bilinear',
                                    align_corners=True)
         reduced_feats = F.interpolate(reduced_feats,
-                                   size=input.size()[2:],
-                                   mode='bilinear',
-                                   align_corners=True)
+                                      size=input.size()[2:],
+                                      mode='bilinear',
+                                      align_corners=True)
 
-        return {'output': x,
-                'aspp_feats': aspp_feats,
-                'reduced_feats': reduced_feats}
+        return {
+            'output': x,
+            'aspp_feats': aspp_feats,
+            'reduced_feats': reduced_feats
+        }
 
     def to_autoenc(self, in_channels=3, out_channels=3):
         self.decoder.last_conv[-1] = nn.Conv2d(256,
@@ -98,6 +95,7 @@ class DeepLabv3Plus(nn.Module):
                                              out_channels,
                                              kernel_size=(1, 1),
                                              stride=(1, 1))
+
 
 class DeepLabv3(nn.Module):
     """
@@ -116,6 +114,7 @@ class DeepLabv3(nn.Module):
 
         self.to_autoenc()
         self.sigmoid = nn.Sigmoid()
+
     def to_autoenc(self, in_channels=3, out_channels=3):
         self.model.aux_classifier[-1] = nn.Conv2d(256,
                                                   out_channels,
@@ -153,12 +152,11 @@ if __name__ == "__main__":
     in_path = '/home/ubelix/lejeune/data/medical-labeling/Dataset00'
     cuda = False
 
-    transf = iaa.Sequential([rescale_augmenter,
-                             Normalize(mean=[0.485, 0.456, 0.406],
-                                       std=[0.229, 0.224, 0.225])
+    transf = iaa.Sequential([
+        rescale_augmenter,
+        Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
-    dl = LocPriorDataset(root_path=in_path,
-                         augmentations=transf)
+    dl = LocPriorDataset(root_path=in_path, augmentations=transf)
     dataloader = DataLoader(dl,
                             batch_size=2,
                             shuffle=True,
@@ -177,4 +175,5 @@ if __name__ == "__main__":
 
             im_ = sample['image'][0].detach().cpu().numpy()
             im_ = np.rollaxis(im_, 0, 3)
-            plt.imshow(im_);plt.show()
+            plt.imshow(im_)
+            plt.show()

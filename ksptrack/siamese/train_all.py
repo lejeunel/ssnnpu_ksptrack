@@ -6,8 +6,16 @@ import os
 from os.path import join as pjoin
 import yaml
 import utils as utls
-from ksptrack.siamese import train_autoencoder, train_dec, train_init_clst
+from ksptrack.siamese import train_autoencoder, train_dec, train_init_clst, train_siam
 
+def main(cfg):
+    train_autoencoder.main(cfg)
+
+    train_init_clst.main(cfg)
+
+    train_dec.main(cfg)
+
+    train_siam.main(cfg)
 
 if __name__ == "__main__":
 
@@ -19,11 +27,5 @@ if __name__ == "__main__":
     p.add('--run-dir', required=True)
 
     cfg = p.parse_args()
+    main(cfg)
 
-    cfg.lr_autoenc = 0.1
-    train_autoencoder.main(cfg)
-
-    train_init_clst.main(cfg)
-
-    cfg.lr_autoenc = 0.001
-    train_dec.main(cfg)

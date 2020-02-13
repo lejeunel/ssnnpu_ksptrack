@@ -2,9 +2,7 @@ import os
 from os.path import join as pjoin
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 from ksptrack.utils import superpixel_utils as sputls
-from ksptrack.utils import my_utils as utls
 from ksptrack.models import im_utils as ptimu
 from ksptrack.utils import bagging as bag
 from ksptrack.utils.base_dataset import BaseDataset
@@ -12,7 +10,6 @@ from ksptrack.utils.loc_prior_dataset import LocPriorDataset
 from ksptrack.models.losses import PriorMSE
 from ksptrack.models import utils as ptu
 from skimage import (color, io, segmentation, transform)
-import glob
 import logging
 from imgaug import augmenters as iaa
 from ksptrack.utils.my_augmenters import rescale_augmenter, Normalize
@@ -20,7 +17,6 @@ import torch
 import tqdm
 from torch.utils.data import DataLoader, SubsetRandomSampler
 import torch.optim as optim
-import warnings
 import time
 import copy
 
@@ -155,6 +151,7 @@ def train_model(model, cfg, dataloader, checkpoint, out_dir,
         if (running_loss < best_loss):
             best_loss = running_loss
 
+        output = res['output']
         if(output.shape[1] == 1):
             output = output.repeat(1, 3, 1, 1)
         ptimu.save_tensors([input[0], output[0]], ['image', 'image'],
@@ -273,9 +270,6 @@ class DataManager:
                          'fg_marked.npz'))['fg_marked']
         self.fg_pm_df = pd.read_pickle(
             os.path.join(self.desc_path, 'fg_pm_df.p'))
-        self.fg_marked_feats = np.load(
-            os.path.join(self.desc_path,
-                         'fg_marked_feats.npz'))['fg_marked_feats']
 
     def calc_superpix(self,
                       compactness,
@@ -501,16 +495,28 @@ class DataManager:
 
         self.logger.info('Training bagging model with {} trees'.format(T))
 
-        marked_feats, pm_df = bag.calc_bagging(
+        feats = np.vstack(self.sp_desc_df['desc'].to_numpy())
+        frame_label_arr = np.stack((self.sp_desc_df['frame'],
+                                          self.sp_desc_df['label'])).T
+        pos_idxs = [np.where((frame_label_arr[:, 0] == f) & (frame_label_arr[:, 1] == l))[0]
+                    for f, l in pos_sps]
+        pos_idxs = np.array(pos_idxs).flatten()
+        class_labels = np.zeros(feats.shape[0]).astype(bool)
+        class_labels[pos_idxs] = True
+
+        probas = bag.calc_bagging(
+            feats,
+            class_labels,
             T,
             max_depth,
             n_feats,
-            pos_sps,
-            all_feats_df=self.sp_desc_df,
             bag_max_samples=max_samples,
             n_jobs=n_jobs)
 
-        self.fg_marked_feats = marked_feats
-        self.fg_pm_df = pm_df
+        self.fg_pm_df = pd.DataFrame({
+            'frame': self.sp_desc_df['frame'],
+            'label': self.sp_desc_df['label'],
+            'proba': probas
+        })
 
         return self.fg_pm_df

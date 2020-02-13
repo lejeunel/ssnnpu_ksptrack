@@ -1,20 +1,11 @@
 import matplotlib.pyplot as plt
 import numpy as np
-import scipy
-import scipy.ndimage
-from scipy.ndimage.filters import gaussian_filter
-from scipy.ndimage.interpolation import map_coordinates
-import collections
-import os
 import torch
 from skimage import io, color, segmentation, draw
-from imgaug.augmenters import Augmenter
-from multiprocessing import Pool
 from imgaug import augmenters as iaa
 from ksptrack.models.my_augmenters import rescale_augmenter, Normalize
 from ksptrack.siamese import utils as utls
 from skimage.future.graph import show_rag
-from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 
 def show_sampled_edges(image, labels, graph,

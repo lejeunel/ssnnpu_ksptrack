@@ -17,6 +17,5 @@ script=pipe_trans.py
 export OMP_NUM_THREADS=1
 
 args="--cuda --out-path $HOME/runs/ksptrack --root-path $HOME --sets ###sets###"
-# args="--out-path $HOME/runs/ksptrack --root-path $HOME --sets ###sets### --set-labeled ###set_labeled### --labeled-frames ###labeled_frames###"
 
 singularity exec --nv $simg /bin/bash -c "source $HOME/.bashrc && pyenv activate $pyversion && cd $dir && $exec $script $args"

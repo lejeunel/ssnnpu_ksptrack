@@ -1,10 +1,6 @@
-import matplotlib.pyplot as plt
 import numpy as np
-import scipy
-import scipy.ndimage
 from scipy.ndimage.filters import gaussian_filter
 from scipy.ndimage.interpolation import map_coordinates
-import collections
 import os
 from skimage import io
 from imgaug.augmenters import Augmenter

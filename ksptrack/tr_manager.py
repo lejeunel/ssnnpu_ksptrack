@@ -76,7 +76,7 @@ class TrackletManager:
         sps = {key: value for key, value in sps.items() if(key in keys)}
 
         # filter sps that don't overlap or use distance
-        if(rel_radius is None):
+        if(rel_radius == 0):
             sps = {k: v for k, v in sps.items() if(sps[k]['overlap'])}
         else:
             sps = {k: v for k, v in sps.items() if(sps[k]['dist'] < rel_radius)}

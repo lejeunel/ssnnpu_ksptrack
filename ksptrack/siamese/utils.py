@@ -3,7 +3,6 @@ import os
 from os.path import join as pjoin
 import yaml
 import matplotlib.pyplot as plt
-from skimage import segmentation
 import numpy as np
 import torch
 import shutil
@@ -11,36 +10,118 @@ from tqdm import tqdm
 import networkx as nx
 from itertools import combinations
 
+def get_hard_constraint_edges(batch):
 
-def prepare_couple_graphs(graphs, nn_radius):
+    max_node = 0
+    nodes = []
+    for i in range(len(batch['frame_idx'])):
+        kps = batch['loc_keypoints'][i]
+        if(not kps.empty):
+            kps = kps.to_xy_array().astype(int)
+            for kp in kps:
+                label = int(batch['labels'][i, 0, kp[1], kp[0]].item())
+                nodes.append(label + max_node)
+        max_node += int(batch['labels'][i, ...].max().item()) + 1
 
-    couple_graphs = []
-    print('making NN-graphs')
-    for i in tqdm(range(len(graphs) - 1)):
-        mapping_1 = {n: n + graphs[i].number_of_nodes() for n in graphs[i+1]}
-        g_1 = nx.relabel_nodes(graphs[i+1], mapping_1, copy=True)
-        g = nx.compose(graphs[i], g_1)
-        all_nodes = np.concatenate(([n for n in graphs[i].nodes()],
-                                    [n for n in g_1.nodes()]))
-        all_edges = np.array(list(combinations(all_nodes, 2)))
+    if(len(nodes) == 0):
+        return None
 
-        centroids_x_0 = [graphs[i].nodes[n]['centroid'][0] for n in graphs[i].nodes()]
-        centroids_x_1 = [g_1.nodes[n]['centroid'][0] for n in g_1.nodes()]
-        centroids_x = np.concatenate((centroids_x_0, centroids_x_1), axis=0)
-        centroids_y_0 = [graphs[i].nodes[n]['centroid'][1]
-                         for n in graphs[i].nodes()]
-        centroids_y_1 = [g_1.nodes[n]['centroid'][1] for n in g_1.nodes()]
-        centroids_y = np.concatenate((centroids_y_0, centroids_y_1), axis=0)
+    edges = np.array(list(combinations(nodes, 2)))
+    return edges
 
-        dists = np.sqrt((centroids_x[all_edges[:, 0]] - centroids_x[all_edges[:, 1]])**2 +
-                        (centroids_y[all_edges[:, 0]] - centroids_y[all_edges[:, 1]])**2)
-        inds = np.argwhere(dists < nn_radius).ravel()
 
-        edges_nn = torch.from_numpy(all_edges[inds, :])
-        couple_graphs.append(edges_nn)
+def combine_nn_edges(edges_nn_list):
+
+    combined_edges_nn = []
+    max_node = 0
+    for i in range(len(edges_nn_list)):
+        combined_edges_nn.append(edges_nn_list[i] + max_node)
+        max_node = edges_nn_list[i].max() + 1
+
+    return torch.cat(combined_edges_nn, dim=0)
+
+def make_single_graph_nn_edges(g, nn_radius):
+    all_nodes = np.array([n for n in g.nodes()])
+    all_edges = np.array(list(combinations(all_nodes, 2)))
+
+    centroids_x = np.array([g.nodes[n]['centroid'][0] for n in g])
+    centroids_y = np.array([g.nodes[n]['centroid'][1] for n in g])
+
+    dists = np.sqrt(
+        (centroids_x[all_edges[:, 0]] - centroids_x[all_edges[:, 1]])**2 +
+        (centroids_y[all_edges[:, 0]] - centroids_y[all_edges[:, 1]])**2)
+    inds = np.argwhere(dists < nn_radius).ravel()
+
+    edges_nn = torch.from_numpy(all_edges[inds, :])
+
+    return edges_nn
+
+def make_couple_graphs(model, device, batch, nn_radius, do_inter_frame=True):
+    """
+    Builds edge array with nearest neighbors on same frame and next-frame
+    Also assign clusters to each label according to DEC model
     
-    return couple_graphs
+    nn_radius (float): Normalized radius to connect labels
+    """
 
+    g = batch['graph'][0]
+    h = batch['graph'][1]
+
+    # get cluster assignments from DEC model
+    model.eval()
+    batch = batch_to_device(batch, device)
+    with torch.no_grad():
+        clusters = model.dec(batch)['clusters'].argmax(dim=-1)
+    model.train()
+    n_labels = [torch.unique(lab).numel() for lab in batch['labels']]
+    clusters = torch.split(clusters, n_labels)
+
+    # make NN graph
+    mapping_1 = {n: n + g.number_of_nodes() for n in h}
+    h_ = nx.relabel_nodes(h, mapping_1, copy=True)
+    merged = nx.compose(g, h_)
+
+    if (do_inter_frame):
+        all_nodes = np.array([n for n in merged.nodes()])
+        all_edges = np.array(list(combinations(all_nodes, 2)))
+    else:
+        all_nodes_0 = np.array([n for n in g.nodes()])
+        all_nodes_1 = np.array([n for n in h_.nodes()])
+        all_edges = np.array(list(combinations(all_nodes_0, 2)) + \
+                             list(combinations(all_nodes_1, 2)) )
+
+    centroids_x = np.array([merged.nodes[n]['centroid'][0] for n in merged])
+    centroids_y = np.array([merged.nodes[n]['centroid'][1] for n in merged])
+
+    dists = np.sqrt(
+        (centroids_x[all_edges[:, 0]] - centroids_x[all_edges[:, 1]])**2 +
+        (centroids_y[all_edges[:, 0]] - centroids_y[all_edges[:, 1]])**2)
+    inds = np.argwhere(dists < nn_radius).ravel()
+
+    edges_nn = torch.from_numpy(all_edges[inds, :])
+
+    return edges_nn, clusters[0].detach(), clusters[1].detach()
+
+
+def make_all_couple_graphs(model, device, stack_loader, nn_radius, do_inter_frame=True):
+
+    couple_graphs = nx.DiGraph()
+    print('making NN-graphs')
+    for sample in tqdm(stack_loader):
+        edges_nn, clst0, clst1 = make_couple_graphs(model,
+                                                    device,
+                                                    sample,
+                                                    nn_radius,
+                                                    do_inter_frame)
+        couple_graphs.add_nodes_from([(n, dict(clst=c))
+                                      for n, c in zip(sample['frame_idx'], [clst0, clst1])])
+
+        couple_graphs.add_edge(sample['frame_idx'][0],
+                               sample['frame_idx'][1],
+                               edges_nn=edges_nn,
+                               clst=torch.cat((clst0, clst1)))
+
+    return couple_graphs
 
 
 def batch_to_device(batch, device):
@@ -55,7 +136,6 @@ def to_onehot(arr_int, n_categories):
     b = np.zeros((arr_int.size, n_categories))
     b[np.arange(arr_int.size), arr_int] = 1
     return b
-
 
 
 def setup_logging(log_path,
@@ -82,7 +162,6 @@ def setup_logging(log_path,
         logging.config.dictConfig(config)
     else:
         logging.basicConfig(level=default_level)
-
 
 
 def save_checkpoint(dict_,

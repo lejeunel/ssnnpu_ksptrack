@@ -1,39 +1,25 @@
-from loader import Loader
-import logging
-from torch.utils.data import DataLoader, SubsetRandomSampler, RandomSampler, BatchSampler, SequentialSampler
+from loader import Loader, StackLoader
+from torch.utils.data import DataLoader
 import torch.optim as optim
-import torch.nn.functional as F
 import params
 import torch
-import datetime
 import os
 from os.path import join as pjoin
 import yaml
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
-from ksptrack.models.deeplab import DeepLabv3Plus
-from ksptrack.siamese.modeling.dec import DEC
 from ksptrack.siamese.modeling.siamese import Siamese
-from ksptrack.siamese.cycle_scheduler import TrainCycleScheduler
-from ksptrack.siamese.distrib_buffer import target_distribution
 from ksptrack.siamese import utils as utls
-from ksptrack.siamese.losses import SiameseLoss
 from ksptrack.siamese import im_utils
 import numpy as np
-from skimage import color, io
-import glob
+from skimage import io
 import clustering as clst
-import pandas as pd
-import networkx as nx
 
 
+def train_one_epoch(model, dataloaders, couple_graphs, optimizers, device,
+                    cfg):
 
-def train_one_epoch(model, dataloaders,
-                    couple_graphs,
-                    optimizers,
-                    device, cfg):
-
-    criterion_siam = SiameseLoss()
+    criterion_siam = torch.nn.BCEWithLogitsLoss()
     model.train()
 
     running_loss = 0.0
@@ -45,14 +31,20 @@ def train_one_epoch(model, dataloaders,
         # forward
         with torch.set_grad_enabled(True):
 
-            import pdb; pdb.set_trace() ## DEBUG ##
-            res = model(data, couple_graphs[data['frame_idx'][0]])
+            edges_nn = couple_graphs[data['frame_idx'][0]][data['frame_idx']
+                                                           [1]]['edges_nn']
+            clst = couple_graphs[data['frame_idx'][0]][data['frame_idx']
+                                                       [1]]['clst']
 
+            res = model(data, edges_nn)
+            Y = (clst[edges_nn[:, 0]] == clst[edges_nn[:, 1]]).float()
+
+            optimizers['autoencoder'].zero_grad()
             optimizers['siam'].zero_grad()
-            loss = criterion_siam(res['probas_preds'], res['clusters'],
-                                  couple_graphs[data['frame_idx'][0]])
+            loss = criterion_siam(res['probas_preds'], Y)
             loss.backward()
             optimizers['siam'].step()
+            optimizers['autoencoder'].step()
             running_loss += loss.cpu().detach().numpy()
             loss_ = running_loss / ((i + 1) * cfg.batch_size)
 
@@ -67,10 +59,20 @@ def train_one_epoch(model, dataloaders,
 
 
 def train(cfg, model, device, dataloaders, run_path):
-    check_cp_exist = pjoin(run_path, 'checkpoints', 'checkpoint_dec.pth.tar')
+
+    couple_graphs = utls.make_all_couple_graphs(model,
+                                                device,
+                                                dataloaders['train'],
+                                                cfg.nn_radius,
+                                                do_inter_frame=True)
+    check_cp_exist = pjoin(run_path, 'checkpoints', 'checkpoint_siam.pth.tar')
     if (os.path.exists(check_cp_exist)):
-        print('found checkpoint at {}. Skipping.'.format(check_cp_exist))
-        return
+        print('found checkpoint at {}. Loading and skipping.'.format(check_cp_exist))
+        state_dict = torch.load(check_cp_exist,
+                                map_location=lambda storage, loc: storage)
+        model.load_state_dict(state_dict)
+
+        return couple_graphs
 
     rags_prevs_path = pjoin(run_path, 'rags_prevs')
     if (not os.path.exists(rags_prevs_path)):
@@ -84,33 +86,32 @@ def train(cfg, model, device, dataloaders, run_path):
     model.to(device)
 
     optimizers = {
+        'autoencoder':
+        optim.SGD(params=[{
+            'params': model.dec.autoencoder.parameters(),
+            'lr': cfg.lr_autoenc,
+        }],
+                  momentum=cfg.momentum,
+                  weight_decay=cfg.decay),
         'siam':
         optim.SGD(params=[{
             'params': model.linear1.parameters(),
-            'lr': cfg.lr_dist
+            'lr': cfg.lr_dist,
         }, {
             'params': model.linear2.parameters(),
-            'lr': cfg.lr_dist
+            'lr': cfg.lr_dist,
         }],
                   momentum=cfg.momentum,
-                  weight_decay=cfg.decay)
+                  weight_decay=cfg.decay),
     }
-
-    couple_graphs = utls.prepare_couple_graphs([s['graph']
-                                                for s in dataloaders['buff'].dataset],
-                                               0.1)
 
     for epoch in range(1, cfg.epochs_dist + 1):
 
         print('epoch {}/{}'.format(epoch, cfg.epochs_dist))
         for phase in ['train', 'prev']:
             if phase == 'train':
-                res = train_one_epoch(model,
-                                      dataloaders,
-                                      couple_graphs,
-                                      optimizers,
-                                      device,
-                                      cfg)
+                res = train_one_epoch(model, dataloaders, couple_graphs,
+                                      optimizers, device, cfg)
 
                 # write losses to tensorboard
                 for k, v in res.items():
@@ -130,33 +131,35 @@ def train(cfg, model, device, dataloaders, run_path):
                             'best_loss': best_loss,
                         },
                         is_best,
-                        fname_cp='checkpoint_siam_epoch_{:04d}.pth.tar'.format(epoch),
+                        fname_cp='checkpoint_siam.pth.tar'.format(epoch),
                         fname_bm='best_siam.pth.tar',
                         path=path)
+
             else:
 
                 # save previews
                 if (epoch % cfg.prev_period == 0):
-                    out_path = pjoin(rags_prevs_path, 'epoch_{:04d}'.format(epoch))
+                    out_path = pjoin(rags_prevs_path,
+                                     'epoch_{:04d}'.format(epoch))
                     print('generating previews to {}'.format(out_path))
 
                     if (not os.path.exists(out_path)):
                         os.makedirs(out_path)
 
-                    prev_ims = clst.do_prev_rags(model, device, dataloaders['prev'])
+                    prev_ims = clst.do_prev_rags(model, device,
+                                                 dataloaders['prev'],
+                                                 couple_graphs)
 
                     for k, v in prev_ims.items():
                         io.imsave(pjoin(out_path, k), v)
 
-
                     # write previews to tensorboard
-                    prev_ims_pt = np.vstack([
-                        im for im in prev_ims.values()
-                    ])
+                    prev_ims_pt = np.vstack([im for im in prev_ims.values()])
                     writer.add_image('rags',
                                      prev_ims_pt,
                                      epoch,
                                      dataformats='HWC')
+    return couple_graphs
 
 
 def main(cfg):
@@ -167,62 +170,69 @@ def main(cfg):
         os.makedirs(run_path)
 
     device = torch.device('cuda' if cfg.cuda else 'cpu')
-    autoenc = DeepLabv3Plus(pretrained=True, embedded_dims=cfg.embedded_dims)
-    dec = DEC(autoenc,
-              cfg.n_clusters,
-              roi_size=1,
-              roi_scale=cfg.roi_spatial_scale,
-              alpha=cfg.alpha)
+    model = Siamese(cfg.embedded_dims,
+                    cfg.n_clusters,
+                    roi_size=1,
+                    roi_scale=cfg.roi_spatial_scale,
+                    alpha=cfg.alpha).to(device)
 
-    path_cp = sorted(
-        glob.glob(pjoin(run_path, 'checkpoints',
-                        'checkpoint_dec*.pth.tar')))[-1]
+    path_cp = pjoin(run_path, 'checkpoints', 'checkpoint_dec.pth.tar')
     if (os.path.exists(path_cp)):
         print('loading checkpoint {}'.format(path_cp))
         state_dict = torch.load(path_cp,
                                 map_location=lambda storage, loc: storage)
-        dec.load_state_dict(state_dict)
+        model.dec.load_state_dict(state_dict)
     else:
         print(
             'checkpoint {} not found. Train autoencoder first'.format(path_cp))
         return
 
-    model = Siamese(dec, cfg.embedded_dims)
-
     _, transf_normal = im_utils.make_data_aug(cfg)
 
-    dl = Loader(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
-                normalization=transf_normal)
+    dl_stack = StackLoader(2,
+                           pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
+                           normalization=transf_normal)
+    dl_single = Loader(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
+                       normalization=transf_normal)
 
     frames_tnsr_brd = np.linspace(0,
-                                  len(dl) - 1,
+                                  len(dl_single) - 1,
                                   num=cfg.n_ims_test,
                                   dtype=int)
 
-    dataloader_prev = DataLoader(torch.utils.data.Subset(dl, frames_tnsr_brd),
-                                 batch_size=1,
-                                 collate_fn=dl.collate_fn)
+    dataloader_prev = DataLoader(torch.utils.data.Subset(
+        dl_single, frames_tnsr_brd),
+                                 collate_fn=dl_single.collate_fn)
 
-    dataloader_train = DataLoader(dl,
-                                  batch_size=2,
-                                  collate_fn=dl.collate_fn,
-                                  drop_last=True,
+    dataloader_all_prev = DataLoader(dl_single,
+                                     collate_fn=dl_single.collate_fn)
+
+    dataloader_train = DataLoader(dl_stack,
+                                  collate_fn=dl_stack.collate_fn,
+                                  shuffle=True,
                                   num_workers=cfg.n_workers)
 
-    dataloader_buff = DataLoader(dl,
-                                 collate_fn=dl.collate_fn,
-                                 num_workers=cfg.n_workers)
-
     dataloaders = {'train': dataloader_train,
-                   'buff': dataloader_buff,
+                   'all_prev': dataloader_all_prev,
                    'prev': dataloader_prev}
 
     # Save cfg
     with open(pjoin(run_path, 'cfg.yml'), 'w') as outfile:
         yaml.dump(cfg.__dict__, stream=outfile, default_flow_style=False)
 
-    train(cfg, model, device, dataloaders, run_path)
+    couple_graphs = train(cfg, model, device, dataloaders, run_path)
 
+    prev_ims = clst.do_prev_rags(model, device,
+                                 dataloaders['all_prev'],
+                                 couple_graphs)
+
+    # save last clusterings to disk
+    last_rags_prev_path = pjoin(run_path, 'rags_prevs', 'last')
+    if (not os.path.exists(last_rags_prev_path)):
+        os.makedirs(last_rags_prev_path)
+        print('saving last rags previews...')
+        for k, v in prev_ims.items():
+            io.imsave(pjoin(last_rags_prev_path, k), v)
 
 if __name__ == "__main__":
 

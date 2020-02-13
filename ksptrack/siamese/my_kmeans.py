@@ -17,7 +17,7 @@ class MyKMeans:
                                                                 n_init=20,
                                                                 max_iter=500)
 
-    def fit_predict(self, feats, clicked_mask):
+    def fit_predict(self, feats, clicked_mask=None):
 
         if(self.use_locs):
             to_decimate = [

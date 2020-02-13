@@ -1,20 +1,19 @@
 frames: []
 
-epochs-autoenc: 60
-epochs-all: 100
-epochs-dec: 80
+epochs-autoenc: 80
+epochs-dec: 150
 epochs-dist: 50
 
 # generate previews every x epochs
 prev-period: 1
 
-tgt-update-period: 100
-cp-period: 2
+tgt-update-period: 300
+cp-period: 5
 
 # optimizer
 lr-dist: 0.1
-lr-autoenc: 0.01
-lr-assign: 0.01
+lr-autoenc: 0.1
+lr-assign: 0.1
 decay : 0.00004
 lr-power : 0.98
 momentum: 0.9
@@ -52,9 +51,10 @@ aug-shear: 12.5
 
 # sampling
 n-edges: 200
+nn-radius: 0.05
 
 n-clusters: 30
-embedded-dims: 64
+embedded-dims: 30
 
 roi-output-size: 1
 roi-spatial-scale: 1.0
@@ -64,3 +64,5 @@ with-pck: False
 with-flow: False
 
 linkage: 'ward'
+
+thr-assign: 0.05

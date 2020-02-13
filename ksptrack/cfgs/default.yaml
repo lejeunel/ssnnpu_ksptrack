@@ -8,12 +8,10 @@ frame-extension : '.png'
 frame-dir : 'input-frames'
 csv-fname : 'video1.csv'
 
-#Descriptors/codebooks ready-to-load.
+# Descriptors/codebooks ready-to-load.
 feats-dir : 'precomp_descriptors'
 
-use-hoof : True
-
-#Superpixel segmentation
+# Superpixel segmentation
 slic-compactness : 20.0
 slic-size : 1000
 slic-n-sp : 1200
@@ -24,7 +22,7 @@ slic-rel-size : 0.1
 sp-trans-init-mode : 'radius'
 sp-trans-init-radius : 0.15
 
-#Optical flow
+# Optical flow
 oflow-alpha : 0.012
 oflow-ratio : 0.75
 oflow-min-width : 50.
@@ -45,7 +43,8 @@ bag-max-depth : 5
 bag-jobs : 1
 #-----------------------
 
-hoof-tau-u : 0.3
+use-hoof : True
+hoof-tau-u : 0.
 hoof-n-bins: 10
 
 # Metric learning
@@ -59,8 +58,9 @@ ml-sigma : 1
 ml-embedding : 'orthonormalized'
 pca : False  #Overrides LFDA and computes PCA with n-components:lfda-dims
 
-#Graph parameters
-norm-neighbor : 0.08  #Cut edges outside neighborhood
-thr-entrance : 0.8 
+# Graph parameters
+norm-neighbor : 0.
+norm-neighbor-in : 0.08
+thr-entrance : 0.8
 
 pm-thr : 0.5  #Threshold on KSP+SS PM for positives selection

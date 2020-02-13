@@ -1,25 +1,19 @@
 from loader import Loader
-from imgaug import augmenters as iaa
-import logging
-from my_augmenters import rescale_augmenter, Normalize
-from torch.utils.data import DataLoader, SubsetRandomSampler, RandomSampler
+from torch.utils.data import DataLoader, SubsetRandomSampler
 import torch.optim as optim
 import params
 import torch
-import datetime
 import os
 from os.path import join as pjoin
 import yaml
 from tensorboardX import SummaryWriter
 import utils as utls
 import tqdm
-from skimage.future.graph import show_rag
 from ksptrack.models.deeplab import DeepLabv3Plus
-from ksptrack.models.deeplab_resnet import DeepLabv3_plus
 from ksptrack.siamese import im_utils
-from skimage import color, io
-from torch import functional as F
+from skimage import io
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 class PriorMSELoss(torch.nn.Module):
@@ -45,8 +39,8 @@ def train(cfg, model, dataloaders, run_path, batch_to_device, optimizer):
     if (not os.path.exists(test_im_dir)):
         os.makedirs(test_im_dir)
 
-    # criterion = PriorMSELoss()
-    criterion = torch.nn.MSELoss()
+    criterion = PriorMSELoss()
+    # criterion = torch.nn.MSELoss()
     writer = SummaryWriter(run_path)
     lr_sch = torch.optim.lr_scheduler.ExponentialLR(optimizer, cfg.lr_power)
 
@@ -68,13 +62,13 @@ def train(cfg, model, dataloaders, run_path, batch_to_device, optimizer):
                 data = batch_to_device(data)
 
                 with torch.set_grad_enabled(phase == 'train'):
-                    im_recons, _, _ = model(data['image'])
+                    res = model(data['image'])
 
                 if (phase == 'train'):
                     # zero the parameter gradients
                     optimizer.zero_grad()
 
-                    loss = criterion(im_recons, data['image'])
+                    loss = criterion(res['output'], data['image'], data['prior'])
 
                     loss.backward()
                     optimizer.step()
@@ -89,7 +83,7 @@ def train(cfg, model, dataloaders, run_path, batch_to_device, optimizer):
                     })
                     prev_ims_recons.update({
                         data['frame_name'][0]:
-                        np.rollaxis(im_recons[0].cpu().detach().numpy(), 0, 3)
+                        np.rollaxis(res['output'][0].cpu().detach().numpy(), 0, 3)
                     })
 
                 pbar.set_description(
@@ -125,9 +119,9 @@ def train(cfg, model, dataloaders, run_path, batch_to_device, optimizer):
             else:
 
                 # save previews
-                prev_ims = np.vstack([prev_ims[k] for k in prev_ims.keys()])
+                prev_ims = np.vstack([prev_ims[k] for k in sorted(prev_ims.keys())])
                 prev_ims_recons = np.vstack(
-                    [prev_ims_recons[k] for k in prev_ims_recons.keys()])
+                    [prev_ims_recons[k] for k in sorted(prev_ims_recons.keys())])
                 all = np.concatenate((prev_ims, prev_ims_recons), axis=1)
 
                 io.imsave(pjoin(test_im_dir, 'im_{:04d}.png'.format(epoch)),
@@ -138,8 +132,7 @@ def main(cfg):
 
     device = torch.device('cuda' if cfg.cuda else 'cpu')
 
-    model = DeepLabv3Plus(pretrained=True, embedded_dims=cfg.embedded_dims)
-    # model = DeepLabv3_plus(n_classes=3, pretrained=True)
+    model = DeepLabv3Plus(pretrained=True)
     model.to(device)
 
     run_path = pjoin(cfg.out_root, cfg.run_dir)

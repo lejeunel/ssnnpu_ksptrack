@@ -60,18 +60,24 @@ class LinkAgent(ABC):
         mask = self.make_entrance_mask(frame)
         return np.mean(mask[self.labels[..., frame] == label]) > self.thr_entrance
 
-    def get_closest_label(self, tl, tl_loc):
-        loc_compare = self.locs.loc[self.locs['frame'] == tl.get_in_frame()]
+    def get_closest_label(self, sp):
+        """
+        find in label maps the label whose centroid is the closest to 
+        """
+        loc_compare = self.locs.loc[self.locs['frame'] == sp['frame']]
+        if(loc_compare.shape[0] == 0):
+            return None
+
         dists = [
             np.linalg.norm(
-                np.array((tl_loc['x'], tl_loc['y'])) - np.array(r_compare))
+                np.array((sp['x'], sp['y'])) - np.array(r_compare))
             for r_compare in [(
                 x, y) for x, y in zip(loc_compare['x'], loc_compare['y'])]
         ]
-        loc_min = self.locs.loc[np.argmin(dists)]
+        loc_min = loc_compare.iloc[np.argmin(dists)]
         i_min, j_min = csv.coord2Pixel(loc_min['x'], loc_min['y'],
                                        self.shape[1], self.shape[0])
-        return self.labels[i_min, j_min, tl.get_in_frame()]
+        return self.labels[i_min, j_min, sp['frame']]
 
     def make_trans_transform(self,
                              sp_desc,

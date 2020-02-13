@@ -1,24 +1,11 @@
 import tqdm
-import sys
 import networkx as nx
 import numpy as np
-import matplotlib.pyplot as plt
-import itertools as it
-from scipy.optimize import minimize
-from ksptrack.utils import csv_utils as csv
 from ksptrack import tr
 from ksptrack import tr_manager as trm
-from ksptrack.utils import my_utils as utls
 import logging
-import functools
-import pandas as pd
 import pickle as pk
-import os
-from skimage.draw import circle
-from ksptrack.utils.lfda import myLFDA
-from sklearn.decomposition import PCA
 from boostksp import libksp
-from collections import Counter
 
 class GraphTracking:
     """
@@ -276,9 +263,9 @@ class GraphTracking:
 
                 this_e = (int(self.source), int(tl.in_id))
 
-                proba = self.link_agent.get_proba_entrance(tl,
-                                                           tl_loc,
+                proba = self.link_agent.get_proba_entrance(tl_loc,
                                                            sp_desc)
+                    
                 w = -np.log(proba / (1 - proba))
                 self.g.add_edge(*this_e, weight=w, id_=-1)
                 added += 1
@@ -314,9 +301,8 @@ class GraphTracking:
     def run(self):
         from_source = [e for e in self.g.edges() if(e[0] == self.source)]
         if(len(from_source) == 0):
-            self.logger.info('Found {} entrance edges. Skipping.'.format(len(from_source)))
+            self.logger.info('Found 0 entrance edges. Skipping.')
         else:
-            
             self.copy_cxx()
             self.kspSet = self.g_cxx.run()
         return self.kspSet
