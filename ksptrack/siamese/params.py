@@ -66,7 +66,7 @@ def get_params(path='.'):
     p.add('--sp-pooling-max', default=False, action='store_true')
 
     p.add('--exp-name', default='')
-    p.add('--n-edges', type=int)
+    p.add('--n-edges-ratio', type=float)
     p.add('--nn-radius', type=float)
     p.add('--n-clusters', type=int)
     p.add('--embedded-dims', type=int)
@@ -77,6 +77,10 @@ def get_params(path='.'):
     p.add('--with-pck', default=False, action='store_true')
     p.add('--with-agglo', default=False, action='store_true')
     p.add('--with-flow', default=False, action='store_true')
+    p.add('--reduc-method')
+    p.add('--ml-up-thr', type=float)
+    p.add('--ml-down-thr', type=float)
+    p.add('--bag-t', type=int)
 
     p.add('--linkage', type=str)
 
@@ -86,4 +90,5 @@ def get_params(path='.'):
     p.add('--lambda-', type=float)
 
     p.add('--thr-assign', type=float)
+    p.add('--skip-train-dec', default=False, action='store_true')
     return p

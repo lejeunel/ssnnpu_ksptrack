@@ -20,6 +20,69 @@ from scipy import interpolate
 import pandas as pd
 from . import csv_utils as csv
 import ksptrack
+import warnings
+
+
+def check_thrs(threshs, y, n_samp):
+    # threshs has to be [low, high]
+    if (threshs[0] > threshs[1]):
+        threshs = threshs[::-1]
+
+    if ((y < threshs[0]).sum() < n_samp):
+        sorted_probas = np.sort(y)
+        threshs[0] = sorted_probas[n_samp]
+        warnings.warn('Not enough negatives. Setting thr to {}'.format(
+            threshs[0]))
+    if ((y > threshs[1]).sum() < n_samp):
+        sorted_probas = np.sort(y)[::-1]
+        threshs[1] = sorted_probas[n_samp]
+        warnings.warn('Not enough positives. Setting thr to {}'.format(
+            threshs[1]))
+
+    return threshs
+
+
+def sample_features(X, y, threshs, n_samp, check_thr=True):
+    """
+    X: features matrix
+    y: probability values
+    thresh: [low_thr, high_thr]
+    n_samp: number of samples to select randomly from each class
+    """
+
+    if (check_thr):
+        threshs = check_thrs(threshs, y, n_samp)
+
+    n_samp = min((np.sum(y < threshs[0]), np.sum(y > threshs[1]), n_samp))
+
+    replace = False
+    if ((y < threshs[0]).sum() < n_samp):
+        replace = True
+    rand_idx_neg = np.random.choice(np.where(y < threshs[0])[0],
+                                    replace=replace,
+                                    size=n_samp)
+
+    replace = False
+    if ((y > threshs[1]).sum() < n_samp):
+        replace = True
+    rand_idx_pos = np.random.choice(np.where(y > threshs[1])[0],
+                                    replace=replace,
+                                    size=n_samp)
+
+    rand_X_pos = X[rand_idx_pos, :]
+    rand_X_neg = X[rand_idx_neg, :]
+    rand_y_pos = y[rand_idx_pos]
+    rand_y_neg = y[rand_idx_neg]
+    rand_descs = np.concatenate((rand_X_pos, rand_X_neg), axis=0)
+
+    # Check for samples with all zeros
+    inds_ = np.where(np.sum(rand_descs, axis=1) != 0)[0]
+    rand_descs = rand_descs[inds_, :]
+
+    rand_y = np.concatenate(
+        (np.ones_like(rand_y_pos), np.zeros_like(rand_y_neg)), axis=0)
+
+    return rand_descs, rand_y
 
 
 def df_crossjoin(df1, df2, **kwargs):
@@ -96,8 +159,8 @@ def make_y_array_true(map_, labels, pos_thr=0.5):
         for j in np.unique(labels[..., i]):
             this_mask = labels[..., i] == j
             this_overlap = np.logical_and(map_[..., i], this_mask)
-            y.append((i, j,
-                        np.sum(this_overlap) / np.sum(this_mask) > pos_thr))
+            y.append(
+                (i, j, np.sum(this_overlap) / np.sum(this_mask) > pos_thr))
 
     return np.asarray(y)
 
@@ -256,11 +319,11 @@ def ksp2array(g,
 def hist_inter(x, y, w=None):
 
     if (w is not None):
-        out = np.min(
-            w * np.append(x.reshape(-1, 1), y.reshape(-1, 1), axis=1), axis=1)
+        out = np.min(w * np.append(x.reshape(-1, 1), y.reshape(-1, 1), axis=1),
+                     axis=1)
     else:
-        out = np.min(
-            np.append(x.reshape(-1, 1), y.reshape(-1, 1), axis=1), axis=1)
+        out = np.min(np.append(x.reshape(-1, 1), y.reshape(-1, 1), axis=1),
+                     axis=1)
     return np.sum(out)
 
 
@@ -333,15 +396,14 @@ def get_scores_ksp_tracklets(dict_ksp,
                              Kmax=None,
                              mode='all'):
 
-    scores = score_path_tracklets(
-        dict_ksp,
-        labels,
-        's',
-        't',
-        set_idx=winInd,
-        frame_idx=frameInd,
-        Kmax=Kmax,
-        mode=mode).astype(int)
+    scores = score_path_tracklets(dict_ksp,
+                                  labels,
+                                  's',
+                                  't',
+                                  set_idx=winInd,
+                                  frame_idx=frameInd,
+                                  Kmax=Kmax,
+                                  mode=mode).astype(int)
 
     return scores
 
@@ -379,34 +441,30 @@ def get_scores_ksp(dict_ksp,
         gt[i, :, :] = (this_gt[:, :, 0] > 0)
 
     #scores = np.zeros((len(frameFileNames),labels.shape[0],labels.shape[1]))
-    scores = score_path_sets(
-        dict_ksp,
-        labels,
-        's',
-        't',
-        set_idx=winInd,
-        frame_idx=frameInd,
-        Kmax=Kmax,
-        mode=mode).astype(int)
+    scores = score_path_sets(dict_ksp,
+                             labels,
+                             's',
+                             't',
+                             set_idx=winInd,
+                             frame_idx=frameInd,
+                             Kmax=Kmax,
+                             mode=mode).astype(int)
 
     return scores
 
 
 def readCsv(csvName, seqStart=None, seqEnd=None):
 
-    out = np.loadtxt(
-        open(csvName, "rb"), delimiter=";", skiprows=5)[seqStart:seqEnd, :]
+    out = np.loadtxt(open(csvName, "rb"), delimiter=";",
+                     skiprows=5)[seqStart:seqEnd, :]
     if ((seqStart is not None) or (seqEnd is not None)):
         out[:, 0] = np.arange(0, seqEnd - seqStart)
 
-    return pd.DataFrame(data=out, columns=['frame', 'time', 'visible', 'x', 'y'])
+    return pd.DataFrame(data=out,
+                        columns=['frame', 'time', 'visible', 'x', 'y'])
 
 
-def getDataOutDir(dataOutRoot,
-                  ds_dir,
-                  resultDir,
-                  out_dir_prefix,
-                  testing):
+def getDataOutDir(dataOutRoot, ds_dir, resultDir, out_dir_prefix, testing):
 
     now = datetime.datetime.now()
     dateTime = now.strftime("%Y-%m-%d_%H-%M-%S")
@@ -652,14 +710,13 @@ def make_full_y_from_ksp(dict_ksp, sps):
     sps_ksp = np.asarray(
         get_node_list_tracklets(dict_ksp, source='s', sink='t', node_in_num=0))
 
-    seeds_out = np.concatenate(
-        (sps['frame'].reshape(-1, 1), sps['sp_label'].reshape(-1, 1),
-         np.zeros((sps.shape[0], 1))),
-        axis=1)
+    seeds_out = np.concatenate((sps['frame'].reshape(
+        -1, 1), sps['sp_label'].reshape(-1, 1), np.zeros((sps.shape[0], 1))),
+                               axis=1)
 
     for i in range(sps_ksp.shape[0]):
-        idx = np.where((seeds_out[:, 0] == sps_ksp[i, 0]) &
-                       (seeds_out[:, 1] == sps_ksp[i, 1]))[0]
+        idx = np.where((seeds_out[:, 0] == sps_ksp[i, 0])
+                       & (seeds_out[:, 1] == sps_ksp[i, 1]))[0]
         seeds_out[idx, -1] = 1
 
     return seeds_out
@@ -706,8 +763,8 @@ def score_path_sets(kspSet,
     with progressbar.ProgressBar(maxval=len(nodes)) as bar:
         for n in range(len(nodes)):
             bar.update(n)
-            scores[..., nodes[n][0]] += labels[:, :, nodes[n][0]] == nodes[n][
-                1]
+            scores[..., nodes[n][0]] += labels[:, :, nodes[n]
+                                               [0]] == nodes[n][1]
 
     return scores
 
@@ -797,8 +854,8 @@ def getTrueFalsePositiveRates(gt_positives, seg_positives, thr=None):
             #print "Calculating rates with score above: ", scores[j]
             truePositives = np.logical_and(gt_positives,
                                            seg_positives >= thr[i])
-            falsePositives = np.logical_and(
-                np.logical_not(gt_positives), seg_positives >= thr[i])
+            falsePositives = np.logical_and(np.logical_not(gt_positives),
+                                            seg_positives >= thr[i])
             trueNegatives = np.logical_and(
                 np.logical_not(gt_positives),
                 np.logical_not(seg_positives >= thr[i]))
@@ -948,7 +1005,6 @@ def norm_to_pix(x, y, width, height):
     return i, j
 
 
-
 def splitall(path):
     allparts = []
     while 1:
@@ -983,16 +1039,14 @@ def tracklet_set_to_sp_path(tls, set_):
 
     return paths
 
+
 def locs2d_to_sps(locs2d, labels):
     sps = list()
     # Convert input to marked (if necessary).
 
     for index, row in locs2d.iterrows():
-        ci, cj = csv.coord2Pixel(row['x'],
-                                 row['y'],
-                                 labels.shape[1],
+        ci, cj = csv.coord2Pixel(row['x'], row['y'], labels.shape[1],
                                  labels.shape[0])
-        sps.append((int(row['frame']),
-                    labels[ci, cj, int(row['frame'])]))
+        sps.append((int(row['frame']), labels[ci, cj, int(row['frame'])]))
 
     return sps

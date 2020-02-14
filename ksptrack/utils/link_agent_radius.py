@@ -1,18 +1,8 @@
-import os
-from os.path import join as pjoin
 import numpy as np
-import matplotlib.pyplot as plt
-from imgaug import augmenters as iaa
-from itertools import count
-from ksptrack.utils import csv_utils as csv
-import glob
 from skimage.draw import circle
-from skimage import io
 from ksptrack.utils.lfda import myLFDA
-from sklearn.decomposition import PCA
-import warnings
-import torch
 from ksptrack.utils.link_agent import LinkAgent
+from ksptrack.utils import my_utils as utls
 
 
 class LinkAgentRadius(LinkAgent):
@@ -111,18 +101,12 @@ class LinkAgentRadius(LinkAgent):
                                k,
                                embedding_type='weighted'):
 
+        threshs = utls.check_thrs(threshs, probas, n_samps)
+
+        X, y = utls.sample_features(features, probas, threshs, n_samps)
+
         self.trans_transform = myLFDA(n_components=n_dims,
                                       k=k,
                                       embedding_type=embedding_type)
-        if ((probas < threshs[0]).sum() < n_samps):
-            sorted_probas = np.sort(probas)
-            threshs[0] = sorted_probas[n_samps]
-            warnings.warn('Not enough negatives. Setting thr to {}'.format(
-                threshs[0]))
-        if ((probas > threshs[1]).sum() < n_samps):
-            sorted_probas = np.sort(probas)[::-1]
-            threshs[1] = sorted_probas[n_samps]
-            warnings.warn('Not enough positives. Setting thr to {}'.format(
-                threshs[1]))
         self.trans_transform.fit(features, probas, threshs,
                                  n_samps)

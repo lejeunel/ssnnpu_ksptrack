@@ -4,9 +4,6 @@ from tqdm import tqdm
 from ksptrack.siamese import im_utils
 from skimage import segmentation
 import utils as utls
-from ksptrack.siamese.my_kmeans import MyKMeans
-from ksptrack.siamese.my_agglo import MyAggloClustering, prepare_full_rag
-import networkx as nx
 
 
 def do_prev_clusters_init(dataloader,
@@ -32,7 +29,7 @@ def do_prev_clusters_init(dataloader,
     return prev_ims
 
 
-def do_prev_rags(model, device, dataloader, couple_graphs):
+def do_prev_rags(model, device, dataloader, couple_graphs, *args, **kwargs):
     """
     Generate preview images on region adjacency graphs
     """
@@ -47,12 +44,12 @@ def do_prev_rags(model, device, dataloader, couple_graphs):
 
         # keep only adjacent edges
         edges_rag = [e for e in data['graph'][0].edges()
-                         if(data['graph'][0].edges[e]['adjacent'])]
+                     if(data['graph'][0].edges[e]['adjacent'])]
         rag = data['graph'][0].edge_subgraph(edges_rag).copy()
 
         # forward
         with torch.no_grad():
-            res = model(data, torch.tensor(edges_rag))
+            res = model(data, torch.tensor(edges_rag), *args, **kwargs)
 
         probas = res['probas_preds'].detach().cpu().squeeze().numpy()
         im = data['image_unnormal'].cpu().squeeze().numpy().astype(np.uint8)
@@ -65,11 +62,6 @@ def do_prev_rags(model, device, dataloader, couple_graphs):
         clusters_colorized = im_utils.make_clusters(labels, predictions)
         truth = data['label/segmentation'].cpu().squeeze().numpy()
         rag_im = im_utils.my_show_rag(rag, im, labels, probas, truth=truth)
-        # plot = im_utils.make_grid_rag(im,
-        #                               labels,
-        #                               rag,
-        #                               probas,
-        #                               truth=truth)
         plot = np.concatenate((im, rag_im, clusters_colorized), axis=1)
         prevs[data['frame_name'][0]] = plot
 
@@ -79,7 +71,7 @@ def do_prev_rags(model, device, dataloader, couple_graphs):
     return prevs
 
 
-def do_prev_clusters(model, device, dataloader):
+def do_prev_clusters(model, device, dataloader, *args):
 
     model.eval()
     model.to(device)
@@ -93,7 +85,7 @@ def do_prev_clusters(model, device, dataloader):
 
         # forward
         with torch.no_grad():
-            res = model(data)
+            res = model(data, *args)
 
         im = data['image_unnormal'].cpu().squeeze().numpy()
         im = np.rollaxis(im, 0, 3).astype(np.uint8)
@@ -122,7 +114,7 @@ def get_features(model, dataloader, device):
     for index, data in enumerate(dataloader):
         data = utls.batch_to_device(data, device)
         with torch.no_grad():
-            res = model(data)
+            res = model(data, do_assign=False)
 
         if (len(data['labels_clicked']) > 0):
             new_labels_pos = [

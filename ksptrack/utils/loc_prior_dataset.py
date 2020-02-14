@@ -120,6 +120,8 @@ class LocPriorDataset(BaseDataset, data.Dataset):
 
         sample['prior'] = obj_prior
         sample['loc_keypoints'] = keypoints
+        sample['label_keypoints'] = [sample['labels'][kp.y, kp.x, 0]
+                                     for kp in keypoints.keypoints]
 
         return sample
 
@@ -135,6 +137,7 @@ class LocPriorDataset(BaseDataset, data.Dataset):
 
         out['prior'] = obj_prior
         out['loc_keypoints'] = [d['loc_keypoints'] for d in data]
+        out['label_keypoints'] = [d['label_keypoints'] for d in data]
 
         return out
 
@@ -143,8 +146,13 @@ if __name__ == "__main__":
     dl = LocPriorDataset('/home/ubelix/lejeune/data/medical-labeling/Dataset00')
     sample = dl[10]
 
-    plt.subplot(211)
+    print(sample['label_keypoints'])
+    plt.subplot(221)
     plt.imshow(sample['image_unnormal'])
-    plt.subplot(212)
+    plt.subplot(222)
     plt.imshow(sample['prior'][..., 0])
+    plt.subplot(223)
+    plt.imshow(sample['labels'][..., 0])
+    plt.subplot(224)
+    plt.imshow(sample['labels'][..., 0] == sample['label_keypoints'][0])
     plt.show()

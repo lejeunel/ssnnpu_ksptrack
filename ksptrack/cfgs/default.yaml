@@ -35,7 +35,7 @@ n-iters-ksp : 4
 monitor-score : False
 
 # Bagging---------------
-bag-t : 30
+bag-t : 300
 bag-n-bins : 100
 bag-n-feats : 0.013
 bag-max-samples : 1000
@@ -52,8 +52,8 @@ n-comp-pca : 3
 lfda-k : 25
 lfda-dim : 15
 ml-n-samps : 1000
-ml-up-thr : 0.7 
-ml-down-thr : 0.3 
+ml-up-thr : 0.9
+ml-down-thr : 0.8
 ml-sigma : 1
 ml-embedding : 'orthonormalized'
 pca : False  #Overrides LFDA and computes PCA with n-components:lfda-dims

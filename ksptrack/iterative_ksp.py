@@ -222,7 +222,7 @@ def main(cfg):
                     np.array(list(set(locs2d_sps + marked_back + marked_for))),
                     cfg.bag_n_feats, cfg.bag_t, cfg.bag_max_depth,
                     cfg.bag_max_samples, cfg.bag_jobs)
-            link_agent.update_trans_transform(dm.sp_desc_df['desc'].values,
+            link_agent.update_trans_transform(np.vstack(dm.sp_desc_df['desc'].values),
                                               dm.fg_pm_df['proba'].values,
                                               [cfg.ml_down_thr, cfg.ml_up_thr],
                                               cfg.ml_n_samps,

@@ -28,7 +28,7 @@ class DistribBuffer:
         self.converged = False
         self.ratio_changed = 1
 
-    def maybe_update(self, model, dataloader, device):
+    def maybe_update(self, model, dataloader, device, *args, **kwargs):
         """
         Update target probabilities when we hit update period
         Increments epoch counter
@@ -44,7 +44,7 @@ class DistribBuffer:
                 data = utls.batch_to_device(data, device)
 
                 with torch.no_grad():
-                    res = model(data)
+                    res = model(data, *args)
                 clusters.append(res['clusters'])
 
             distrib = torch.cat(clusters)
@@ -58,6 +58,7 @@ class DistribBuffer:
             curr_assignments = [torch.argmax(f, dim=-1).cpu().detach().numpy()
                                 for f in self.distribs]
             curr_assignments = np.concatenate(curr_assignments, axis=0)
+
             self.assignments.append(curr_assignments)
 
             if(len(self.assignments) > 1):

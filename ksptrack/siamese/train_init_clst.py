@@ -6,7 +6,7 @@ import os
 from os.path import join as pjoin
 import yaml
 from tensorboardX import SummaryWriter
-from ksptrack.models.deeplab import DeepLabv3Plus
+from ksptrack.siamese.modeling.dec import DEC
 from ksptrack.siamese import im_utils
 from ksptrack.siamese import utils as utls
 from ksptrack.utils.bagging import calc_bagging
@@ -15,7 +15,23 @@ from skimage import io
 import clustering as clst
 from ksptrack.siamese.my_kmeans import MyKMeans
 from ksptrack.utils.lfda import myLFDA
-import warnings
+from sklearn.decomposition import PCA
+from sklearn.cross_decomposition import PLSRegression
+from ksptrack.utils.my_utils import sample_features
+
+
+def get_pls_transform(features, probas, thrs, n_samps, embedded_dims):
+    pls = PLSRegression(n_components=embedded_dims)
+    X, y = sample_features(features, probas, thrs, n_samps)
+    pls.fit(X, y)
+
+    return pls.coef_.T
+
+
+def get_pca_transform(features, embedded_dims):
+    clf = PCA(n_components=embedded_dims)
+    clf.fit(features)
+    return clf.components_.T
 
 
 def get_lfda_transform(features,
@@ -23,22 +39,13 @@ def get_lfda_transform(features,
                        thrs,
                        n_samps,
                        embedded_dims,
-                       nn_scale,
-                       embedding_type='weighted'):
+                       nn_scale=3,
+                       embedding_type='orthonormalized'):
 
     lfda = myLFDA(n_components=embedded_dims,
                   k=nn_scale,
                   embedding_type=embedding_type)
-    if ((probas < thrs[0]).sum() < n_samps):
-        sorted_probas = np.sort(probas)
-        thrs[0] = sorted_probas[n_samps]
-        warnings.warn('Not enough negatives. Setting thr to {}'.format(
-            thrs[0]))
-    if ((probas > thrs[1]).sum() < n_samps):
-        sorted_probas = np.sort(probas)[::-1]
-        thrs[1] = sorted_probas[n_samps]
-        warnings.warn('Not enough positives. Setting thr to {}'.format(
-            thrs[1]))
+
     lfda.fit(features, probas, thrs, n_samps)
 
     return lfda.components_.T
@@ -50,29 +57,40 @@ def train_kmeans(model,
                  n_clusters,
                  embedded_dims=30,
                  nn_scaling=None,
-                 bag_t=50,
+                 bag_t=300,
                  bag_max_depth=5,
-                 bag_n_feats=0.013):
+                 bag_n_feats=0.013,
+                 up_thr=0.8,
+                 down_thr=0.2,
+                 reduc_method='pls'):
 
     features, pos_masks = clst.get_features(model, dataloader, device)
 
     cat_features = np.concatenate(features)
     cat_pos_mask = np.concatenate(pos_masks)
 
-    print('LFDA: computing probability map')
-    probas = calc_bagging(cat_features,
-                            cat_pos_mask,
-                            bag_t,
-                            bag_max_depth,
-                            bag_n_feats,
-                            bag_max_samples=500,
-                            n_jobs=1)
+    if (reduc_method == 'pca'):
+        print('PCA: computing transform matrix')
+        L = get_pca_transform(cat_features, embedded_dims)
+    elif ((reduc_method == 'lfda') or (reduc_method == 'pls')):
+        print('PLS/LFDA: computing probability map')
+        probas = calc_bagging(cat_features,
+                              cat_pos_mask,
+                              bag_t,
+                              bag_max_depth,
+                              bag_n_feats,
+                              bag_max_samples=500,
+                              n_jobs=1)
+        if (reduc_method == 'lfda'):
 
-    print('LFDA: computing transform matrix')
-    L = get_lfda_transform(cat_features,
-                           probas, [0.7, 0.3], 1000,
-                           embedded_dims,
-                           nn_scaling)
+            print('LFDA: computing transform matrix')
+            L = get_lfda_transform(cat_features, probas,
+                                   [up_thr, down_thr], 2000,
+                                   embedded_dims)
+        else:
+            print('PLS: computing transform matrix')
+            L = get_pls_transform(cat_features, probas, [0.8, 0.5], 2000,
+                                  embedded_dims)
 
     print('forming {} initial clusters with kmeans'.format(n_clusters))
 
@@ -104,7 +122,11 @@ def train(cfg, model, device, dataloaders, run_path):
                                                dataloaders['buff'],
                                                device,
                                                cfg.n_clusters,
-                                               embedded_dims=cfg.embedded_dims)
+                                               embedded_dims=cfg.embedded_dims,
+                                               reduc_method=cfg.reduc_method,
+                                               bag_t=cfg.bag_t,
+                                               up_thr=cfg.ml_up_thr,
+                                               down_thr=cfg.ml_down_thr)
         np.savez(init_clusters_path, **{
             'clusters': init_clusters,
             'preds': preds,
@@ -138,13 +160,17 @@ def main(cfg):
 
     device = torch.device('cuda' if cfg.cuda else 'cpu')
 
-    model = DeepLabv3Plus(pretrained=True, num_classes=3)
+    model = DEC(embedding_dims=cfg.n_clusters,
+                cluster_number=cfg.n_clusters,
+                roi_size=cfg.roi_output_size,
+                roi_scale=cfg.roi_spatial_scale,
+                alpha=cfg.alpha)
     path_cp = pjoin(run_path, 'checkpoints', 'checkpoint_autoenc.pth.tar')
     if (os.path.exists(path_cp)):
         print('loading checkpoint {}'.format(path_cp))
         state_dict = torch.load(path_cp,
                                 map_location=lambda storage, loc: storage)
-        model.load_state_dict(state_dict)
+        model.autoencoder.load_state_dict(state_dict)
     else:
         print(
             'checkpoint {} not found. Train autoencoder first'.format(path_cp))

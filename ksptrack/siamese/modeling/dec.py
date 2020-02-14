@@ -24,9 +24,8 @@ class SuperpixelPooling(nn.Module):
         else:
             self.pooling = lambda x: torch.mean(x, dim=1)
 
-
     def pool(self, x, dim):
-        if(self.use_max):
+        if (self.use_max):
             return x.max(dim=dim)[0]
 
         return x.mean(dim=dim)
@@ -36,11 +35,14 @@ class SuperpixelPooling(nn.Module):
         X = []
 
         for i, (x_, labels) in enumerate(zip(x, label_maps)):
-            X_ = [self.pooling(x_[:, labels[0, ...] == l])
-                      for l in torch.unique(labels[0, ...])]
+            X_ = [
+                self.pooling(x_[:, labels[0, ...] == l])
+                for l in torch.unique(labels[0, ...])
+            ]
             X.append(torch.stack(X_))
 
         return X
+
 
 class RoIPooling(nn.Module):
     """
@@ -62,7 +64,7 @@ class RoIPooling(nn.Module):
             self.pooling = lambda x: torch.mean(x, dim=1)
 
     def pool(self, x, dim):
-        if(self.use_max):
+        if (self.use_max):
             return x.max(dim=dim)[0]
 
         return x.mean(dim=dim)
@@ -74,9 +76,10 @@ class RoIPooling(nn.Module):
 
         return X
 
+
 class DEC(nn.Module):
     def __init__(self,
-                 embedded_dims=None,
+                 embedding_dims,
                  cluster_number: int = 30,
                  roi_size=1,
                  roi_scale=1.0,
@@ -94,7 +97,7 @@ class DEC(nn.Module):
         """
 
         super(DEC, self).__init__()
-        self.autoencoder = DeepLabv3Plus(True, embedded_dims)
+        self.autoencoder = DeepLabv3Plus(pretrained=True)
         self.cluster_number = cluster_number
         self.alpha = alpha
 
@@ -102,9 +105,7 @@ class DEC(nn.Module):
 
         self.roi_pool = RoIPooling((roi_size, roi_size), roi_scale)
 
-        embedding_dims = self.autoencoder.aspp_out_dims
-        self.assignment = ClusterAssignment(cluster_number,
-                                            embedding_dims,
+        self.assignment = ClusterAssignment(cluster_number, embedding_dims,
                                             alpha)
 
     def grad_linears(self, switch):
@@ -119,8 +120,7 @@ class DEC(nn.Module):
         for param in self.assignment.parameters():
             param.requires_grad = switch
 
-
-    def forward(self, data):
+    def forward(self, data, L=None, do_assign=True):
         """
         Compute the cluster assignment using the ClusterAssignment after running the batch
         through the encoder part of the associated AutoEncoder module.
@@ -130,12 +130,15 @@ class DEC(nn.Module):
         """
 
         res = self.autoencoder(data['image'])
-        pooled_reduced_feats = self.roi_pool(res['reduced_feats'], data['bboxes'])
         pooled_aspp_feats = self.roi_pool(res['aspp_feats'], data['bboxes'])
-        clusters = self.assignment(pooled_reduced_feats)
+        res.update({'pooled_aspp_feats': pooled_aspp_feats})
 
-        res.update({'clusters': clusters,
-                    'pooled_reduced_feats': pooled_reduced_feats,
-                    'pooled_aspp_feats': pooled_aspp_feats})
+        if (L is not None):
+            proj_pooled_aspp_feats = torch.mm(pooled_aspp_feats, L)
+            res.update({'proj_pooled_aspp_feats': proj_pooled_aspp_feats})
+
+        if (do_assign):
+            clusters = self.assignment(proj_pooled_aspp_feats)
+            res.update({'clusters': clusters})
 
         return res

@@ -16,7 +16,7 @@ from ksptrack.models.aspp import build_aspp
 
 
 class DeepLabv3Plus(nn.Module):
-    def __init__(self, pretrained=True, embedded_dims=None, num_classes=3):
+    def __init__(self, pretrained=True, num_classes=3):
 
         super(DeepLabv3Plus, self).__init__()
 
@@ -27,44 +27,19 @@ class DeepLabv3Plus(nn.Module):
                                output_stride=8,
                                BatchNorm=nn.BatchNorm2d)
         self.aspp_out_dims = 256
-        if (embedded_dims is not None):
-            dims = np.linspace(self.aspp_out_dims, embedded_dims,
-                               3).astype(int)
-            self.reduce_conv = nn.Sequential(
-                nn.Conv2d(dims[0],
-                          dims[1],
-                          kernel_size=3,
-                          stride=1,
-                          padding=1,
-                          bias=False), nn.BatchNorm2d(dims[1]), nn.ReLU(),
-                nn.Dropout(0.5),
-                nn.Conv2d(dims[1],
-                          dims[1],
-                          kernel_size=3,
-                          stride=1,
-                          padding=1,
-                          bias=False), nn.BatchNorm2d(dims[1]), nn.ReLU(),
-                nn.Dropout(0.1),
-                nn.Conv2d(dims[1], dims[2], kernel_size=1, stride=1),
-                nn.BatchNorm2d(dims[2]), nn.ReLU(), nn.Dropout(0.1))
-            self.aspp_out_dims = embedded_dims
-        else:
-            self.reduce_conv = nn.Identity()
 
         self.decoder = Decoder(
             num_classes=num_classes,
             backbone='drn',
             BatchNorm=nn.BatchNorm2d,
-            aspp_out_dims=embedded_dims if embedded_dims is not None else 256)
+            aspp_out_dims=256)
 
         self.sigmoid = nn.Sigmoid()
-        self.n_clusters = embedded_dims
 
     def forward(self, input):
         x, _ = self.encoder(input)
         aspp_feats = self.aspp(x)
-        reduced_feats = self.reduce_conv(aspp_feats)
-        x = self.decoder(reduced_feats)
+        x = self.decoder(aspp_feats)
         x = F.interpolate(x,
                           size=input.size()[2:],
                           mode='bilinear',
@@ -73,15 +48,10 @@ class DeepLabv3Plus(nn.Module):
                                    size=input.size()[2:],
                                    mode='bilinear',
                                    align_corners=True)
-        reduced_feats = F.interpolate(reduced_feats,
-                                      size=input.size()[2:],
-                                      mode='bilinear',
-                                      align_corners=True)
 
         return {
             'output': x,
             'aspp_feats': aspp_feats,
-            'reduced_feats': reduced_feats
         }
 
     def to_autoenc(self, in_channels=3, out_channels=3):
@@ -147,7 +117,7 @@ class DeepLabv3(nn.Module):
 
 
 if __name__ == "__main__":
-    model = DeepLabv3Plus(n_clusters=15)
+    model = DeepLabv3Plus()
 
     in_path = '/home/ubelix/lejeune/data/medical-labeling/Dataset00'
     cuda = False

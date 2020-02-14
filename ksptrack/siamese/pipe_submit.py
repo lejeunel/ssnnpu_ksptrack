@@ -1,8 +1,6 @@
-import re
-import os
-import shutil
-import fileinput
+from string import Template
 import subprocess
+from os.path import join as pjoin
 
 job_prefix = 'sm'
 job_names = ['tw', 'co', 'sl', 'br', 'sp', 'lv']
@@ -19,28 +17,54 @@ train_dirs = [
     for t in seq_type
 ]
 
-args = {
-    'job_name': [job_prefix + n for n in job_names],
-    'run_dirs': run_dirs,
-    'train_dirs': train_dirs
-}
+script_path = '$HOME/Documents/software/ksptrack/ksptrack/siamese'
+script_name = 'train_all_type.py'
+out_root = pjoin('$HOME/runs', 'siamese_dec')
+flags = '--cuda --skip-train-dec'
 
-template = 'mysubmit_tmpl.sh'
-file_ = 'mysubmit_tmp.sh'
+args = [{
+    'job_name': job_prefix + jn,
+    'run_dirs': rd,
+    'train_dirs': td,
+    'script_path': script_path,
+    'script_name': script_name,
+    'in_root': '$HOME/data/medical-labeling',
+    'out_root': out_root,
+    'flags': flags
+} for jn, rd, td in zip(job_names, run_dirs, train_dirs)]
+
+template = """#!/bin/env bash
+
+#SBATCH --job-name=$job_name
+#SBATCH --mem-per-cpu=40G
+#SBATCH --time=24:00:00
+#SBATCH --cpus-per-task=1
+#SBATCH --partition=gpu
+#SBATCH --gres=gpu
+#SBATCH --output=/home/ubelix/artorg/lejeune/runs/logs/%x.out
+
+simg=$$HOME/ksptrack-ubelix.simg
+pyversion=my-3.7
+
+export OMP_NUM_THREADS=1
+
+args="$flags --out-root $out_root --in-root $in_root --train-dirs $train_dirs --run-dirs $run_dirs
+
+singularity exec --nv $$simg /bin/bash -c "source $$HOME/.bashrc && pyenv activate $$pyversion && cd $script_path && python $script_name $$args"
+
+"""
 
 job_mask = [True, True, True, True, True, True]
 
-for j in range(len(job_names)):
-    shutil.copyfile(template, file_)
-    if (job_mask[j]):
-        for k, v in args.items():
-            for line in fileinput.input(file_, inplace=True):
-                line = re.sub('###{}###'.format(k), v[j], line.rstrip())
-                print(line)
+for i, args_ in enumerate(args):
+    if (job_mask[i]):
+        src = Template(template)
+        content = src.substitute(args_)
 
         print('-----------------------------------')
-        print('starting job {}'.format(j))
+        print(content)
         print('-----------------------------------')
-        os.system('cat {}'.format(file_))
-        print('-----------------------------------')
-        subprocess.call(["sbatch", file_])
+        text_file = open('tmp_', 'w')
+        text_file.write(content)
+        text_file.close()
+        subprocess.call(["cat", 'tmp_'])

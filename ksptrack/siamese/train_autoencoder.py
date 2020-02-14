@@ -39,8 +39,8 @@ def train(cfg, model, dataloaders, run_path, batch_to_device, optimizer):
     if (not os.path.exists(test_im_dir)):
         os.makedirs(test_im_dir)
 
-    criterion = PriorMSELoss()
-    # criterion = torch.nn.MSELoss()
+    # criterion = PriorMSELoss()
+    criterion = torch.nn.MSELoss()
     writer = SummaryWriter(run_path)
     lr_sch = torch.optim.lr_scheduler.ExponentialLR(optimizer, cfg.lr_power)
 
@@ -68,7 +68,8 @@ def train(cfg, model, dataloaders, run_path, batch_to_device, optimizer):
                     # zero the parameter gradients
                     optimizer.zero_grad()
 
-                    loss = criterion(res['output'], data['image'], data['prior'])
+                    # loss = criterion(res['output'], data['image'], data['prior'])
+                    loss = criterion(res['output'], data['image'])
 
                     loss.backward()
                     optimizer.step()
@@ -132,7 +133,7 @@ def main(cfg):
 
     device = torch.device('cuda' if cfg.cuda else 'cpu')
 
-    model = DeepLabv3Plus(pretrained=True)
+    model = DeepLabv3Plus(pretrained=False)
     model.to(device)
 
     run_path = pjoin(cfg.out_root, cfg.run_dir)

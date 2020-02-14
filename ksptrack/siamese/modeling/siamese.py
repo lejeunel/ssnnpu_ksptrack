@@ -62,13 +62,14 @@ class Siamese(nn.Module):
 
         return out
 
-    def forward(self, data, edges_nn):
+    def forward(self, data, edges_nn, *args, **kwargs):
 
-        res = self.dec(data)
+        res = self.dec(data, *args, **kwargs)
 
+        feats = res['pooled_aspp_feats']
         # make (node0, node1, featdim) tensor for each edge in graph
-        X = torch.stack((res['pooled_aspp_feats'][edges_nn[:, 0], :],
-                         res['pooled_aspp_feats'][edges_nn[:, 1], :]))
+        X = torch.stack((feats[edges_nn[:, 0], :],
+                         feats[edges_nn[:, 1], :]))
 
         out = self.get_probas(X)
 

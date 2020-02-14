@@ -1,12 +1,8 @@
 import os
-from .my_augmenters import rescale_augmenter
 import numpy as np
 from skimage import io
-import matplotlib.pyplot as plt
 import imgaug as ia
 from imgaug import augmenters as iaa
-from imgaug import parameters as iap
-from collections import namedtuple
 from os.path import join as pjoin
 import glob
 from torch.utils import data
@@ -39,6 +35,7 @@ class BaseDataset(data.Dataset):
                  got_labels=True):
 
         self.root_path = root_path
+        print(root_path)
 
         exts = ['*.png', '*.jpg', '*.jpeg']
         img_paths = []

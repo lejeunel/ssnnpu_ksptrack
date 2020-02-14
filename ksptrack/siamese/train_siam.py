@@ -3,6 +3,7 @@ from torch.utils.data import DataLoader
 import torch.optim as optim
 import params
 import torch
+from torch.nn import functional as F
 import os
 from os.path import join as pjoin
 import yaml
@@ -17,9 +18,8 @@ import clustering as clst
 
 
 def train_one_epoch(model, dataloaders, couple_graphs, optimizers, device,
-                    cfg):
+                    L, cfg):
 
-    criterion_siam = torch.nn.BCEWithLogitsLoss()
     model.train()
 
     running_loss = 0.0
@@ -31,17 +31,25 @@ def train_one_epoch(model, dataloaders, couple_graphs, optimizers, device,
         # forward
         with torch.set_grad_enabled(True):
 
+            # get edge array of consecutive frames
             edges_nn = couple_graphs[data['frame_idx'][0]][data['frame_idx']
                                                            [1]]['edges_nn']
+            # get cluster assignments of respective nodes
             clst = couple_graphs[data['frame_idx'][0]][data['frame_idx']
                                                        [1]]['clst']
 
-            res = model(data, edges_nn)
+            # no assignment... it has been done earlier
+            res = model(data, edges_nn, do_assign=False)
             Y = (clst[edges_nn[:, 0]] == clst[edges_nn[:, 1]]).float()
 
             optimizers['autoencoder'].zero_grad()
             optimizers['siam'].zero_grad()
-            loss = criterion_siam(res['probas_preds'], Y)
+            
+            # compute positive/negative weights
+            pos_weight = (Y == 0).sum().float() / (Y == 1).sum().float()
+            loss = F.binary_cross_entropy_with_logits(res['probas_preds'],
+                                                      Y,
+                                                      pos_weight=pos_weight)
             loss.backward()
             optimizers['siam'].step()
             optimizers['autoencoder'].step()
@@ -60,10 +68,14 @@ def train_one_epoch(model, dataloaders, couple_graphs, optimizers, device,
 
 def train(cfg, model, device, dataloaders, run_path):
 
+    L = np.load(pjoin(run_path, 'init_clusters.npz'), allow_pickle=True)['L']
+    L = torch.tensor(L).float().to(device)
+
     couple_graphs = utls.make_all_couple_graphs(model,
                                                 device,
                                                 dataloaders['train'],
                                                 cfg.nn_radius,
+                                                L,
                                                 do_inter_frame=True)
     check_cp_exist = pjoin(run_path, 'checkpoints', 'checkpoint_siam.pth.tar')
     if (os.path.exists(check_cp_exist)):
@@ -111,7 +123,7 @@ def train(cfg, model, device, dataloaders, run_path):
         for phase in ['train', 'prev']:
             if phase == 'train':
                 res = train_one_epoch(model, dataloaders, couple_graphs,
-                                      optimizers, device, cfg)
+                                      optimizers, device, L, cfg)
 
                 # write losses to tensorboard
                 for k, v in res.items():
@@ -146,9 +158,12 @@ def train(cfg, model, device, dataloaders, run_path):
                     if (not os.path.exists(out_path)):
                         os.makedirs(out_path)
 
-                    prev_ims = clst.do_prev_rags(model, device,
+                    prev_ims = clst.do_prev_rags(model,
+                                                 device,
                                                  dataloaders['prev'],
-                                                 couple_graphs)
+                                                 couple_graphs,
+                                                 do_assign=True,
+                                                 L=L)
 
                     for k, v in prev_ims.items():
                         io.imsave(pjoin(out_path, k), v)
@@ -222,17 +237,17 @@ def main(cfg):
 
     couple_graphs = train(cfg, model, device, dataloaders, run_path)
 
-    prev_ims = clst.do_prev_rags(model, device,
-                                 dataloaders['all_prev'],
-                                 couple_graphs)
+    # prev_ims = clst.do_prev_rags(model, device,
+    #                              dataloaders['all_prev'],
+    #                              couple_graphs, L)
 
     # save last clusterings to disk
-    last_rags_prev_path = pjoin(run_path, 'rags_prevs', 'last')
-    if (not os.path.exists(last_rags_prev_path)):
-        os.makedirs(last_rags_prev_path)
-        print('saving last rags previews...')
-        for k, v in prev_ims.items():
-            io.imsave(pjoin(last_rags_prev_path, k), v)
+    # last_rags_prev_path = pjoin(run_path, 'rags_prevs', 'last')
+    # if (not os.path.exists(last_rags_prev_path)):
+    #     os.makedirs(last_rags_prev_path)
+    #     print('saving last rags previews...')
+    #     for k, v in prev_ims.items():
+    #         io.imsave(pjoin(last_rags_prev_path, k), v)
 
 if __name__ == "__main__":
 
