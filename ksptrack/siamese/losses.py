@@ -1,7 +1,6 @@
 from torch import nn
 import numpy as np
 import torch
-import networkx as nx
 
 
 def get_featured_edges(edges_nn,
@@ -81,22 +80,63 @@ def get_edges_pseudo_clique(data, edges_nn, clusters):
     all_assigned_clst = torch.argmax(clusters, dim=1)
     max_node = 0
     n_nodes = [g.number_of_nodes() for g in data['graph']]
-    for labels, n_nodes_ in zip(data['label_keypoints'],
-                                n_nodes):
+    for labels, n_nodes_ in zip(data['label_keypoints'], n_nodes):
         for l in labels:
             l += max_node
+            # get cluster of pointed ROI
             assigned_clst = torch.argmax(clusters[l]).item()
-            # keep edges such that both nodes are assigned to assigned_clst
-            edges_mask = all_assigned_clst[edges_nn[:, 0]] == assigned_clst
-            edges_mask *= all_assigned_clst[edges_nn[:, 1]] == assigned_clst
+
+            # get edges with both nodes on assigned cluster
+            edges_mask = (all_assigned_clst[edges_nn[:, 0]] == assigned_clst)
+            edges_mask *= (all_assigned_clst[edges_nn[:, 1]] == assigned_clst)
+
+            # get edges that touch pointed ROI
+            edges_mask *= (edges_nn[:, 0] == l) + (edges_nn[:, 1] == l)
+
             edges_ = edges_nn[edges_mask, :]
             must_link_edges.append(edges_)
         max_node += n_nodes_ + 1
 
-    if(len(must_link_edges) > 0):
+    if (len(must_link_edges) > 0):
         return torch.cat(must_link_edges, dim=0)
     else:
         return None
+
+
+def get_edges_pseudo_clique_probas(probas, edges_nn, thr=0.8):
+
+    # get edges with both nodes on assigned cluster
+    edges_mask = probas[edges_nn[:, 0]] >= thr
+    edges_mask *= probas[edges_nn[:, 1]] >= thr
+    edges = edges_nn[edges_mask, :]
+
+    if (len(edges) == 0):
+        return None
+
+    return edges
+
+
+def get_edges_on_location(data, edges_nn, clusters):
+
+    edges = []
+
+    max_node = 0
+    n_nodes = [g.number_of_nodes() for g in data['graph']]
+    for labels, n_nodes_ in zip(data['label_keypoints'], n_nodes):
+        for l in labels:
+            l += max_node
+            # get cluster of pointed ROI
+            assigned_clst = clusters[l].item()
+
+            # get edges with one node on assigned cluster
+            edges_mask = (clusters[edges_nn[:, 0]] == assigned_clst)
+            edges_mask += (clusters[edges_nn[:, 1]] == assigned_clst)
+
+            edges_ = edges_nn[edges_mask, :]
+            edges.append(edges_)
+        max_node += n_nodes_ + 1
+
+    return torch.cat(edges, dim=0)
 
 
 class LocationPairwiseLoss(nn.Module):
@@ -107,53 +147,91 @@ class LocationPairwiseLoss(nn.Module):
 
     def forward(self, data, edges_nn, feats, clusters, targets):
 
-        loss_clust = self.criterion_clust(clusters.log(),
-                                          targets) / clusters.shape[0]
-
-        must_link_edges = get_edges_pseudo_clique(data, edges_nn, clusters)
-        if(must_link_edges is not None):
-            X_ml = torch.stack((feats[must_link_edges[:, 0]],
-                                feats[must_link_edges[:, 1]]))
-
-            loss_pw_ml = torch.norm(X_ml[0, ...] - X_ml[1, ...],
-                                    p=2,
-                                    dim=-1)**2
-            loss_pw = torch.mean(loss_pw_ml)
+        ml_edges = get_edges_pseudo_clique(data, edges_nn, clusters)
+        if (ml_edges is not None):
+            feats_edges = torch.stack((feats[ml_edges[:, 0]],
+                                       feats[ml_edges[:, 1]]))
+            norm = torch.norm(feats_edges, dim=0)
+            loss_pw = -norm**2
         else:
-            loss_pw = torch.tensor(0.).to(feats)
+            loss_pw = None
+
+        loss_clust = self.criterion_clust(
+            clusters.log(), targets) / clusters.shape[0]
 
         return {'loss_clust': loss_clust, 'loss_pw': loss_pw}
 
 
-class PairwiseConstrainedClustering(nn.Module):
-    def __init__(self, edges_ratio):
-        super(PairwiseConstrainedClustering, self).__init__()
-        self.edges_ratio = edges_ratio
+class TripletLoss(nn.Module):
+    def __init__(self, max_samples=400):
+        super(TripletLoss, self).__init__()
+        self.max_samples = max_samples
 
-        self.criterion_clust = torch.nn.KLDivLoss(reduction='sum')
+    def forward(self, probas, data, clusters, edges_nn):
+        # probas are predicted similarity probabilities
+        # Y = 0 if nodes of edges are of different cluster
+        # edges_nn are corresponding edges
 
-    def forward(self, edges_nn, feats, clusters, targets, hard_pw_pos=None):
+        # TODO: pick random point when no location!
+        edges = get_edges_on_location(data, edges_nn,
+                                      clusters.argmax(dim=1))
 
-        X, Y = get_featured_edges(edges_nn, clusters, feats, self.edges_ratio)
+        # compute similarities
+        sims = clusters[edges[:, 0]].argmax(dim=1) == clusters[edges[:, 1]].argmax(dim=1)
+        edges = edges
+        pos_idx = torch.nonzero(sims == 1).view(-1)
+        neg_idx = torch.nonzero(sims == 0).view(-1)
 
-        if (hard_pw_pos is not None):
-            X_hard = torch.stack(
-                (feats[hard_pw_pos[:, 0]], feats[hard_pw_pos[:, 1]])).to(X)
-            Y_hard = torch.ones(hard_pw_pos.shape[0]).to(Y)
+        i, j = torch.meshgrid(pos_idx, neg_idx)
+        i = i.flatten()
+        j = j.flatten()
 
-            X = torch.cat((X_hard, X), dim=1)
-            Y = torch.cat((Y_hard, Y))
+        # candidates are such that "left" nodes are identical (should shuffle stacks en amont)
+        i_ = i[edges[i, 0] == edges[j, 0]]
+        j_ = j[edges[i, 0] == edges[j, 0]]
 
-        loss_clust = self.criterion_clust(clusters.log(),
-                                          targets) / clusters.shape[0]
+        bc_pos = (clusters[edges[i_, 0]] * clusters[edges[i_, 1]]).sqrt().sum()
+        bc_neg = (clusters[edges[j_, 0]] * clusters[edges[j_, 1]]).sqrt().sum()
+        sampling_prob = 1 - (bc_pos + bc_neg) * .5
 
-        loss_pw_ml = torch.norm(X[0, Y == 1, ...] - X[1, Y == 1, ...],
-                                p=2,
-                                dim=-1)**2
-        loss_pw_cl = torch.norm(X[0, Y == 0, ...] - X[1, Y == 0, ...],
-                                p=2,
-                                dim=-1)**2
-        loss_pw = torch.mean(loss_pw_ml)
-        # loss_pw -= - torch.mean(loss_pw_cl)
+        inds = torch.multinomial(sampling_prob, self.max_samples)
 
-        return {'loss_clust': loss_clust, 'loss_pw': loss_pw}
+        tplts_p = torch.stack((probas[i_[inds]], probas[j_[inds]]))
+        loss = -torch.log(tplts_p[0, :] / (tplts_p[0, :] + tplts_p[1, :])).mean()
+
+        return loss
+
+
+
+if __name__ == "__main__":
+    from ksptrack.siamese.utils import make_couple_graphs
+    from ksptrack.models.my_augmenters import rescale_augmenter, Normalize
+    from torch.utils.data import DataLoader
+    from ksptrack.siamese.modeling.siamese import Siamese
+    from loader import StackLoader
+    from os.path import join as pjoin
+
+    transf_normal = Normalize(mean=[0.485, 0.456, 0.406],
+                              std=[0.229, 0.224, 0.225])
+
+    dl_stack = StackLoader(2,
+                           pjoin('/home/ubelix/lejeune/data/medical-labeling',
+                                 'Dataset00'),
+                           normalization=transf_normal)
+    dl = DataLoader(dl_stack, collate_fn=dl_stack.collate_fn, shuffle=True)
+
+    model = Siamese(10, 10, roi_size=1, roi_scale=1, alpha=1)
+
+    device = torch.device('cpu')
+    run_path = '/home/ubelix/lejeune/runs/siamese_dec/Dataset00'
+    cp_path = pjoin(run_path, 'checkpoints', 'best_dec.pth.tar')
+    state_dict = torch.load(cp_path, map_location=lambda storage, loc: storage)
+    model.dec.load_state_dict(state_dict)
+    L = np.load(pjoin(run_path, 'init_clusters.npz'), allow_pickle=True)['L']
+    L = torch.tensor(L).float().to(device)
+    criterion = TripletLoss()
+
+    for data in dl:
+        edges_nn, _, _ = make_couple_graphs(model, device, data, 0.1, L, True)
+        res = model(data, edges_nn, L=L, do_assign=True)
+        loss = criterion(res['probas_preds'], data, res['clusters'], edges_nn)

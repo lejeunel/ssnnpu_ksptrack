@@ -53,10 +53,8 @@ class Siamese(nn.Module):
             x_ = self.linear1(X[br, ...])
             out.append(F.relu(x_))
 
-        out = torch.abs(out[1] - out[0])
-        out = self.linear2(out)
-        out = self.tanh(out)
-        out = 1 - out
+        dist = torch.norm(out[1] - out[0], dim=1)
+        out = torch.exp(-dist**2)
 
         out = out.squeeze()
 

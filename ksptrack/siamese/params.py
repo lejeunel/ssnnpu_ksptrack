@@ -27,6 +27,7 @@ def get_params(path='.'):
     p.add('--epochs-dist', type=int)
     p.add('--epochs-dec', type=int)
     p.add('--prev-period', type=int)
+    p.add('--cluster-update-period', type=int)
     p.add('--cp-period', type=int)
     p.add('--tgt-update-period', type=int)
 

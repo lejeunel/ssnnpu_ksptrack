@@ -105,8 +105,17 @@ class DEC(nn.Module):
 
         self.roi_pool = RoIPooling((roi_size, roi_size), roi_scale)
 
+        self.L = nn.Linear(256, embedding_dims, bias=False)
         self.assignment = ClusterAssignment(cluster_number, embedding_dims,
                                             alpha)
+
+    def set_clusters(self, clusters, requires_grad=True):
+        clusters.requires_grad = True
+        self.assignment.cluster_centers = clusters
+
+    def set_transform(self, transform, requires_grad=True):
+        transform.requires_grad = True
+        self.L.weight = nn.Parameter(transform)
 
     def grad_linears(self, switch):
         for param in self.linear1.parameters():

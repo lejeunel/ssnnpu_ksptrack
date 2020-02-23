@@ -21,13 +21,6 @@ import time
 import copy
 
 
-def adjust_lr(optimizer, itr, max_itr, lr, pwr):
-    now_lr = lr * (1 - itr/(max_itr+1)) ** pwr
-    optimizer.param_groups[0]['lr'] = now_lr
-    optimizer.param_groups[1]['lr'] = 10*now_lr
-    optimizer.param_groups[2]['lr'] = 10*now_lr
-    return now_lr
-
 def get_features(model, cfg, dataloader, checkpoint, mode='autoenc'):
 
     if(os.path.exists(checkpoint)):
@@ -75,7 +68,8 @@ def train_model(model, cfg, dataloader, checkpoint, out_dir,
         return model
 
     model.to_autoenc()
-    criterion = PriorMSE()
+    # criterion = PriorMSE()
+    criterion = torch.nn.MSELoss()
 
     best_model_wts = copy.deepcopy(model.state_dict())
     best_loss = np.inf
@@ -83,12 +77,11 @@ def train_model(model, cfg, dataloader, checkpoint, out_dir,
     device = torch.device('cuda' if cfg.cuda else 'cpu')
     model.to(device)
     optimizer = optim.SGD(params = [
-        {'params': model.encoder.parameters(), 'lr': cfg.feat_sgd_learning_rate},
-        {'params': model.decoder.parameters(), 'lr': 10*cfg.feat_sgd_learning_rate},
-        {'params': model.aspp.parameters(), 'lr': 10*cfg.feat_sgd_learning_rate}
-    ],
+        {'params': model.parameters(), 'lr': cfg.feat_sgd_learning_rate}],
                            momentum=cfg.feat_sgd_momentum,
                            weight_decay=cfg.feat_sgd_decay)
+    lr_sch = torch.optim.lr_scheduler.ExponentialLR(optimizer,
+                                                    cfg.feat_sgd_learning_rate_power)
 
     # Save augmented previews
     data_prev = [dataloader.dataset.sample_uniform() for i in range(10)]
@@ -120,9 +113,6 @@ def train_model(model, cfg, dataloader, checkpoint, out_dir,
         # Iterate over data.
         pbar = tqdm.tqdm(total=len(dataloader))
         for sample in dataloader:
-            now_lr = adjust_lr(optimizer, itr, max_itr,
-                               cfg.feat_sgd_learning_rate,
-                               cfg.feat_sgd_learning_rate_power)
             input = sample['image'].to(device)
             prior = sample['prior'].to(device)
 
@@ -131,7 +121,8 @@ def train_model(model, cfg, dataloader, checkpoint, out_dir,
 
             with torch.set_grad_enabled(True):
                 res = model(input)
-                loss = criterion(res['output'], input, prior)
+                # loss = criterion(res['output'], input, prior)
+                loss = criterion(res['output'], input)
 
                 loss.backward()
                 optimizer.step()
@@ -143,10 +134,11 @@ def train_model(model, cfg, dataloader, checkpoint, out_dir,
             pbar.update(1)
 
         pbar.close()
+        lr_sch.step()
 
         epoch_loss = running_loss / len(dataloader.dataset)
 
-        print('{} Loss: {:.4f} LR: {}'.format('train', epoch_loss, now_lr))
+        print('{} Loss: {:.4f} LR: {}'.format('train', epoch_loss, lr_sch.get_lr()[0]))
 
         if (running_loss < best_loss):
             best_loss = running_loss
@@ -238,30 +230,11 @@ class DataManager:
 
         if(self.sp_desc_df_ is None):
             path = os.path.join(self.desc_path, fname)
+            print('loading features at {}'.format(path))
             out = pd.read_pickle(path)
             self.sp_desc_df_ = out
 
         return self.sp_desc_df_
-
-    def get_sp_desc_means_from_file(self):
-
-        path = os.path.join(self.desc_path, 'sp_desc_means.p')
-        if (os.path.exists(path)):
-            out = pd.read_pickle(os.path.join(path))
-        else:
-            return None
-
-        return out
-
-    def load_sp_desc_means_from_file(self):
-        self.logger.info("Loading sp means ")
-        self.sp_desc_means = pd.read_pickle(
-            os.path.join(self.desc_path, 'sp_desc_means.p'))
-
-    def load_pm_all_feats(self):
-        self.logger.info("Loading PM all feats")
-        self.all_feats_df = pd.read_pickle(
-            os.path.join(self.desc_path, 'all_feats_df.p'))
 
     def load_pm_fg_from_file(self):
         self.logger.info("Loading PM foreground")

@@ -36,7 +36,8 @@ def fit_trees(args):
             criterion='gini',
             splitter='best',
             presort=True,
-            max_features=bag_n_feats,
+            # max_features=bag_n_feats,
+            max_features=None,
             class_weight='balanced')
 
         model.fit(data_bootstrap, train_label)
@@ -108,7 +109,7 @@ def calc_bagging(feats,
                                    bag_max_samples))
 
     elapsed = time.time() - t_start
-    print('Done estimation in {} seconds.'.format(elapsed))
+    print('Done estimation in {:.2f} seconds.'.format(elapsed))
 
     probas = np.zeros(feats.shape[0])
     probas[np.logical_not(class_labels)] = predict_proba

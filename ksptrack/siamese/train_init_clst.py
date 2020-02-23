@@ -13,11 +13,11 @@ from ksptrack.utils.bagging import calc_bagging
 import numpy as np
 from skimage import io
 import clustering as clst
-from ksptrack.siamese.my_kmeans import MyKMeans
 from ksptrack.utils.lfda import myLFDA
 from sklearn.decomposition import PCA
 from sklearn.cross_decomposition import PLSRegression
 from ksptrack.utils.my_utils import sample_features
+from sklearn.cluster import KMeans
 
 
 def get_pls_transform(features, probas, thrs, n_samps, embedded_dims):
@@ -39,10 +39,11 @@ def get_lfda_transform(features,
                        thrs,
                        n_samps,
                        embedded_dims,
-                       nn_scale=3,
+                       nn_scale=None,
                        embedding_type='orthonormalized'):
 
     lfda = myLFDA(n_components=embedded_dims,
+                  n_components_prestage=embedded_dims,
                   k=nn_scale,
                   embedding_type=embedding_type)
 
@@ -58,13 +59,14 @@ def train_kmeans(model,
                  embedded_dims=30,
                  nn_scaling=None,
                  bag_t=300,
-                 bag_max_depth=5,
+                 bag_max_depth=64,
                  bag_n_feats=0.013,
                  up_thr=0.8,
                  down_thr=0.2,
-                 reduc_method='pls'):
+                 reduc_method='pls',
+                 init_clusters=None):
 
-    features, pos_masks = clst.get_features(model, dataloader, device)
+    features, pos_masks, _ = clst.get_features(model, dataloader, device)
 
     cat_features = np.concatenate(features)
     cat_pos_mask = np.concatenate(pos_masks)
@@ -78,26 +80,26 @@ def train_kmeans(model,
                               cat_pos_mask,
                               bag_t,
                               bag_max_depth,
-                              bag_n_feats,
+                              None,
                               bag_max_samples=500,
                               n_jobs=1)
         if (reduc_method == 'lfda'):
 
             print('LFDA: computing transform matrix')
             L = get_lfda_transform(cat_features, probas,
-                                   [up_thr, down_thr], 2000,
+                                   [down_thr, up_thr], 6000,
                                    embedded_dims)
         else:
             print('PLS: computing transform matrix')
             L = get_pls_transform(cat_features, probas, [0.8, 0.5], 2000,
                                   embedded_dims)
 
-    print('forming {} initial clusters with kmeans'.format(n_clusters))
+    print('fitting {} clusters with kmeans'.format(n_clusters))
 
-    kmeans = MyKMeans(n_clusters=n_clusters, use_locs=False)
-
-    print('fitting...')
-    preds, init_clusters = kmeans.fit_predict(np.dot(cat_features, L))
+    kmeans = KMeans(n_clusters=n_clusters,
+                    init=init_clusters if init_clusters is not None else 'k-means++')
+    preds = kmeans.fit_predict(np.dot(cat_features, L))
+    init_clusters = kmeans.cluster_centers_
     predictions = [utls.to_onehot(p, n_clusters).ravel() for p in preds]
 
     # split predictions by frame
@@ -165,7 +167,7 @@ def main(cfg):
                 roi_size=cfg.roi_output_size,
                 roi_scale=cfg.roi_spatial_scale,
                 alpha=cfg.alpha)
-    path_cp = pjoin(run_path, 'checkpoints', 'checkpoint_autoenc.pth.tar')
+    path_cp = pjoin(run_path, 'checkpoints', 'best_autoenc.pth.tar')
     if (os.path.exists(path_cp)):
         print('loading checkpoint {}'.format(path_cp))
         state_dict = torch.load(path_cp,

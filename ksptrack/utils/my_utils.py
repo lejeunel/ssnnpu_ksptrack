@@ -28,21 +28,30 @@ def check_thrs(threshs, y, n_samp):
     if (threshs[0] > threshs[1]):
         threshs = threshs[::-1]
 
+    recompute_thrs = False
     if ((y < threshs[0]).sum() < n_samp):
-        sorted_probas = np.sort(y)
-        threshs[0] = sorted_probas[n_samp]
-        warnings.warn('Not enough negatives. Setting thr to {}'.format(
-            threshs[0]))
+        # sorted_probas = np.sort(y)
+        # threshs[0] = sorted_probas[n_samp]
+        warnings.warn('Not enough negatives! ')
+        recompute_thrs = True
     if ((y > threshs[1]).sum() < n_samp):
+        # sorted_probas = np.sort(y)[::-1]
+        # threshs[1] = sorted_probas[n_samp]
+        warnings.warn('Not enough positives!')
+        recompute_thrs = True
+
+    if(recompute_thrs):
+        dthresh = threshs[1] - threshs[0]
         sorted_probas = np.sort(y)[::-1]
         threshs[1] = sorted_probas[n_samp]
-        warnings.warn('Not enough positives. Setting thr to {}'.format(
-            threshs[1]))
+        threshs[0] = threshs[1] - dthresh
+        warnings.warn('changed thresholds to {}'.format(threshs))
 
     return threshs
 
 
-def sample_features(X, y, threshs, n_samp, check_thr=True):
+def sample_features(X, y, threshs, n_samp, check_thr=False,
+                    n_bins=None):
     """
     X: features matrix
     y: probability values
@@ -50,39 +59,44 @@ def sample_features(X, y, threshs, n_samp, check_thr=True):
     n_samp: number of samples to select randomly from each class
     """
 
+    # Check for dimensions with all zeros
+    # inds_ = np.where(np.sum(X, axis=0) != 0)[0]
+    # X = X[:, inds_]
+
     if (check_thr):
         threshs = check_thrs(threshs, y, n_samp)
 
-    n_samp = min((np.sum(y < threshs[0]), np.sum(y > threshs[1]), n_samp))
+    idx_neg = np.where(y < threshs[0])[0]
+    idx_pos = np.where(y > threshs[1])[0]
 
-    replace = False
-    if ((y < threshs[0]).sum() < n_samp):
-        replace = True
-    rand_idx_neg = np.random.choice(np.where(y < threshs[0])[0],
-                                    replace=replace,
-                                    size=n_samp)
+    p_pos = None
+    p_neg = None
 
-    replace = False
-    if ((y > threshs[1]).sum() < n_samp):
-        replace = True
-    rand_idx_pos = np.random.choice(np.where(y > threshs[1])[0],
-                                    replace=replace,
-                                    size=n_samp)
+    if(n_bins is not None):
+        bins_neg = np.linspace(0, threshs[0], n_bins)
+        bins_pos = np.linspace(threshs[1], 1, n_bins)
+        idx_bins_neg = np.digitize(y[idx_neg], bins_neg, right=True)
+        idx_bins_pos = np.digitize(y[idx_pos], bins_pos, right=True)
+        freqs_neg = np.bincount(idx_bins_neg)
+        freqs_pos = np.bincount(idx_bins_pos)
+        weights_pos = idx_pos.size / freqs_pos[idx_bins_pos]
+        weights_neg = idx_neg.size / freqs_neg[idx_bins_neg]
+        p_pos = weights_pos / weights_pos.sum()
+        p_neg = weights_neg / weights_neg.sum()
 
-    rand_X_pos = X[rand_idx_pos, :]
-    rand_X_neg = X[rand_idx_neg, :]
-    rand_y_pos = y[rand_idx_pos]
-    rand_y_neg = y[rand_idx_neg]
-    rand_descs = np.concatenate((rand_X_pos, rand_X_neg), axis=0)
+    idx_pos = np.random.choice(idx_pos, size=n_samp, p=p_pos)
+    idx_neg = np.random.choice(idx_neg, size=n_samp, p=p_neg)
 
-    # Check for samples with all zeros
-    inds_ = np.where(np.sum(rand_descs, axis=1) != 0)[0]
-    rand_descs = rand_descs[inds_, :]
+    X_pos = X[idx_pos, :]
+    X_neg = X[idx_neg, :]
+    y_pos = y[idx_pos]
+    y_neg = y[idx_neg]
+    descs = np.concatenate((X_pos, X_neg), axis=0)
 
-    rand_y = np.concatenate(
-        (np.ones_like(rand_y_pos), np.zeros_like(rand_y_neg)), axis=0)
+    y = np.concatenate(
+        (np.ones_like(y_pos), np.zeros_like(y_neg)), axis=0)
 
-    return rand_descs, rand_y
+    return descs, y
 
 
 def df_crossjoin(df1, df2, **kwargs):

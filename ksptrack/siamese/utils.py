@@ -41,7 +41,7 @@ def combine_nn_edges(edges_nn_list):
     return torch.cat(combined_edges_nn, dim=0)
 
 
-def make_single_graph_nn_edges(g, nn_radius=None):
+def make_single_graph_nn_edges(g, device, nn_radius=None):
     if(nn_radius is None):
         all_edges = np.array([(n0, n1) for n0, n1 in g.edges()
                               if(g.edges[n0, n1]['adjacent'])])
@@ -58,7 +58,7 @@ def make_single_graph_nn_edges(g, nn_radius=None):
         (centroids_y[all_edges[:, 0]] - centroids_y[all_edges[:, 1]])**2)
     inds = np.argwhere(dists < nn_radius).ravel()
 
-    edges_nn = torch.from_numpy(all_edges[inds, :])
+    edges_nn = torch.from_numpy(all_edges[inds, :]).to(device)
 
     return edges_nn
 

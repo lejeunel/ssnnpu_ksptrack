@@ -88,7 +88,7 @@ def train(cfg, model, dataloaders, run_path, batch_to_device, optimizer):
                     })
 
                 pbar.set_description(
-                    '[{}] epch {}/{} lss: {:.6f} lr: {:.2f}'.format(
+                    '[{}] epch {}/{} lss: {:.6f} lr: {:.3f}'.format(
                         phase, epoch + 1, cfg.epochs_autoenc,
                         loss_ if phase == 'train' else 0,
                         lr_sch.get_lr()[0] if phase == 'train' else 0))
@@ -100,23 +100,24 @@ def train(cfg, model, dataloaders, run_path, batch_to_device, optimizer):
                 writer.add_scalar('loss_autoenc', loss_, epoch)
                 lr_sch.step()
 
-                # save checkpoint
-                is_best = False
-                if (loss_ < best_loss):
-                    is_best = True
-                    best_loss = loss_
-                path = pjoin(run_path, 'checkpoints')
-                utls.save_checkpoint(
-                    {
-                        'epoch': epoch + 1,
-                        'model': model,
-                        'best_loss': best_loss,
-                        'optimizer': optimizer.state_dict()
-                    },
-                    is_best,
-                    fname_cp='checkpoint_autoenc.pth.tar',
-                    fname_bm='best_autoenc.pth.tar',
-                    path=path)
+                if(epoch % cfg.cp_period == 0):
+                    # save checkpoint
+                    is_best = False
+                    if (loss_ < best_loss):
+                        is_best = True
+                        best_loss = loss_
+                    path = pjoin(run_path, 'checkpoints')
+                    utls.save_checkpoint(
+                        {
+                            'epoch': epoch + 1,
+                            'model': model,
+                            'best_loss': best_loss,
+                            'optimizer': optimizer.state_dict()
+                        },
+                        is_best,
+                        fname_cp='checkpoint_autoenc.pth.tar',
+                        fname_bm='best_autoenc.pth.tar',
+                        path=path)
             else:
 
                 # save previews
@@ -133,7 +134,7 @@ def main(cfg):
 
     device = torch.device('cuda' if cfg.cuda else 'cpu')
 
-    model = DeepLabv3Plus(pretrained=False)
+    model = DeepLabv3Plus(pretrained=True)
     model.to(device)
 
     run_path = pjoin(cfg.out_root, cfg.run_dir)
@@ -191,7 +192,7 @@ if __name__ == "__main__":
     p.add('--out-root', required=True)
     p.add('--in-root', required=True)
     p.add('--train-dir', required=True)
-    p.add('--run-dir', requird=True)
+    p.add('--run-dir', required=True)
 
     cfg = p.parse_args()
 

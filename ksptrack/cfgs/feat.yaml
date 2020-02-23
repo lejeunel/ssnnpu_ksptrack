@@ -9,7 +9,7 @@ feat-extr-algorithm : 'feat_2dlocs'
 feat-feats-upsamp-size : 600  
 
 # number of epochs to train
-feat-n-epochs : 25
+feat-n-epochs : 80
 
 feat-loss : 'mse'  
 
@@ -17,9 +17,9 @@ feat-loss : 'mse'
 feat-validation-split : 0  
 
 feat-sgd-learning-rate : 0.01
-feat-sgd-learning-rate-power : 0.9
+feat-sgd-learning-rate-power : 0.97
 feat-sgd-momentum : 0.9
-feat-sgd-decay : 0.00004
+feat-sgd-decay : 0.04
 
 feat-interp-n-jobs : 1 
 

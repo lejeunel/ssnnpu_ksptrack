@@ -101,12 +101,13 @@ class LinkAgentRadius(LinkAgent):
                                k,
                                embedding_type='weighted'):
 
-        threshs = utls.check_thrs(threshs, probas, n_samps)
+        # threshs = utls.check_thrs(threshs, probas, n_samps)
 
-        X, y = utls.sample_features(features, probas, threshs, n_samps)
+        # X, y = utls.sample_features(features, probas, threshs, n_samps)
 
         self.trans_transform = myLFDA(n_components=n_dims,
-                                      k=k,
+                                      n_components_prestage=n_dims,
+                                      k=None,
                                       embedding_type=embedding_type)
         self.trans_transform.fit(features, probas, threshs,
                                  n_samps)

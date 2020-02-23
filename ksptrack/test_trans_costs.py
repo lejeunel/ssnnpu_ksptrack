@@ -26,10 +26,10 @@ def main(cfg):
 
     link_agent.update_trans_transform(np.vstack(dm.sp_desc_df['desc'].values),
                                       dm.fg_pm_df['proba'].values,
-                                      [0.3, 0.7],
-                                      1000,
-                                      15,
+                                      [0.6, 0.8],
+                                      6000,
                                       25,
+                                      None,
                                       embedding_type='orthonormalized')
 
     pm_scores_fg = dm.get_pm_array(mode='foreground')
@@ -100,7 +100,7 @@ def main(cfg):
     plt.tight_layout()
     path = os.path.join(cfg.run_path, 'test_trans_costs.png')
     print('saving preview to {}'.format(path))
-    # plt.savefig(path, dpi=400)
+    plt.savefig(path, dpi=400)
     plt.show()
 
 

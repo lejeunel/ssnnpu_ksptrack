@@ -7,19 +7,19 @@ epochs-dist: 50
 # generate previews every x epochs
 prev-period: 1
 
-tgt-update-period: 500
+tgt-update-period: 400
+cluster-update-period: -1
 cp-period: 5
 
 # optimizer
 lr-dist: 0.1
-lr-autoenc: 0.1
-lr-assign: 0.0001
-decay : 0.00004
-lr-power : 0.99
+lr-autoenc: 0.01
+lr-assign: 1e-2
+decay : .05
+lr-power : 0.97
 momentum: 0.9
-gamma: .2
-#lambda-: 1e-5 works with tweezer and brain (not slitlamp)
-lambda-: 1e-8
+gamma: 0.1
+lambda-: 1e-5
 alpha: 1
 beta: 0.8
 
@@ -52,10 +52,10 @@ aug-shear: 12.5
 
 # sampling
 n-edges-ratio: 0.05
-nn-radius: 0.05
+nn-radius: 0.1
 
-n-clusters: 15
-embedded-dims: 15
+n-clusters: 10
+embedded-dims: 10
 
 roi-output-size: 1
 roi-spatial-scale: 1.0
@@ -64,10 +64,10 @@ with-agglo: False
 with-pck: False
 with-flow: False
 reduc-method: 'lfda'
-ml-up-thr: 0.9
-ml-down-thr: 0.8
+ml-up-thr: 0.8
+ml-down-thr: 0.6
 bag-t: 300
 
 linkage: 'ward'
 
-thr-assign: 0.02
+thr-assign: 0.001

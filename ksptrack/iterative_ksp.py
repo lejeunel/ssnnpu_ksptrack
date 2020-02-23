@@ -10,11 +10,13 @@ from ksptrack.utils.link_agent_model import LinkAgentModel
 import logging
 import ksptrack.sp_manager as spm
 from ksptrack.siamese.modeling.siamese import Siamese
+from ksptrack.siamese.modeling.dec import DEC
 from ksptrack.utils import write_frames_results
 from ksptrack.utils import comp_scores
 import datetime
 from ksptrack.cfgs import params
 import torch
+import pandas as pd
 
 
 class Bunch(object):
@@ -28,20 +30,35 @@ def make_link_agent(labels, cfg):
         with open(pjoin(cfg.siam_run_path, 'cfg.yml')) as f:
             cfg_siam = Bunch(yaml.load(f, Loader=yaml.FullLoader))
         model = Siamese(cfg_siam.embedded_dims, cfg_siam.n_clusters,
-                        cfg_siam.roi_output_size, cfg_siam.roi_spatial_scale,
-                        cfg_siam.alpha)
+                    cfg_siam.roi_output_size, cfg_siam.roi_spatial_scale,
+                    cfg_siam.alpha)
         model_path = pjoin(cfg.siam_run_path, 'checkpoints',
                            'best_siam.pth.tar')
         print('loading checkpoint {}'.format(model_path))
         state_dict = torch.load(model_path,
                                 map_location=lambda storage, loc: storage)
         model.load_state_dict(state_dict)
-        return LinkAgentModel(csv_path=pjoin(cfg.in_path, cfg.locs_dir,
-                                             cfg.csv_fname),
-                              data_path=cfg.in_path,
-                              model=model,
-                              entrance_radius=cfg.norm_neighbor_in,
-                              cuda=cfg.cuda)
+        L = np.load(pjoin(cfg.siam_run_path, 'init_clusters.npz'), allow_pickle=True)['L']
+        link_agent = LinkAgentModel(csv_path=pjoin(cfg.in_path, cfg.locs_dir,
+                                                    cfg.csv_fname),
+                                     data_path=cfg.in_path,
+                                     model=model,
+                                    L=L,
+                                     entrance_radius=cfg.norm_neighbor_in,
+                                     cuda=cfg.cuda)
+        # compute features if necessary
+        path_feats = pjoin(cfg.in_path, cfg.precomp_dir, 'sp_desc_siam.p')
+        path_centroids = pjoin(cfg.in_path, cfg.precomp_dir, 'centroids_loc_df.p')
+        if(not os.path.exists(path_feats)):
+            print('computing features to {}'.format(path_feats))
+            feats = [list(f.cpu().numpy()) for f in link_agent.feats]
+            feats = [item for sublist in feats for item in sublist]
+            centroids = pd.read_pickle(path_centroids)
+            feats = centroids.assign(desc=feats)
+            print('Saving  features to {}'.format(path_feats))
+            feats.to_pickle(path_feats)
+
+        return link_agent
     else:
         return LinkAgentRadius(csv_path=pjoin(cfg.in_path, cfg.locs_dir,
                                               cfg.csv_fname),
@@ -93,6 +110,11 @@ def main(cfg):
     dm.calc_sp_feats(cfg)
 
     link_agent = make_link_agent(dm.labels, cfg)
+    # if(isinstance(link_agent, LinkAgentModel)):
+    #     print('will use DEC/siam features')
+    #     dm.feats_mode = 'siam'
+        # force reload features
+        # dm.sp_desc_df_ = None
 
     locs2d_sps = link_agent.get_all_entrance_sps(dm.sp_desc_df)
 

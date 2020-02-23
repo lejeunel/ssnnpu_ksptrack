@@ -46,12 +46,13 @@ def coord2Pixel(x, y, width, height):
 
 def readCsv(csvName, seqStart=None, seqEnd=None):
 
-    out = np.loadtxt(
-        open(csvName, "rb"), delimiter=";", skiprows=5)[seqStart:seqEnd, :]
+    out = np.loadtxt(open(csvName, "rb"), delimiter=";",
+                     skiprows=5)[seqStart:seqEnd, :]
     if ((seqStart is not None) or (seqEnd is not None)):
         out[:, 0] = np.arange(0, seqEnd - seqStart)
 
-    return pd.DataFrame(data=out, columns=['frame', 'time', 'visible', 'x', 'y'])
+    return pd.DataFrame(data=out,
+                        columns=['frame', 'time', 'visible', 'x', 'y'])
 
 
 def coord2Pixel(x, y, width, height):
@@ -69,18 +70,17 @@ class LocPriorDataset(BaseDataset, data.Dataset):
     """
     Adds objectness prior using 2d locations
     """
-
-    def __init__(self, root_path,
+    def __init__(self,
+                 root_path,
                  augmentations=None,
                  normalization=None,
                  csv_fname='video1.csv',
                  sig_prior=0.1):
         super().__init__(root_path, augmentations, normalization)
         self.sig_prior = sig_prior
-        
-        locs2d_path = pjoin(self.root_path, 'gaze-measurements',
-                            csv_fname)
-        if(os.path.exists(locs2d_path)):
+
+        locs2d_path = pjoin(self.root_path, 'gaze-measurements', csv_fname)
+        if (os.path.exists(locs2d_path)):
             self.locs2d = readCsv(locs2d_path)
         else:
             raise Exception('couldnt find 2d locs file {}'.format(locs2d_path))
@@ -92,10 +92,12 @@ class LocPriorDataset(BaseDataset, data.Dataset):
         aug_det = sample['aug_det']
 
         shape = sample['image'].shape
-        
+
         locs = self.locs2d[self.locs2d['frame'] == idx]
-        locs = [coord2Pixel(l['x'], l['y'], shape[1], shape[0])
-                for _, l in locs.iterrows()]
+        locs = [
+            coord2Pixel(l['x'], l['y'], shape[1], shape[0])
+            for _, l in locs.iterrows()
+        ]
 
         keypoints = ia.KeypointsOnImage(
             [ia.Keypoint(x=l[1], y=l[0]) for l in locs],
@@ -105,8 +107,8 @@ class LocPriorDataset(BaseDataset, data.Dataset):
         if (len(locs) > 0):
             obj_prior = [
                 make_2d_gauss((shape[0], shape[1]),
-                                    self.sig_prior * max(shape),
-                                    (kp.y, kp.x)) for kp in keypoints.keypoints
+                              self.sig_prior * max(shape), (kp.y, kp.x))
+                for kp in keypoints.keypoints
             ]
             obj_prior = np.asarray(obj_prior).sum(axis=0)[..., None]
             offset = np.ones_like(obj_prior) * 0.5
@@ -115,16 +117,18 @@ class LocPriorDataset(BaseDataset, data.Dataset):
             obj_prior *= 0.5
             obj_prior += offset
         else:
-            obj_prior = (
-                np.ones((shape[0], shape[1])))[..., None]
+            obj_prior = (np.ones((shape[0], shape[1])))[..., None]
 
         sample['prior'] = obj_prior
         sample['loc_keypoints'] = keypoints
-        sample['label_keypoints'] = [sample['labels'][kp.y, kp.x, 0]
-                                     for kp in keypoints.keypoints]
+        rounded_kps = [(np.clip(kp.x_int, a_min=0, a_max=shape[1] - 1),
+                        np.clip(kp.y_int, a_min=0, a_max=shape[0] - 1))
+                       for kp in keypoints.keypoints]
+        sample['label_keypoints'] = [
+            sample['labels'][y, x, 0]
+            for x, y in rounded_kps]
 
         return sample
-
 
     @staticmethod
     def collate_fn(data):
@@ -141,18 +145,21 @@ class LocPriorDataset(BaseDataset, data.Dataset):
 
         return out
 
+
 if __name__ == "__main__":
 
-    dl = LocPriorDataset('/home/ubelix/lejeune/data/medical-labeling/Dataset00')
-    sample = dl[10]
+    dl = LocPriorDataset(
+        '/home/ubelix/lejeune/data/medical-labeling/Dataset00')
+    # sample = dl[10]
 
-    print(sample['label_keypoints'])
-    plt.subplot(221)
-    plt.imshow(sample['image_unnormal'])
-    plt.subplot(222)
-    plt.imshow(sample['prior'][..., 0])
-    plt.subplot(223)
-    plt.imshow(sample['labels'][..., 0])
-    plt.subplot(224)
-    plt.imshow(sample['labels'][..., 0] == sample['label_keypoints'][0])
-    plt.show()
+    for sample in dl:
+        print(sample['label_keypoints'])
+        plt.subplot(221)
+        plt.imshow(sample['image_unnormal'])
+        plt.subplot(222)
+        plt.imshow(sample['prior'][..., 0])
+        plt.subplot(223)
+        plt.imshow(sample['labels'][..., 0])
+        plt.subplot(224)
+        plt.imshow(sample['labels'][..., 0] == sample['label_keypoints'][0])
+        plt.show()

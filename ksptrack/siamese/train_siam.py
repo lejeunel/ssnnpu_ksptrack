@@ -12,6 +12,7 @@ from tqdm import tqdm
 from ksptrack.siamese.modeling.siamese import Siamese
 from ksptrack.siamese import utils as utls
 from ksptrack.siamese import im_utils
+from ksptrack.siamese.losses import TripletLoss
 import numpy as np
 from skimage import io
 import clustering as clst
@@ -23,6 +24,7 @@ def train_one_epoch(model, dataloaders, couple_graphs, optimizers, device,
     model.train()
 
     running_loss = 0.0
+    criterion = TripletLoss()
 
     pbar = tqdm(total=len(dataloaders['train']))
     for i, data in enumerate(dataloaders['train']):
@@ -37,12 +39,11 @@ def train_one_epoch(model, dataloaders, couple_graphs, optimizers, device,
             # get cluster assignments of respective nodes
             clst = couple_graphs[data['frame_idx'][0]][data['frame_idx']
                                                        [1]]['clst']
-
             # no assignment... it has been done earlier
             res = model(data, edges_nn, do_assign=False)
             Y = (clst[edges_nn[:, 0]] == clst[edges_nn[:, 1]]).float()
 
-            optimizers['autoencoder'].zero_grad()
+            # optimizers['autoencoder'].zero_grad()
             optimizers['siam'].zero_grad()
             
             # compute positive/negative weights
@@ -50,13 +51,14 @@ def train_one_epoch(model, dataloaders, couple_graphs, optimizers, device,
             loss = F.binary_cross_entropy_with_logits(res['probas_preds'],
                                                       Y,
                                                       pos_weight=pos_weight)
+
             loss.backward()
             optimizers['siam'].step()
-            optimizers['autoencoder'].step()
+            # optimizers['autoencoder'].step()
             running_loss += loss.cpu().detach().numpy()
             loss_ = running_loss / ((i + 1) * cfg.batch_size)
 
-        pbar.set_description('lss {:.4f}'.format(loss_))
+        pbar.set_description('lss {:.6f}'.format(loss_))
         pbar.update(1)
 
     pbar.close()
@@ -68,7 +70,11 @@ def train_one_epoch(model, dataloaders, couple_graphs, optimizers, device,
 
 def train(cfg, model, device, dataloaders, run_path):
 
-    L = np.load(pjoin(run_path, 'init_clusters.npz'), allow_pickle=True)['L']
+    path_clst = pjoin(run_path, 'clusters.npz')
+    if(not os.path.exists(path_clst)):
+        path_clst = pjoin(run_path, 'init_clusters.npz')
+    print('loading clusters at {}'.format(path_clst))
+    L = np.load(path_clst, allow_pickle=True)['L']
     L = torch.tensor(L).float().to(device)
 
     couple_graphs = utls.make_all_couple_graphs(model,
@@ -101,10 +107,8 @@ def train(cfg, model, device, dataloaders, run_path):
         'autoencoder':
         optim.SGD(params=[{
             'params': model.dec.autoencoder.parameters(),
-            'lr': cfg.lr_autoenc,
-        }],
-                  momentum=cfg.momentum,
-                  weight_decay=cfg.decay),
+            'lr': cfg.lr_dist,
+        }]),
         'siam':
         optim.SGD(params=[{
             'params': model.linear1.parameters(),
@@ -112,9 +116,7 @@ def train(cfg, model, device, dataloaders, run_path):
         }, {
             'params': model.linear2.parameters(),
             'lr': cfg.lr_dist,
-        }],
-                  momentum=cfg.momentum,
-                  weight_decay=cfg.decay),
+        }]),
     }
 
     for epoch in range(1, cfg.epochs_dist + 1):

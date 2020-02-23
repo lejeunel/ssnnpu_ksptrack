@@ -35,7 +35,6 @@ class BaseDataset(data.Dataset):
                  got_labels=True):
 
         self.root_path = root_path
-        print(root_path)
 
         exts = ['*.png', '*.jpg', '*.jpeg']
         img_paths = []

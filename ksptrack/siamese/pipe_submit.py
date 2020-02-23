@@ -19,8 +19,12 @@ train_dirs = [
 
 script_path = '$HOME/Documents/software/ksptrack/ksptrack/siamese'
 script_name = 'train_all_type.py'
-out_root = pjoin('$HOME/runs', 'siamese_dec')
+
+out_root = pjoin('$HOME/runs', 'siamese')
 flags = '--cuda --skip-train-dec'
+
+# out_root = pjoin('$HOME/runs', 'siamese_dec')
+# flags = '--cuda --skip-train-dec'
 
 args = [{
     'job_name': job_prefix + jn,
@@ -48,7 +52,7 @@ pyversion=my-3.7
 
 export OMP_NUM_THREADS=1
 
-args="$flags --out-root $out_root --in-root $in_root --train-dirs $train_dirs --run-dirs $run_dirs
+args="$flags --out-root $out_root --in-root $in_root --train-dirs $train_dirs --run-dirs $run_dirs"
 
 singularity exec --nv $$simg /bin/bash -c "source $$HOME/.bashrc && pyenv activate $$pyversion && cd $script_path && python $script_name $$args"
 
@@ -67,4 +71,4 @@ for i, args_ in enumerate(args):
         text_file = open('tmp_', 'w')
         text_file.write(content)
         text_file.close()
-        subprocess.call(["cat", 'tmp_'])
+        subprocess.call(["sbatch", 'tmp_'])

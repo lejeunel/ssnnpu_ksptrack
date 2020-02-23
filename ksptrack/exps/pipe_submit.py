@@ -52,7 +52,7 @@ singularity exec --nv $$simg /bin/bash -c "source $$HOME/.bashrc && pyenv activa
 
 """
 
-job_mask = [True, True, True, True, True, True]
+job_mask = [True, True, False, False, False, False]
 
 for i, args_ in enumerate(args):
     if (job_mask[i]):

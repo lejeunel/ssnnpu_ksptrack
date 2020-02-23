@@ -102,10 +102,12 @@ def do_prev_clusters(model, device, dataloader, *args):
 
     return prevs
 
-def get_features(model, dataloader, device):
+
+def get_features(model, dataloader, device, do_sp_weights=False):
     # form initial cluster centres
     features = []
     labels_pos_mask = []
+    weights = []
 
     model.eval()
     model.to(device)
@@ -125,10 +127,14 @@ def get_features(model, dataloader, device):
                 True if l in new_labels_pos else False
                 for l in np.unique(data['labels'].cpu().numpy())
             ])
+        if(do_sp_weights):
+            labels = data['labels'].cpu().squeeze().numpy()
+            prior = data['prior'].cpu().squeeze().numpy()
+            weights_ = np.array([prior[labels == l].mean() for l in np.unique(labels)])
+            weights.append(weights_)
         feat = res['pooled_aspp_feats'].cpu().numpy()
         features.append(feat)
         pbar.update(1)
     pbar.close()
 
-    return features, labels_pos_mask
-
+    return features, labels_pos_mask, weights
