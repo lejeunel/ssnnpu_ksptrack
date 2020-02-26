@@ -86,7 +86,7 @@ def calc_bagging(feats,
     train_label[:NP] = 1.0
 
     T_per_jobs = int(T / n_jobs)
-    print('Will spawn {} jobs with {} trees each'.format(
+    print('Will spawn {} job(s) with {} trees each'.format(
         n_jobs, T_per_jobs))
 
     t_start = time.time()

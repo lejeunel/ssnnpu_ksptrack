@@ -14,7 +14,6 @@ class LinkAgentModel(LinkAgentRadius):
                  csv_path,
                  data_path,
                  model,
-                 L,
                  entrance_radius=None,
                  cuda=False):
 
@@ -26,7 +25,6 @@ class LinkAgentModel(LinkAgentRadius):
         self.model = model
         self.model.to(self.device)
         self.model.eval()
-        self.L = torch.tensor(L).float().to(self.device)
 
         self.prepare_feats()
 
@@ -49,12 +47,24 @@ class LinkAgentModel(LinkAgentRadius):
         for i, data in enumerate(dl):
             data = batch_to_device(data)
             with torch.no_grad():
-                res = self.model.dec(data, do_assign=False)
-                self.feats.append(res['pooled_aspp_feats'])
+                res = self.model.dec(data)
+                self.feats.append(res['proj_pooled_aspp_feats'])
             pbar.update(1)
         pbar.close()
 
     def get_proba(self, f0, l0, f1, l1, *args):
+
+        feat0 = self.feats[f0][l0].detach().cpu().numpy()
+        feat1 = self.feats[f1][l1].detach().cpu().numpy()
+
+        norm = np.linalg.norm(feat0 - feat1, ord=2)**2
+        proba = np.exp(-norm)
+
+        proba = np.clip(proba, a_min=self.thr_clip, a_max=1 - self.thr_clip)
+        return proba
+
+
+    def get_proba_(self, f0, l0, f1, l1, *args):
 
         feat0 = self.feats[f0][l0]
         feat1 = self.feats[f1][l1]
@@ -66,17 +76,6 @@ class LinkAgentModel(LinkAgentRadius):
         proba = np.clip(proba, a_min=self.thr_clip, a_max=1 - self.thr_clip)
         return proba
 
-    def get_proba_(self, f0, l0, f1, l1, *args):
-
-        feat0 = self.feats[f0][l0]
-        feat1 = self.feats[f1][l1]
-
-        X = torch.stack((feat0, feat1))
-
-        proba = self.model.get_probas(X).detach().cpu().numpy()
-
-        proba = np.clip(proba, a_min=self.thr_clip, a_max=1 - self.thr_clip)
-        return proba
 
     def get_proba_entrance(self, sp, *args):
 

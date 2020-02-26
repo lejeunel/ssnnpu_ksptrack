@@ -12,6 +12,7 @@ if __name__ == "__main__":
     p.add('--out-path', required=True)
     p.add('--root-path', required=True)
     p.add('--siam-run-root', default='')
+    p.add('--siam-cp-name', default='')
     p.add('--sets', nargs='+', required=True)
 
     cfg = p.parse_args()
@@ -23,12 +24,11 @@ if __name__ == "__main__":
         cfg.out_path = pjoin(cfg.root_path, 'runs/ksptrack', dset)
 
         if(cfg.siam_run_root):
-            cfg.siam_run_path = pjoin(cfg.siam_run_root, dset)
-            siam_prefix = os.path.split(cfg.siam_run_root)[-1]
+            cfg.siam_path = pjoin(cfg.siam_run_root, dset, 'checkpoints',
+                                  cfg.siam_cp_name)
         else:
-            cfg.siam_run_path = ''
-            siam_prefix = ''
+            cfg.siam_path = ''
 
         cfg.exp_name = 'transexp_{}'.format(
-            siam_prefix)
+            cfg.siam_cp_name)
         iterative_ksp.main(cfg)

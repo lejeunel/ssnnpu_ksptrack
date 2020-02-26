@@ -7,6 +7,7 @@ from ksptrack.cfgs import params
 import numpy as np
 import matplotlib.pyplot as plt
 from skimage import (color, io, segmentation, draw)
+from ksptrack.utils.link_agent_model import LinkAgentModel
 
 
 def main(cfg):
@@ -19,6 +20,12 @@ def main(cfg):
 
     link_agent = make_link_agent(dm.labels, cfg)
 
+    if(isinstance(link_agent, LinkAgentModel)):
+        print('will use DEC/siam features')
+        dm.feats_mode = 'siam'
+        #force reload features
+        dm.sp_desc_df_ = None
+
     dm.calc_pm(np.array(link_agent.get_all_entrance_sps(dm.sp_desc_df)),
                cfg.bag_n_feats, cfg.bag_t, cfg.bag_max_depth,
                cfg.bag_max_samples, cfg.bag_jobs)
@@ -26,9 +33,9 @@ def main(cfg):
 
     link_agent.update_trans_transform(np.vstack(dm.sp_desc_df['desc'].values),
                                       dm.fg_pm_df['proba'].values,
-                                      [0.6, 0.8],
-                                      6000,
-                                      25,
+                                      [cfg.ml_down_thr, cfg.ml_up_thr],
+                                      cfg.ml_n_samps,
+                                      cfg.lfda_dim,
                                       None,
                                       embedding_type='orthonormalized')
 
@@ -108,7 +115,7 @@ if __name__ == "__main__":
     p = params.get_params()
     p.add('--in-path', required=True)
     p.add('--run-path', required=True)
-    p.add('--siam-run-path', default='')
+    p.add('--siam-path', default='')
     p.add('--fin', default=0, type=int)
     p.add('--fout', default=1, type=int)
     cfg = p.parse_args()

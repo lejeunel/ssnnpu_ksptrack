@@ -1,206 +1,175 @@
 from torch import nn
 import numpy as np
 import torch
+from torch.nn import functional as F
 
 
-def get_featured_edges(edges_nn,
-                       clusters,
-                       feats,
-                       sample_edges_ratio=None,
-                       normalize_bc=False):
+def get_edges_probas(probas, edges_nn, thrs=[0.6, 0.8],
+                     clusters=None):
 
-    edge_distribs = torch.stack(
-        (clusters[edges_nn[:, 0]], clusters[edges_nn[:, 1]]))
-    bat_coeff = torch.prod(edge_distribs, dim=0).sqrt().sum(dim=1)
+    edges = {'sim': [], 'disim': []}
 
-    clst_assign_nodes = torch.argmax(clusters, dim=1)
+    # get edges with both nodes with proba > thr
+    edges_mask_sim = probas[edges_nn[:, 0]] >= thrs[1]
+    edges_mask_sim *= probas[edges_nn[:, 1]] >= thrs[1]
+    if(clusters is not None):
+        edges_mask_sim *= (clusters[edges_nn[:, 1]] == clusters[edges_nn[:, 0]])
+    edges_sim = edges_nn[edges_mask_sim, :]
 
-    pos_edges = clst_assign_nodes[edges_nn[:, 0]] == clst_assign_nodes[
-        edges_nn[:, 1]]
-    pos_edges_idx = pos_edges.nonzero().squeeze()
-    pos_bat_coeff = bat_coeff[pos_edges_idx].squeeze()
+    # sim_probas = torch.stack((probas[edges_sim[:, 0]],
+    #                           probas[edges_sim[:, 1]]), dim=1)
+    # sim_probas = torch.max(sim_probas, dim=1)[0]
+    sim_probas = torch.ones(edges_sim.shape[0]).to(probas).float()
+    edges_sim = [edges_sim, sim_probas]
+    edges['sim'] = edges_sim
 
-    neg_edges = clst_assign_nodes[edges_nn[:, 0]] != clst_assign_nodes[
-        edges_nn[:, 1]]
-    neg_edges_idx = neg_edges.nonzero().squeeze()
-    neg_bat_coeff = 1 - bat_coeff[neg_edges_idx].squeeze()
+    # get edges with one node > thr[1] and other < thr[0]
+    edges_mask_disim_0 = probas[edges_nn[:, 0]] >= thrs[1]
+    edges_mask_disim_0 *= probas[edges_nn[:, 1]] < thrs[0]
+    edges_mask_disim_1 = probas[edges_nn[:, 1]] >= thrs[1]
+    edges_mask_disim_1 *= probas[edges_nn[:, 0]] < thrs[0]
+    edges_mask_disim = edges_mask_disim_0 + edges_mask_disim_1
+    # if(clusters is not None):
+    #     edges_mask_sim *= (clusters[edges_nn[:, 1]] != clusters[edges_nn[:, 0]])
+    edges_disim = edges_nn[edges_mask_disim, :]
 
-    # normalize edge sampling proba by cluster frequency of nodes
-    clst_freqs = torch.tensor([
-        (clst_assign_nodes == c).sum() / float(clst_assign_nodes.numel())
-        for c in range(clusters.shape[1])
-    ])
+    # disim_probas = torch.stack((probas[edges_disim[:, 0]],
+    #                             probas[edges_disim[:, 1]]), dim=1)
+    # disim_probas = torch.min(disim_probas, dim=1)[0]
+    disim_probas = torch.zeros(edges_disim.shape[0]).to(probas).float()
+    
+    edges_disim = [edges_disim, disim_probas]
+    edges['disim'] = edges_disim
 
-    neg_sampling_probs = neg_bat_coeff
-    pos_sampling_probs = pos_bat_coeff
-
-    if (normalize_bc):
-
-        pos_norm_factor = clst_freqs[clst_assign_nodes[
-            edges_nn[pos_edges_idx, 0]]]
-        pos_norm_factor[pos_norm_factor == 0] = 1
-
-        neg_norm_factor = 0.5 * (clst_freqs[clst_assign_nodes[edges_nn[neg_edges_idx, 0]]] + \
-                                clst_freqs[clst_assign_nodes[edges_nn[neg_edges_idx, 1]]])
-        neg_norm_factor[neg_norm_factor == 0] = 1
-        neg_sampling_probs = neg_bat_coeff / neg_norm_factor.to(feats)
-        pos_sampling_probs = pos_bat_coeff / pos_norm_factor.to(feats)
-
-    if (sample_edges_ratio is not None):
-        sample_n_edges = int(edges_nn.shape[0] * sample_edges_ratio)
-        smpld_pos = torch.multinomial(pos_sampling_probs,
-                                      sample_n_edges).squeeze()
-        smpld_neg = torch.multinomial(neg_sampling_probs,
-                                      sample_n_edges).squeeze()
-        Y = torch.cat(
-            (torch.ones(sample_n_edges), torch.zeros(sample_n_edges)), dim=0)
-    else:
-        smpld_pos = pos_edges_idx
-        smpld_neg = neg_edges_idx
-        Y = torch.cat((torch.ones(
-            pos_edges_idx.numel()), torch.zeros(neg_edges_idx.numel())),
-                      dim=0)
-
-    X_pos = torch.stack((feats[edges_nn[pos_edges_idx[smpld_pos], 0]],
-                         feats[edges_nn[pos_edges_idx[smpld_pos], 1]]))
-    X_neg = torch.stack((feats[edges_nn[neg_edges_idx[smpld_neg], 0]],
-                         feats[edges_nn[neg_edges_idx[smpld_neg], 1]]))
-
-    X = torch.cat((X_pos, X_neg), dim=1)
-
-    Y = Y.to(X)
-
-    return X, Y
-
-
-def get_edges_pseudo_clique(data, edges_nn, clusters):
-
-    must_link_edges = []
-
-    all_assigned_clst = torch.argmax(clusters, dim=1)
-    max_node = 0
-    n_nodes = [g.number_of_nodes() for g in data['graph']]
-    for labels, n_nodes_ in zip(data['label_keypoints'], n_nodes):
-        for l in labels:
-            l += max_node
-            # get cluster of pointed ROI
-            assigned_clst = torch.argmax(clusters[l]).item()
-
-            # get edges with both nodes on assigned cluster
-            edges_mask = (all_assigned_clst[edges_nn[:, 0]] == assigned_clst)
-            edges_mask *= (all_assigned_clst[edges_nn[:, 1]] == assigned_clst)
-
-            # get edges that touch pointed ROI
-            edges_mask *= (edges_nn[:, 0] == l) + (edges_nn[:, 1] == l)
-
-            edges_ = edges_nn[edges_mask, :]
-            must_link_edges.append(edges_)
-        max_node += n_nodes_ + 1
-
-    if (len(must_link_edges) > 0):
-        return torch.cat(must_link_edges, dim=0)
-    else:
-        return None
-
-
-def get_edges_pseudo_clique_probas(probas, edges_nn, thr=0.8):
-
-    # get edges with both nodes on assigned cluster
-    edges_mask = probas[edges_nn[:, 0]] >= thr
-    edges_mask *= probas[edges_nn[:, 1]] >= thr
-    edges = edges_nn[edges_mask, :]
-
-    if (len(edges) == 0):
-        return None
+    for k in edges.keys():
+        if (len(edges[k]) == 0):
+            edges[k] = torch.tensor([]).to(probas)
 
     return edges
 
 
-def get_edges_on_location(data, edges_nn, clusters):
+def get_edges_keypoint_probas(probas, data, edges_nn, thrs=[0.6, 0.8]):
 
-    edges = []
+    edges = {'sim': [], 'disim': []}
 
     max_node = 0
     n_nodes = [g.number_of_nodes() for g in data['graph']]
     for labels, n_nodes_ in zip(data['label_keypoints'], n_nodes):
         for l in labels:
             l += max_node
-            # get cluster of pointed ROI
-            assigned_clst = clusters[l].item()
 
-            # get edges with one node on assigned cluster
-            edges_mask = (clusters[edges_nn[:, 0]] == assigned_clst)
-            edges_mask += (clusters[edges_nn[:, 1]] == assigned_clst)
+            # get edges with one node on keypoint
+            edges_mask = edges_nn[:, 0] == l
+            edges_mask += edges_nn[:, 1] == l
 
-            edges_ = edges_nn[edges_mask, :]
-            edges.append(edges_)
+            if (edges_mask.sum() > 0):
+                # get edges with nodes with proba > thr
+                edges_mask_sim = edges_mask * probas[edges_nn[:, 0]] >= thrs[1]
+                edges_mask_sim *= probas[edges_nn[:, 1]] >= thrs[1]
+                edges_sim = edges_nn[edges_mask_sim, :]
+                edges['sim'].append(edges_sim)
+
+                # get edges with nodes with proba < thr
+                edges_mask_disim = edges_mask * probas[
+                    edges_nn[:, 0]] <= thrs[0]
+                edges_mask_disim *= probas[edges_nn[:, 1]] <= thrs[0]
+                edges_disim = edges_nn[edges_mask_disim, :]
+                edges['disim'].append(edges_disim)
+
         max_node += n_nodes_ + 1
 
-    return torch.cat(edges, dim=0)
+    for k in edges.keys():
+        if (len(edges[k]) == 0):
+            edges[k] = torch.tensor([]).to(probas)
+
+    return edges
+
+
+class LabelPairwiseLoss(nn.Module):
+    def __init__(self, thrs=[0.6, 0.8]):
+        super(LabelPairwiseLoss, self).__init__()
+        self.criterion = nn.BCELoss(reduction='none')
+        self.thrs = thrs
+
+    def forward(self, edges_nn, probas, feats, clusters=None):
+
+        edges = get_edges_probas(probas,
+                                 edges_nn,
+                                 thrs=self.thrs,
+                                 clusters=clusters)
+        constrained_feats = dict()
+        probas = dict()
+
+        constrained_feats['sim'] = torch.stack(
+            (feats[edges['sim'][0][:, 0]], feats[edges['sim'][0][:, 1]]))
+        constrained_feats['disim'] = torch.stack(
+            (feats[edges['disim'][0][:, 0]], feats[edges['disim'][0][:, 1]]))
+
+        probas['sim'] = torch.exp(-torch.norm(
+            constrained_feats['sim'][0] - constrained_feats['sim'][1], dim=1))
+        probas['disim'] = torch.exp(-torch.norm(constrained_feats['disim'][0] -
+                                                constrained_feats['disim'][1],
+                                                dim=1))
+
+        cater_labls = torch.cat((torch.ones_like(probas['sim']),
+                                 torch.zeros_like(probas['disim'])))
+        pos_weight = (cater_labls == 0).sum().float() / cater_labls.numel()
+        neg_weight = (cater_labls == 1).sum().float() / cater_labls.numel()
+
+        weights = torch.cat((torch.ones_like(probas['sim']) * pos_weight,
+                             torch.ones_like(probas['disim']) * neg_weight))
+        loss = self.criterion(torch.cat((probas['sim'], probas['disim'])),
+                              torch.cat((edges['sim'][1],
+                                         edges['disim'][1])).float())
+        loss *= weights
+
+        return loss.mean()
 
 
 class LocationPairwiseLoss(nn.Module):
-    def __init__(self):
+    def __init__(self, thrs=[0.6, 0.8]):
         super(LocationPairwiseLoss, self).__init__()
 
         self.criterion_clust = torch.nn.KLDivLoss(reduction='sum')
+        self.criterion_pw = torch.nn.KLDivLoss(reduction='sum')
+        self.thrs = thrs
 
-    def forward(self, data, edges_nn, feats, clusters, targets):
+    def forward(self, probas, data, edges_nn, clusters, targets):
 
-        ml_edges = get_edges_pseudo_clique(data, edges_nn, clusters)
-        if (ml_edges is not None):
-            feats_edges = torch.stack((feats[ml_edges[:, 0]],
-                                       feats[ml_edges[:, 1]]))
-            norm = torch.norm(feats_edges, dim=0)
-            loss_pw = -norm**2
-        else:
-            loss_pw = None
+        edges = get_edges_keypoint_probas(probas,
+                                          data,
+                                          edges_nn,
+                                          thrs=self.thrs)
+
+        loss_pw = torch.tensor(0.).to(clusters)
+        loss_pw_sim = None
+        loss_pw_disim = None
+        # do positives
+        if (edges['sim'].numel() > 0):
+            c0 = clusters[edges['sim'][:, 0]]
+            c1 = clusters[edges['sim'][:, 1]]
+            loss_pw_sim = self.criterion_pw(
+                (c0 + 1e-7).log(), c1) / c0.shape[0]
+            loss_pw_sim += self.criterion_pw(
+                (c1 + 1e-7).log(), c0) / c0.shape[0]
+            loss_pw += loss_pw_sim
+
+        # do negatives
+        if (edges['disim'].numel() > 0):
+            c0 = clusters[edges['disim'][:, 0]]
+            c1 = clusters[edges['disim'][:, 1]]
+            loss_pw_disim = F.relu(1 -
+                                   self.criterion_pw((c0 + 1e-7).log(), c1) /
+                                   c0.shape[0])
+            loss_pw_disim += F.relu(1 -
+                                    self.criterion_pw((c1 + 1e-7).log(), c0) /
+                                    c0.shape[0])
+            loss_pw += loss_pw_disim
 
         loss_clust = self.criterion_clust(
-            clusters.log(), targets) / clusters.shape[0]
+            (clusters + 1e-7).log(), targets) / clusters.shape[0]
 
         return {'loss_clust': loss_clust, 'loss_pw': loss_pw}
-
-
-class TripletLoss(nn.Module):
-    def __init__(self, max_samples=400):
-        super(TripletLoss, self).__init__()
-        self.max_samples = max_samples
-
-    def forward(self, probas, data, clusters, edges_nn):
-        # probas are predicted similarity probabilities
-        # Y = 0 if nodes of edges are of different cluster
-        # edges_nn are corresponding edges
-
-        # TODO: pick random point when no location!
-        edges = get_edges_on_location(data, edges_nn,
-                                      clusters.argmax(dim=1))
-
-        # compute similarities
-        sims = clusters[edges[:, 0]].argmax(dim=1) == clusters[edges[:, 1]].argmax(dim=1)
-        edges = edges
-        pos_idx = torch.nonzero(sims == 1).view(-1)
-        neg_idx = torch.nonzero(sims == 0).view(-1)
-
-        i, j = torch.meshgrid(pos_idx, neg_idx)
-        i = i.flatten()
-        j = j.flatten()
-
-        # candidates are such that "left" nodes are identical (should shuffle stacks en amont)
-        i_ = i[edges[i, 0] == edges[j, 0]]
-        j_ = j[edges[i, 0] == edges[j, 0]]
-
-        bc_pos = (clusters[edges[i_, 0]] * clusters[edges[i_, 1]]).sqrt().sum()
-        bc_neg = (clusters[edges[j_, 0]] * clusters[edges[j_, 1]]).sqrt().sum()
-        sampling_prob = 1 - (bc_pos + bc_neg) * .5
-
-        inds = torch.multinomial(sampling_prob, self.max_samples)
-
-        tplts_p = torch.stack((probas[i_[inds]], probas[j_[inds]]))
-        loss = -torch.log(tplts_p[0, :] / (tplts_p[0, :] + tplts_p[1, :])).mean()
-
-        return loss
-
 
 
 if __name__ == "__main__":

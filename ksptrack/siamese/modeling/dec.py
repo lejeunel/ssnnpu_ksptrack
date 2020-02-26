@@ -105,17 +105,17 @@ class DEC(nn.Module):
 
         self.roi_pool = RoIPooling((roi_size, roi_size), roi_scale)
 
-        self.L = nn.Linear(256, embedding_dims, bias=False)
+        self.transform = nn.Linear(256, embedding_dims, bias=False)
         self.assignment = ClusterAssignment(cluster_number, embedding_dims,
                                             alpha)
 
     def set_clusters(self, clusters, requires_grad=True):
-        clusters.requires_grad = True
-        self.assignment.cluster_centers = clusters
+        clusters.requires_grad = requires_grad
+        self.assignment.cluster_centers = nn.Parameter(clusters)
 
     def set_transform(self, transform, requires_grad=True):
-        transform.requires_grad = True
-        self.L.weight = nn.Parameter(transform)
+        transform.requires_grad = requires_grad
+        self.transform.weight = nn.Parameter(transform)
 
     def grad_linears(self, switch):
         for param in self.linear1.parameters():
@@ -129,7 +129,7 @@ class DEC(nn.Module):
         for param in self.assignment.parameters():
             param.requires_grad = switch
 
-    def forward(self, data, L=None, do_assign=True):
+    def forward(self, data):
         """
         Compute the cluster assignment using the ClusterAssignment after running the batch
         through the encoder part of the associated AutoEncoder module.
@@ -142,12 +142,10 @@ class DEC(nn.Module):
         pooled_aspp_feats = self.roi_pool(res['aspp_feats'], data['bboxes'])
         res.update({'pooled_aspp_feats': pooled_aspp_feats})
 
-        if (L is not None):
-            proj_pooled_aspp_feats = torch.mm(pooled_aspp_feats, L)
-            res.update({'proj_pooled_aspp_feats': proj_pooled_aspp_feats})
+        proj_pooled_aspp_feats = self.transform(pooled_aspp_feats)
+        res.update({'proj_pooled_aspp_feats': proj_pooled_aspp_feats})
 
-        if (do_assign):
-            clusters = self.assignment(proj_pooled_aspp_feats)
-            res.update({'clusters': clusters})
+        clusters = self.assignment(proj_pooled_aspp_feats)
+        res.update({'clusters': clusters})
 
         return res

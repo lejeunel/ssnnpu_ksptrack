@@ -10,6 +10,7 @@ from tensorboardX import SummaryWriter
 import utils as utls
 import tqdm
 from ksptrack.siamese.modeling.dec import DEC
+from ksptrack.siamese.modeling.siamese import Siamese
 from ksptrack.siamese.distrib_buffer import DistribBuffer
 from ksptrack.siamese.train_init_clst import train_kmeans
 from ksptrack.siamese.losses import LocationPairwiseLoss
@@ -25,7 +26,8 @@ from ksptrack.utils.bagging import calc_bagging
 def train_one_epoch(model, dataloaders, optimizers, device, distrib_buff,
                     all_edges_nn, probas, cfg):
 
-    criterion_clust = LocationPairwiseLoss()
+    criterion_clust = LocationPairwiseLoss(thrs=[cfg.ml_down_thr,
+                                                 cfg.ml_up_thr])
     criterion_recons = torch.nn.MSELoss()
 
     model.train()
@@ -41,19 +43,23 @@ def train_one_epoch(model, dataloaders, optimizers, device, distrib_buff,
 
         # forward
         with torch.set_grad_enabled(True):
-            res = model(data, L)
+            res = model(data)
 
-            distrib_buff.maybe_update(model, dataloaders['buff'], device, L)
+            distrib_buff.maybe_update(model, dataloaders['buff'], device)
             distribs, targets = distrib_buff[data['frame_idx']]
 
             optimizers['autoencoder'].zero_grad()
             optimizers['assign'].zero_grad()
+            optimizers['transform'].zero_grad()
 
+            # get edge array of consecutive frames
+            # edges_nn = couple_graphs[data['frame_idx'][0]][data['frame_idx']
+            #                                                [1]]['edges_nn']
+
+            probas_ = torch.cat([probas[i] for i in data['frame_idx']])
             edges_nn = utls.combine_nn_edges(
                 [all_edges_nn[i] for i in data['frame_idx']])
-            # probas_ = torch.cat([probas[i] for i in data['frame_idx']])
-            # loss_balance = criterion_balance(f.log(), u) / f.numel()
-            loss_clust = criterion_clust(data, edges_nn, res['clusters'],
+            loss_clust = criterion_clust(probas_, data, edges_nn,
                                          res['clusters'],
                                          targets)
             loss_recons = criterion_recons(res['output'], data['image'])
@@ -66,12 +72,14 @@ def train_one_epoch(model, dataloaders, optimizers, device, distrib_buff,
             # torch.nn.utils.clip_grad_norm_(model.parameters(), 1e-10)
             optimizers['autoencoder'].step()
             optimizers['assign'].step()
+            optimizers['transform'].step()
 
             running_loss += loss.cpu().detach().numpy()
             running_loss_pur += loss_clust['loss_clust'].cpu().detach(
             ).numpy()
-            running_loss_pw += loss_clust['loss_pw'].cpu().detach(
-            ).numpy()
+            if(loss_clust['loss_pw'] is not None):
+                running_loss_pw += loss_clust['loss_pw'].cpu().detach(
+                ).numpy()
             running_loss_recons += loss_recons.cpu().detach().numpy()
 
             loss_ = running_loss / ((i + 1) * cfg.batch_size)
@@ -98,12 +106,11 @@ def train_one_epoch(model, dataloaders, optimizers, device, distrib_buff,
 def train(cfg, model, device, dataloaders, run_path):
     check_cp_exist = pjoin(run_path, 'checkpoints', 'checkpoint_dec.pth.tar')
     if (os.path.exists(check_cp_exist)):
-        print('found checkpoint at {}. Loading and skipping.'.format(
+        print('found checkpoint at {}. Loading.'.format(
             check_cp_exist))
         state_dict = torch.load(check_cp_exist,
                                 map_location=lambda storage, loc: storage)
         model.load_state_dict(state_dict)
-        return
 
     clusters_prevs_path = pjoin(run_path, 'clusters_prevs')
     if (not os.path.exists(clusters_prevs_path)):
@@ -135,33 +142,25 @@ def train(cfg, model, device, dataloaders, run_path):
 
     writer.add_image('clusters', init_prev, 0, dataformats='HWC')
 
-    print('making NN graphs for all frames...')
-    all_edges_nn = [
-        utls.make_single_graph_nn_edges(s['graph'], device, cfg.nn_radius)
-        # utls.make_single_graph_nn_edges(s['graph'], nn_radius=None)
-        for s in dataloaders['buff'].dataset
-    ]
-
     init_clusters = torch.tensor(init_clusters,
                                  dtype=torch.float)
 
-    model.set_clusters(init_clusters)
-    model.set_transform(L)
+    model.dec.set_clusters(init_clusters)
+    model.dec.set_transform(L.T)
 
-    if (cfg.skip_train_dec):
+    if(cfg.skip_train_dec):
+        print('skipping DEC training. ')
         path = pjoin(run_path, 'checkpoints')
-        print(
-            'skipping DEC training. Saving untrained checkpoint to {}'.format(
-                path))
-        utls.save_checkpoint({
-            'epoch': 0,
-            'model': model,
-            'best_loss': 0,
-        },
-                             True,
-                             fname_cp='checkpoint_dec.pth.tar',
-                             fname_bm='best_dec.pth.tar',
-                             path=path)
+        print('saving DEC with initial parameters to {}'.format(path))
+        utls.save_checkpoint(
+            {
+                'epoch': -1,
+                'model': model
+            },
+            False,
+            fname_cp='init_dec.pth.tar',
+            path=path)
+        return
 
     else:
         best_loss = float('inf')
@@ -172,18 +171,18 @@ def train(cfg, model, device, dataloaders, run_path):
         optimizers = {
             'autoencoder':
             optim.SGD(params=[{
-                'params': model.autoencoder.parameters(),
+                'params': model.dec.autoencoder.parameters(),
                 'lr': cfg.lr_assign / 10
             }]),
             'assign':
             optim.SGD(params=[{
-                'params': model.assignment.parameters(),
+                'params': model.dec.assignment.parameters(),
                 'lr': cfg.lr_assign
             }]),
             'transform':
             optim.SGD(params=[{
-                'params': model.transform.parameters(),
-                'lr': cfg.lr_assign
+                'params': model.dec.transform.parameters(),
+                'lr': cfg.lr_assign / 10
             }])
         }
 
@@ -198,8 +197,14 @@ def train(cfg, model, device, dataloaders, run_path):
             torch.optim.lr_scheduler.ExponentialLR(optimizers['transform'],
                                                    cfg.lr_power)
         }
+        print('making NN graphs for all frames...')
+        all_edges_nn = [
+            utls.make_single_graph_nn_edges(s['graph'], device, cfg.nn_radius)
+            # utls.make_single_graph_nn_edges(s['graph'], nn_radius=None)
+            for s in dataloaders['buff'].dataset
+        ]
 
-        # compute probability of all nodes
+# compute probability of all nodes
         
         features, pos_masks, _ = clst.get_features(model,
                                                    dataloaders['buff'],
@@ -228,33 +233,24 @@ def train(cfg, model, device, dataloaders, run_path):
             for phase in ['train', 'prev']:
 
                 if phase == 'train':
-                    if ((epoch % cfg.cluster_update_period == 0)
-                            and (cfg.cluster_update_period > 0)
-                        and (epoch < cfg.epochs_dec + 1)):
-                        print('updating k-means clusters')
-                        new_clusters, _, L = train_kmeans(
-                            model,
-                            dataloaders['buff'],
-                            device,
-                            cfg.n_clusters,
-                            cfg.embedded_dims,
-                            reduc_method=cfg.reduc_method,
-                            bag_t=cfg.bag_t,
-                            up_thr=cfg.ml_up_thr,
-                            down_thr=cfg.ml_down_thr)
-                        np.savez(pjoin(run_path, 'clusters.npz'), **{
-                            'clusters': new_clusters,
-                            'L': L
-                        })
-                        new_clusters = torch.tensor(new_clusters,
-                                                    dtype=torch.float,
-                                                    requires_grad=True)
-                        L = torch.tensor(L).float().to(device)
-                        new_clusters.to(device)
-                        model.state_dict()['assignment.cluster_centers'].copy_(
-                            new_clusters)
-                        distrib_buff.do_update(model, dataloaders['buff'],
-                                               device, L)
+                    if(epoch % cfg.proba_update_period == 0):
+                        print('Updating foreground probabilities.')
+                        features, pos_masks, _ = clst.get_features(model,
+                                                                dataloaders['buff'],
+                                                                device)
+                        cat_features = np.concatenate(features)
+                        cat_pos_mask = np.concatenate(pos_masks)
+                        probas = calc_bagging(cat_features,
+                                            cat_pos_mask,
+                                            cfg.bag_t,
+                                            bag_max_depth=64,
+                                            bag_n_feats=None,
+                                            bag_max_samples=500,
+                                            n_jobs=1)
+                        probas = torch.from_numpy(probas).to(device)
+                        n_labels = [np.unique(s['labels']).size
+                                    for s in dataloaders['buff'].dataset]
+                        probas = torch.split(probas, n_labels)
 
                     res = train_one_epoch(model, dataloaders, optimizers,
                                           device, distrib_buff, all_edges_nn,
@@ -292,7 +288,7 @@ def train(cfg, model, device, dataloaders, run_path):
                         if (not os.path.exists(out_path)):
                             os.makedirs(out_path)
                         prev_ims = clst.do_prev_clusters(
-                            model, device, dataloaders[phase], L)
+                            model, device, dataloaders[phase])
 
                         for k, v in prev_ims.items():
                             io.imsave(pjoin(out_path, k), v)
@@ -306,7 +302,7 @@ def train(cfg, model, device, dataloaders, run_path):
                                          dataformats='HWC')
 
     # save last clusterings to disk
-    prev_ims = clst.do_prev_clusters(model, device, dataloaders['buff'], L)
+    prev_ims = clst.do_prev_clusters(model, device, dataloaders['buff'])
     last_clusters_prev_path = pjoin(run_path, 'clusters_prevs', 'last')
     if (not os.path.exists(last_clusters_prev_path)):
         os.makedirs(last_clusters_prev_path)
@@ -346,7 +342,7 @@ def eval(cfg, model, device, dataloader, run_path):
     for i, data in enumerate(dataloader):
         data = utls.batch_to_device(data, device)
         with torch.no_grad():
-            res = model(data, L)
+            res = model(data)
             labels = data['labels'].cpu().squeeze().numpy().astype(int)
             clusters = res['clusters']
             for l in data['label_keypoints'][0]:
@@ -389,17 +385,17 @@ def main(cfg):
 
     device = torch.device('cuda' if cfg.cuda else 'cpu')
 
-    model = DEC(embedding_dims=cfg.n_clusters,
-                cluster_number=cfg.n_clusters,
-                roi_size=1,
-                roi_scale=cfg.roi_spatial_scale,
-                alpha=cfg.alpha)
+    model = Siamese(embedded_dims=cfg.embedded_dims,
+                    cluster_number=cfg.n_clusters,
+                    roi_size=1,
+                    roi_scale=cfg.roi_spatial_scale,
+                    alpha=cfg.alpha)
     path_cp = pjoin(run_path, 'checkpoints', 'checkpoint_autoenc.pth.tar')
     if (os.path.exists(path_cp)):
         print('loading checkpoint {}'.format(path_cp))
         state_dict = torch.load(path_cp,
                                 map_location=lambda storage, loc: storage)
-        model.autoencoder.load_state_dict(state_dict)
+        model.dec.autoencoder.load_state_dict(state_dict)
     else:
         print(
             'checkpoint {} not found. Train autoencoder first'.format(path_cp))
@@ -412,6 +408,10 @@ def main(cfg):
     # dl_stack = StackLoader(cfg.batch_size,
     #                        pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
     #                        normalization=transf_normal)
+    # dataloader_train = DataLoader(dl_stack,
+    #                               collate_fn=dl_stack.collate_fn,
+    #                               shuffle=True,
+    #                               num_workers=cfg.n_workers)
     dataloader_train = DataLoader(dl_single,
                                   batch_size=2,
                                   collate_fn=dl_single.collate_fn,
@@ -442,7 +442,7 @@ def main(cfg):
         yaml.dump(cfg.__dict__, stream=outfile, default_flow_style=False)
 
     train(cfg, model, device, dataloaders, run_path)
-    eval(cfg, model, device, dataloader_buff, run_path)
+    # eval(cfg, model, device, dataloader_buff, run_path)
 
 
 if __name__ == "__main__":

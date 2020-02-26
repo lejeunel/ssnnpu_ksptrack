@@ -2,7 +2,6 @@ import logging
 import os
 from os.path import join as pjoin
 import yaml
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import shutil
@@ -63,7 +62,7 @@ def make_single_graph_nn_edges(g, device, nn_radius=None):
     return edges_nn
 
 
-def make_couple_graphs(model, device, batch, nn_radius, L, do_inter_frame=True):
+def make_couple_graphs(model, device, batch, nn_radius, do_inter_frame=True):
     """
     Builds edge array with nearest neighbors on same frame and next-frame
     Also assign clusters to each label according to DEC model
@@ -78,7 +77,7 @@ def make_couple_graphs(model, device, batch, nn_radius, L, do_inter_frame=True):
     model.eval()
     batch = batch_to_device(batch, device)
     with torch.no_grad():
-        clusters = model.dec(batch, L)['clusters'].argmax(dim=-1)
+        clusters = model(batch)['clusters'].argmax(dim=-1)
     model.train()
     n_labels = [torch.unique(lab).numel() for lab in batch['labels']]
     clusters = torch.split(clusters, n_labels)
@@ -105,12 +104,13 @@ def make_couple_graphs(model, device, batch, nn_radius, L, do_inter_frame=True):
         (centroids_y[all_edges[:, 0]] - centroids_y[all_edges[:, 1]])**2)
     inds = np.argwhere(dists < nn_radius).ravel()
 
-    edges_nn = torch.from_numpy(all_edges[inds, :])
+    edges_nn = torch.from_numpy(all_edges[inds, :]).to(device)
 
     return edges_nn, clusters[0].detach(), clusters[1].detach()
 
 
-def make_all_couple_graphs(model, device, stack_loader, nn_radius, L, do_inter_frame=True):
+def make_all_couple_graphs(model, device, stack_loader, nn_radius,
+                           do_inter_frame=True):
 
     couple_graphs = nx.DiGraph()
     print('making NN-graphs')
@@ -119,7 +119,6 @@ def make_all_couple_graphs(model, device, stack_loader, nn_radius, L, do_inter_f
                                                     device,
                                                     sample,
                                                     nn_radius,
-                                                    L,
                                                     do_inter_frame)
         couple_graphs.add_nodes_from([(n, dict(clst=c))
                                       for n, c in zip(sample['frame_idx'], [clst0, clst1])])

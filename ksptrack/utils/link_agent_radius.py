@@ -99,7 +99,7 @@ class LinkAgentRadius(LinkAgent):
                                n_samps,
                                n_dims,
                                k,
-                               embedding_type='weighted'):
+                               embedding_type='orthonormalized'):
 
         # threshs = utls.check_thrs(threshs, probas, n_samps)
 

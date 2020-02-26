@@ -26,37 +26,36 @@ class Bunch(object):
 
 def make_link_agent(labels, cfg):
 
-    if (cfg.siam_run_path):
-        with open(pjoin(cfg.siam_run_path, 'cfg.yml')) as f:
+    if (cfg.siam_path):
+        cfg_path = os.path.split(cfg.siam_path)[0]
+        cfg_path = os.path.split(cfg_path)[0]
+        cfg_path = pjoin(cfg_path, 'cfg.yml')
+        with open(cfg_path) as f:
             cfg_siam = Bunch(yaml.load(f, Loader=yaml.FullLoader))
         model = Siamese(cfg_siam.embedded_dims, cfg_siam.n_clusters,
                     cfg_siam.roi_output_size, cfg_siam.roi_spatial_scale,
                     cfg_siam.alpha)
-        model_path = pjoin(cfg.siam_run_path, 'checkpoints',
-                           'best_siam.pth.tar')
-        print('loading checkpoint {}'.format(model_path))
-        state_dict = torch.load(model_path,
+        print('loading checkpoint {}'.format(cfg.siam_path))
+        state_dict = torch.load(cfg.siam_path,
                                 map_location=lambda storage, loc: storage)
         model.load_state_dict(state_dict)
-        L = np.load(pjoin(cfg.siam_run_path, 'init_clusters.npz'), allow_pickle=True)['L']
         link_agent = LinkAgentModel(csv_path=pjoin(cfg.in_path, cfg.locs_dir,
                                                     cfg.csv_fname),
                                      data_path=cfg.in_path,
                                      model=model,
-                                    L=L,
                                      entrance_radius=cfg.norm_neighbor_in,
                                      cuda=cfg.cuda)
         # compute features if necessary
         path_feats = pjoin(cfg.in_path, cfg.precomp_dir, 'sp_desc_siam.p')
         path_centroids = pjoin(cfg.in_path, cfg.precomp_dir, 'centroids_loc_df.p')
-        if(not os.path.exists(path_feats)):
-            print('computing features to {}'.format(path_feats))
-            feats = [list(f.cpu().numpy()) for f in link_agent.feats]
-            feats = [item for sublist in feats for item in sublist]
-            centroids = pd.read_pickle(path_centroids)
-            feats = centroids.assign(desc=feats)
-            print('Saving  features to {}'.format(path_feats))
-            feats.to_pickle(path_feats)
+
+        print('computing features to {}'.format(path_feats))
+        feats = [list(f.cpu().numpy()) for f in link_agent.feats]
+        feats = [item for sublist in feats for item in sublist]
+        centroids = pd.read_pickle(path_centroids)
+        feats = centroids.assign(desc=feats)
+        print('Saving features to {}'.format(path_feats))
+        feats.to_pickle(path_feats)
 
         return link_agent
     else:
@@ -110,11 +109,11 @@ def main(cfg):
     dm.calc_sp_feats(cfg)
 
     link_agent = make_link_agent(dm.labels, cfg)
-    # if(isinstance(link_agent, LinkAgentModel)):
-    #     print('will use DEC/siam features')
-    #     dm.feats_mode = 'siam'
-        # force reload features
-        # dm.sp_desc_df_ = None
+    if(isinstance(link_agent, LinkAgentModel)):
+        print('will use DEC/siam features')
+        dm.feats_mode = 'siam'
+        #force reload features
+        dm.sp_desc_df_ = None
 
     locs2d_sps = link_agent.get_all_entrance_sps(dm.sp_desc_df)
 
@@ -281,7 +280,7 @@ if __name__ == "__main__":
 
     p.add('--out-path', required=True)
     p.add('--in-path', required=True)
-    p.add('--siam-run-path', default='')
+    p.add('--siam-path', default='')
 
     cfg = p.parse_args()
 

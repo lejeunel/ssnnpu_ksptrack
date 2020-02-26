@@ -2,7 +2,6 @@ from string import Template
 import subprocess
 from os.path import join as pjoin
 
-job_prefix = 'sm'
 job_names = ['tw', 'co', 'sl', 'br', 'sp', 'lv']
 seq_type = list(range(6))
 n_seqs_per_type = [6, 4, 6, 6, 6, 5]
@@ -20,11 +19,10 @@ train_dirs = [
 script_path = '$HOME/Documents/software/ksptrack/ksptrack/siamese'
 script_name = 'train_all_type.py'
 
-out_root = pjoin('$HOME/runs', 'siamese')
+out_root = pjoin('$HOME/runs', 'siamese_dec')
 flags = '--cuda --skip-train-dec'
 
-# out_root = pjoin('$HOME/runs', 'siamese_dec')
-# flags = '--cuda --skip-train-dec'
+job_prefix = 'sm'
 
 args = [{
     'job_name': job_prefix + jn,
@@ -44,7 +42,7 @@ template = """#!/bin/env bash
 #SBATCH --time=24:00:00
 #SBATCH --cpus-per-task=1
 #SBATCH --partition=gpu
-#SBATCH --gres=gpu
+#SBATCH --gres=gpu:gtx1080ti:1
 #SBATCH --output=/home/ubelix/artorg/lejeune/runs/logs/%x.out
 
 simg=$$HOME/ksptrack-ubelix.simg

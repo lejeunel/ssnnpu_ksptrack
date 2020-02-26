@@ -67,55 +67,6 @@ class DeepLabv3Plus(nn.Module):
                                              stride=(1, 1))
 
 
-class DeepLabv3(nn.Module):
-    """
-    All pre-trained models expect input images normalized in the same way, i.e. mini-batches of 3-channel RGB images of shape (N, 3, H, W), where N is the number of images, H and W are expected to be at least 224 pixels. The images have to be loaded in to a range of [0, 1] and then normalized using mean = [0.485, 0.456, 0.406] and std = [0.229, 0.224, 0.225].
-
-    The model returns an OrderedDict with two Tensors that are of the same height and width as the input Tensor, but with 21 classes. output['out'] contains the semantic masks, and output['aux'] contains the auxillary loss values per-pixel. In inference mode, output['aux'] is not useful. So, output['out'] is of shape (N, 21, H, W). More documentation can be found here.
-    """
-    def __init__(self):
-        """
-        """
-        super(DeepLabv3, self).__init__()
-
-        self.model = torch.hub.load('pytorch/vision:v0.4.2',
-                                    'deeplabv3_resnet101',
-                                    pretrained=True)
-
-        self.to_autoenc()
-        self.sigmoid = nn.Sigmoid()
-
-    def to_autoenc(self, in_channels=3, out_channels=3):
-        self.model.aux_classifier[-1] = nn.Conv2d(256,
-                                                  out_channels,
-                                                  kernel_size=(1, 1),
-                                                  stride=(1, 1))
-        self.model.classifier[-1] = nn.Conv2d(256,
-                                              out_channels,
-                                              kernel_size=(1, 1),
-                                              stride=(1, 1))
-
-    def to_feat_extractor(self):
-        self.model.aux_classifier = nn.Identity()
-        self.model.classifier[-1] = nn.Identity()
-        for param in self.model.parameters():
-            param.requires_grad = False
-        self.model.eval()
-
-    def to_predictor(self, out_channels=1):
-        self.model.aux_classifier[-1] = nn.Conv2d(256,
-                                                  out_channels,
-                                                  kernel_size=(1, 1),
-                                                  stride=(1, 1))
-
-    def forward(self, x):
-        dict_ = self.model(x)
-        dict_['aux'] = self.sigmoid(dict_['aux'])
-        dict_['out'] = self.sigmoid(dict_['out'])
-
-        return dict_
-
-
 if __name__ == "__main__":
     model = DeepLabv3Plus()
 

@@ -41,40 +41,30 @@ class Siamese(nn.Module):
 
         self.tanh = nn.Tanh()
 
-        self.linear1 = nn.Linear(256,
-                                 256 // 2,
-                                 bias=True)
-        self.linear2 = nn.Linear(256 // 2,
-                                 1, bias=False)
+        self.linear1 = nn.Linear(embedded_dims,
+                                 1,
+                                 bias=False)
 
     def get_probas(self, X):
-        out = []
-        for br in range(2):
-            x_ = self.linear1(X[br, ...])
-            out.append(F.relu(x_))
 
-        dist = torch.norm(out[1] - out[0], dim=1)
-        out = torch.exp(-dist**2)
+        X = torch.exp(
+            -torch.norm(
+                X[0] - X[1],
+                dim=1))
 
-        out = out.squeeze()
+        return X.squeeze()
 
-        return out
+    def forward(self, data, edges_nn=None):
 
-    def forward(self, data, edges_nn, *args, **kwargs):
+        res = self.dec(data)
 
-        res = self.dec(data, *args, **kwargs)
+        if(edges_nn is not None):
+            feats = res['proj_pooled_aspp_feats']
+            X = torch.stack((feats[edges_nn[:, 0]],
+                             feats[edges_nn[:, 1]]))
 
-        feats = res['pooled_aspp_feats']
-        # make (node0, node1, featdim) tensor for each edge in graph
-        X = torch.stack((feats[edges_nn[:, 0], :],
-                         feats[edges_nn[:, 1], :]))
+            probas = self.get_probas(X)
 
-        out = self.get_probas(X)
-
-        res['probas_preds'] = out
+            res['probas_preds'] = probas
 
         return res
-
-        return res
-
-

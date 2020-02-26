@@ -38,7 +38,7 @@ template = """#!/bin/env bash
 #SBATCH --time=24:00:00
 #SBATCH --cpus-per-task=1
 #SBATCH --partition=gpu
-#SBATCH --gres=gpu
+#SBATCH --gres=gpu:gtx1080ti:1
 #SBATCH --output=/home/ubelix/artorg/lejeune/runs/logs/%x.out
 
 simg=$$HOME/ksptrack-ubelix.simg
@@ -52,7 +52,7 @@ singularity exec --nv $$simg /bin/bash -c "source $$HOME/.bashrc && pyenv activa
 
 """
 
-job_mask = [True, True, False, False, False, False]
+job_mask = [True, True, True, True, True, True]
 
 for i, args_ in enumerate(args):
     if (job_mask[i]):

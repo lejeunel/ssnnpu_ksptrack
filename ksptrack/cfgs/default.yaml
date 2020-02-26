@@ -30,7 +30,7 @@ oflow-outer-iters : 7
 oflow-inner-iters : 1
 oflow-sor-iters : 30
 
-n-iters-ksp : 4
+n-iters-ksp : 1
 
 monitor-score : False
 
@@ -52,8 +52,8 @@ n-comp-pca : 3
 lfda-k : 7
 lfda-dim : 10
 ml-n-samps : 6000
-ml-up-thr : 0.8
-ml-down-thr : 0.6
+ml-up-thr : 0.5
+ml-down-thr : 0.5
 ml-sigma : 1
 ml-embedding : 'orthonormalized'
 pca : False  #Overrides LFDA and computes PCA with n-components:lfda-dims

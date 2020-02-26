@@ -29,7 +29,7 @@ def do_prev_clusters_init(dataloader,
     return prev_ims
 
 
-def do_prev_rags(model, device, dataloader, couple_graphs, *args, **kwargs):
+def do_prev_rags(model, device, dataloader, couple_graphs):
     """
     Generate preview images on region adjacency graphs
     """
@@ -49,7 +49,7 @@ def do_prev_rags(model, device, dataloader, couple_graphs, *args, **kwargs):
 
         # forward
         with torch.no_grad():
-            res = model(data, torch.tensor(edges_rag), *args, **kwargs)
+            res = model(data, torch.tensor(edges_rag))
 
         probas = res['probas_preds'].detach().cpu().squeeze().numpy()
         im = data['image_unnormal'].cpu().squeeze().numpy().astype(np.uint8)
@@ -116,7 +116,7 @@ def get_features(model, dataloader, device, do_sp_weights=False):
     for index, data in enumerate(dataloader):
         data = utls.batch_to_device(data, device)
         with torch.no_grad():
-            res = model(data, do_assign=False)
+            res = model(data)
 
         if (len(data['labels_clicked']) > 0):
             new_labels_pos = [

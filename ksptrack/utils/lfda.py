@@ -45,10 +45,10 @@ class myLFDA(LFDA):
         super(myLFDA, self).fit(rand_descs.astype(np.float64), rand_y)
 
         self.components_ = np.dot(self.prestage_components_, self.components_.T).T
-
     
 
     def transform(self, x):
 
         # return super(myLFDA, self).transform(x[..., self.valid_components])
-        return super(myLFDA, self).transform(x)
+        # return super(myLFDA, self).transform(x)
+        return np.dot(self.components_, x.T)
