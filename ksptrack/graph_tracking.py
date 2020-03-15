@@ -15,7 +15,7 @@ class GraphTracking:
     def __init__(self,
                  link_agent,
                  sps_man=None,
-                 tol=10e-9,
+                 tol=10e-12,
                  cxx_loglevel="info",
                  cxx_return_edges=True):
         self.logger = logging.getLogger('GraphTracking')
@@ -222,7 +222,7 @@ class GraphTracking:
         self.direction = direction
 
         #Auxiliary edges (appearance) creates tracklets, input/output nodes and weight
-        self.logger.info('Making/connecting tracklets')
+        self.logger.info('Making/connecting tracklets (thr: {})'.format(thresh_aux))
         if (self.tracklets is None):
             self.make_init_tracklets(sp_pom, thresh_aux,
                                      direction)
@@ -260,6 +260,8 @@ class GraphTracking:
             tl_loc = sp_desc.loc[tl.df_ix[0]]
 
             if (self.link_agent.is_entrance(tl_loc['frame'], tl_loc['label'])):
+                # print('frame/label: {}/{} is entrance'.format(tl_loc['frame'],
+                #                                               tl_loc['label']))
 
                 this_e = (int(self.source), int(tl.in_id))
 
@@ -272,7 +274,7 @@ class GraphTracking:
         self.logger.info('Added {} entrance edges'.format(added))
 
         # Transition edges
-        self.logger.info('Connecting transition edges')
+        self.logger.info('Connecting transition edges. hoof_tau: {}'.format(hoof_tau_u))
 
         bar = tqdm.tqdm(total=len(tls))
         added = 0

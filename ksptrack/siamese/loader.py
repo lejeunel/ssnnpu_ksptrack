@@ -7,6 +7,8 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 import pandas as pd
 from ksptrack.utils.loc_prior_dataset import LocPriorDataset
+from skimage.future import graph as skg
+from random import shuffle
 
 
 def scale_boxes(bboxes, factor):
@@ -57,6 +59,19 @@ class Loader(LocPriorDataset):
 
         self.labels = np.load(pjoin(root_path, 'precomp_desc',
                                     'sp_labels.npz'))['sp_labels']
+        npzfile = np.load(pjoin(root_path, 'precomp_desc',
+                                'flows.npz'))
+        self.flows = dict()
+        self.flows['bvx'] = npzfile['bvx']
+        self.flows['fvx'] = npzfile['fvx']
+        self.flows['bvy'] = npzfile['bvy']
+        self.flows['fvy'] = npzfile['fvy']
+        self.fvx = np.concatenate(
+            (self.flows['fvx'], self.flows['fvx'][..., -1][..., None]), axis=-1)
+        self.fvy = np.concatenate(
+            (self.flows['fvy'], self.flows['fvy'][..., -1][..., None]), axis=-1)
+        self.fv = np.sqrt(self.fvx**2 + self.fvy**2)
+
 
     def prepare_graphs(self):
 
@@ -94,6 +109,20 @@ class Loader(LocPriorDataset):
                     adjacent=True)) for n0, n1 in rag.edges()]
             rag.add_edges_from(adj_edges)
 
+            for n in rag:
+                rag.nodes[n].update({'pixel count': 0,
+                                    'total color': np.array([0, 0, 0],
+                                                            dtype=np.double)})
+            # add mean colors to nodes
+            for index in np.ndindex(labels.shape):
+                current = labels[index]
+                rag.nodes[current]['pixel count'] += 1
+                rag.nodes[current]['total color'] += im[index]
+
+            for n in rag:
+                rag.nodes[n]['mean color'] = (rag.nodes[n]['total color'] /
+                                              rag.nodes[n]['pixel count'])
+
             # make nearest neighbor graph based on centroid distances
             graph = rag.copy()
             node_label_list = [n[0] for n in node_list]
@@ -117,6 +146,12 @@ class Loader(LocPriorDataset):
                            adjacent=False)) for i in inds]
             graph.add_edges_from(edges)
             graph.add_edges_from(adj_edges)
+
+            # edges for color similarity
+            for x, y, d in graph.edges(data=True):
+                diff = graph.nodes[x]['mean color'] - graph.nodes[y]['mean color']
+                diff = np.linalg.norm(diff)
+                d['col_sim'] = np.exp(-(diff ** 2)/255.0)
 
             # compute hoof intersections
             hoof_ = self.hoof.loc[self.hoof['frame'] == idx].to_numpy()
@@ -145,18 +180,17 @@ class Loader(LocPriorDataset):
         graph = self.graphs[idx]
         bboxes = np.array([graph.nodes[n]['bbox'] for n in graph.nodes()])
 
+        # flows = self.fv[..., idx][..., None]
+
         centroids = np.array(
             [graph.nodes[n]['centroid'] for n in graph.nodes()])
 
-        kps = sample['loc_keypoints'].keypoints
-        coords = [(np.round(kp.y).astype(int), np.round_(kp.x).astype(int))
-                  for kp in kps]
-
-        sample['labels_clicked'] = [self.labels[i, j, idx] for i, j in coords]
+        shape = sample['image'].shape
         sample['graph'] = graph
         sample['labels'] = self.labels[..., idx][..., None]
         sample['bboxes'] = bboxes
         sample['centroids'] = centroids
+        # sample['flows'] = flows
         return sample
 
     def collate_fn(self, samples):
@@ -174,7 +208,11 @@ class Loader(LocPriorDataset):
         out['centroids'] = torch.cat(centroids)
 
         out['graph'] = [s['graph'] for s in samples]
-        out['labels_clicked'] = [s['labels_clicked'] for s in samples]
+
+        # flows = [np.rollaxis(d['flows'], -1) for d in samples]
+        # flows = torch.stack(
+        #     [torch.from_numpy(i).float() for i in flows])
+        # out['flows'] = flows
 
         return out
 
@@ -186,6 +224,7 @@ class StackLoader(Dataset):
 
     def __getitem__(self, index):
         sample = [self.loader[i] for i in range(index, index + self.depth)]
+        shuffle(sample)
         return sample
 
     def __len__(self):

@@ -3,13 +3,12 @@ import numpy as np
 import torch
 from skimage import io, color, segmentation, draw
 from imgaug import augmenters as iaa
-from ksptrack.models.my_augmenters import rescale_augmenter, Normalize
+from ksptrack.models.my_augmenters import center_augmenter, Normalize, rescale_augmenter
 from ksptrack.siamese import utils as utls
 from skimage.future.graph import show_rag
 
 
-def show_sampled_edges(image, labels, graph,
-                       edges_pw):
+def show_sampled_edges(image, labels, graph, edges_pw):
     """Show a Region Adjacency Graph on an image.
     """
 
@@ -28,8 +27,8 @@ def show_sampled_edges(image, labels, graph,
                           graph.nodes[n2]['centroid'][::-1]
                           for n1, n2 in neg_edges])
 
-    cvt = np.array([labels.shape[0], labels.shape[1],
-                    labels.shape[0], labels.shape[1]])
+    cvt = np.array(
+        [labels.shape[0], labels.shape[1], labels.shape[0], labels.shape[1]])
     pos_lines *= cvt
     neg_lines *= cvt
     pos_lines = pos_lines.astype(int)
@@ -43,6 +42,7 @@ def show_sampled_edges(image, labels, graph,
 
     return out
 
+
 def make_grid_samples(batch, edges_pw, n_clusters):
     res = []
     for i in range(len(batch['graph'])):
@@ -50,18 +50,18 @@ def make_grid_samples(batch, edges_pw, n_clusters):
         im = np.rollaxis(im, 0, 3).astype(np.uint8)
         labels = batch['labels'][i].squeeze().cpu().detach().numpy()
         graph = batch['graph'][i]
-        predictions = np.array([graph.nodes[n]['cluster'] for n in graph.nodes()])
+        predictions = np.array(
+            [graph.nodes[n]['cluster'] for n in graph.nodes()])
         predictions = utls.to_onehot(predictions, n_clusters)
 
         tile = make_tiled_clusters(im, labels, predictions)
-        im_graph = show_sampled_edges(im,
-                                      labels.astype(int),
-                                      graph,
+        im_graph = show_sampled_edges(im, labels.astype(int), graph,
                                       edges_pw[i])
         res.append(np.concatenate((tile, im_graph), axis=1))
 
     return np.concatenate(res, axis=0)
-    
+
+
 def my_show_rag(graph, image, labels, probas, truth=None):
 
     cmap = plt.get_cmap('viridis')
@@ -69,29 +69,31 @@ def my_show_rag(graph, image, labels, probas, truth=None):
                           graph.nodes[n2]['centroid'][::-1]
                           for n1, n2 in graph.edges()])
 
-    cvt = np.array([labels.shape[0], labels.shape[1],
-                    labels.shape[0], labels.shape[1]])
+    cvt = np.array(
+        [labels.shape[0], labels.shape[1], labels.shape[0], labels.shape[1]])
     centroids *= cvt
     centroids = centroids.astype(int)
 
     lines = [np.array(draw.line(*r)) for r in centroids]
 
-    colors = np.concatenate([np.repeat((np.array(cmap(p)[:3]))[..., None],
-                                       l.shape[1],
-                                       axis=1)
-                             for l, p in zip(lines, probas)], axis=1)
+    colors = np.concatenate([
+        np.repeat((np.array(cmap(p)[:3]))[..., None], l.shape[1], axis=1)
+        for l, p in zip(lines, probas)
+    ],
+                            axis=1)
     colors = (colors * 255).astype(int)
 
     lines = np.concatenate(lines, axis=1)
 
     out = image.copy()
     out[segmentation.find_boundaries(labels), ...] = (0, 0, 0)
-    if(truth is not None):
+    if (truth is not None):
         out[segmentation.find_boundaries(truth), ...] = (255, 0, 0)
 
     out[lines[0], lines[1], :] = colors.T
 
     return out
+
 
 def make_grid_rag(im, labels, rag, probas, truth=None):
 
@@ -109,7 +111,7 @@ def make_grid_rag(im, labels, rag, probas, truth=None):
                   edge_width=0.5,
                   edge_cmap='viridis')
     fig.colorbar(lc, ax=ax, fraction=0.03)
-    if(truth is not None):
+    if (truth is not None):
         truth_contour = segmentation.find_boundaries(truth, mode='thick')
         im[truth_contour, ...] = (255, 0, 0)
     ax.axis('off')
@@ -121,12 +123,15 @@ def make_grid_rag(im, labels, rag, probas, truth=None):
     plt.close(fig)
     return im_plot
 
+
 def make_clusters(labels, predictions):
     cmap = plt.get_cmap('viridis')
     shape = labels.shape
     n_clusters = predictions.shape[1]
-    mapping = np.array([(np.array(cmap(c / n_clusters)[:3]) * 255).astype(np.uint8)
-                    for c in np.argmax(predictions, axis=1)])
+    mapping = np.array([
+        (np.array(cmap(c / n_clusters)[:3]) * 255).astype(np.uint8)
+        for c in np.argmax(predictions, axis=1)
+    ])
     mapping = np.concatenate((np.unique(labels)[..., None], mapping), axis=1)
 
     _, ind = np.unique(labels, return_inverse=True)
@@ -134,6 +139,7 @@ def make_clusters(labels, predictions):
     clusters_colorized = clusters_colorized.astype(np.uint8)
 
     return clusters_colorized
+
 
 def make_tiled_clusters(im, labels, predictions):
 
@@ -144,33 +150,26 @@ def make_tiled_clusters(im, labels, predictions):
 
 def make_data_aug(cfg):
     transf = iaa.Sequential([
-        iaa.SomeOf(3,
-                    [iaa.Affine(
-                        scale={
-                            "x": (1 - cfg.aug_scale,
-                                    1 + cfg.aug_scale),
-                            "y": (1 - cfg.aug_scale,
-                                    1 + cfg.aug_scale)
-                        },
-                        rotate=(-cfg.aug_rotate,
-                                cfg.aug_rotate),
-                        shear=(-cfg.aug_shear,
-                                cfg.aug_shear)),
-                    iaa.SomeOf(1, [
-                    iaa.AdditiveGaussianNoise(
-                        scale=cfg.aug_noise*255),
-                        iaa.GaussianBlur(sigma=(0., cfg.aug_blur))]),
-                     # iaa.GammaContrast((0., cfg.aug_gamma))]),
-                    iaa.Fliplr(p=0.5),
-                    iaa.Flipud(p=0.5)]),
-        rescale_augmenter])
+        iaa.BilateralBlur(d=3, sigma_color=cfg.aug_blur_color,
+                          sigma_space=cfg.aug_blur_space),
+        iaa.Affine(scale={
+            "x": (1 - cfg.aug_scale, 1 + cfg.aug_scale),
+            "y": (1 - cfg.aug_scale, 1 + cfg.aug_scale)
+        },
+                   rotate=(-cfg.aug_rotate, cfg.aug_rotate),
+                   shear=(-cfg.aug_shear, cfg.aug_shear)),
+        iaa.AdditiveGaussianNoise(scale=(0, cfg.aug_noise * 255)),
+        iaa.Fliplr(p=0.5),
+        iaa.Flipud(p=0.5),
+    ])
 
-    transf_normal = Normalize(
-            mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    # transf_normal = Normalize(
+    #         mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    transf_normal = iaa.Sequential([rescale_augmenter,
+                                    center_augmenter])
 
     return transf, transf_normal
 
-    
 
 def make_1d_gauss(length, std, x0):
 
@@ -201,10 +200,10 @@ def imread(path, scale=True):
     if (scale):
         im = im / 255
 
-    if(im.dtype == 'uint16'):
+    if (im.dtype == 'uint16'):
         im = (im / 255).astype(np.uint8)
 
-    if(len(im.shape) < 3):
+    if (len(im.shape) < 3):
         im = np.repeat(im[..., None], 3, -1)
 
     if (im.shape[-1] > 3):
@@ -229,17 +228,17 @@ def one_channel_tensor_to_img(tnsr, rescale=False):
     im = np.repeat(im, 3, axis=-1)
     return im
 
+
 def make_label_clusters(labels_batch, clusters_batch):
 
     ims = []
 
-    if(isinstance(labels_batch, torch.Tensor)):
+    if (isinstance(labels_batch, torch.Tensor)):
         labels_batch = labels_batch.squeeze(1).cpu().numpy()
 
-    if(isinstance(clusters_batch, torch.Tensor)):
+    if (isinstance(clusters_batch, torch.Tensor)):
         n_labels = [np.unique(labs).size for labs in labels_batch]
-        clusters_batch = torch.split(clusters_batch,
-                                     n_labels, dim=0)
+        clusters_batch = torch.split(clusters_batch, n_labels, dim=0)
 
     for labels, clusters in zip(labels_batch, clusters_batch):
         map_ = np.zeros(labels.shape[:2]).astype(np.uint8)
@@ -273,12 +272,11 @@ def make_tiled(tnsr_list, rescale=True):
 
     arr_list = list()
     for i, t in enumerate(tnsr_list):
-        if(isinstance(t, torch.Tensor)):
-            t = np.vstack([img_tensor_to_img(t_, rescale[i])
-                    for t_ in t])
+        if (isinstance(t, torch.Tensor)):
+            t = np.vstack([img_tensor_to_img(t_, rescale[i]) for t_ in t])
         else:
             t = np.vstack([t_ for t_ in t])
-                
+
         arr_list.append(t)
 
     all = np.concatenate(arr_list, axis=1)
@@ -305,4 +303,3 @@ def to_tensor(x):
     # copy to avoid "negative stride numpy" problem
     x = x.transpose((2, 0, 1)).copy()
     return torch.from_numpy(x).float()
-

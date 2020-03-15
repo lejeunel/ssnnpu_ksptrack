@@ -2,8 +2,8 @@ import torch
 import numpy as np
 from tqdm import tqdm
 from ksptrack.siamese import im_utils
+from ksptrack.siamese import utils as utls
 from skimage import segmentation
-import utils as utls
 
 
 def do_prev_clusters_init(dataloader,
@@ -103,11 +103,12 @@ def do_prev_clusters(model, device, dataloader, *args):
     return prevs
 
 
-def get_features(model, dataloader, device, do_sp_weights=False):
+def get_features(model, dataloader, device, all_edges_nn=None,
+                 return_assign=False):
     # form initial cluster centres
-    features = []
     labels_pos_mask = []
-    weights = []
+    assignments = []
+    features = []
 
     model.eval()
     model.to(device)
@@ -118,23 +119,43 @@ def get_features(model, dataloader, device, do_sp_weights=False):
         with torch.no_grad():
             res = model(data)
 
+        if(return_assign):
+            assignments.append(res['clusters'].argmax(dim=1).cpu().numpy())
+
         if (len(data['labels_clicked']) > 0):
-            new_labels_pos = [
+            clicked_labels = [
                 item for sublist in data['labels_clicked']
                 for item in sublist
             ]
+
+            if(all_edges_nn is not None):
+                new_pseudo_clicked = []
+                edges_nn = all_edges_nn[data['frame_idx'][0]]
+                edges_mask = torch.zeros(edges_nn.shape[0]).bool().to(device)
+                for l in clicked_labels:
+                    edges_mask += (edges_nn[:, 0] == l)
+                    edges_mask += (edges_nn[:, 1] == l)
+                    c = res['clusters'][l].argmax()
+                    edges_mask *= res['clusters'].argmax(dim=1)[edges_nn[:, 0]] == c
+                    edges_mask *= res['clusters'].argmax(dim=1)[edges_nn[:, 1]] == c
+                    new_labels = edges_nn[edges_mask, :].cpu().numpy()
+                    new_labels = np.unique(new_labels).tolist()
+                    new_pseudo_clicked += new_labels
+
+                clicked_labels += new_pseudo_clicked
+
             labels_pos_mask.append([
-                True if l in new_labels_pos else False
+                True if l in clicked_labels else False
                 for l in np.unique(data['labels'].cpu().numpy())
             ])
-        if(do_sp_weights):
-            labels = data['labels'].cpu().squeeze().numpy()
-            prior = data['prior'].cpu().squeeze().numpy()
-            weights_ = np.array([prior[labels == l].mean() for l in np.unique(labels)])
-            weights.append(weights_)
-        feat = res['pooled_aspp_feats'].cpu().numpy()
-        features.append(feat)
+
+        # aspp_feats = res['aspp_feats'].detach().cpu().numpy().squeeze()
+        # labels = data['labels'].squeeze().detach().cpu().numpy()
+        features.append(res['pooled_aspp_feats'].detach().cpu().numpy().squeeze())
         pbar.update(1)
     pbar.close()
 
-    return features, labels_pos_mask, weights
+    if(return_assign):
+        return features, labels_pos_mask, np.concatenate(assignments)
+    else:
+        return features, labels_pos_mask

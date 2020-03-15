@@ -40,7 +40,11 @@ def combine_nn_edges(edges_nn_list):
     return torch.cat(combined_edges_nn, dim=0)
 
 
-def make_single_graph_nn_edges(g, device, nn_radius=None):
+def make_single_graph_nn_edges(g, device, nn_radius=None, add_self_loops=True):
+    if(add_self_loops):
+        self_edges = [(n, n) for n in g.nodes()]
+        g.add_edges_from(self_edges)
+
     if(nn_radius is None):
         all_edges = np.array([(n0, n1) for n0, n1 in g.edges()
                               if(g.edges[n0, n1]['adjacent'])])
@@ -62,7 +66,8 @@ def make_single_graph_nn_edges(g, device, nn_radius=None):
     return edges_nn
 
 
-def make_couple_graphs(model, device, batch, nn_radius, do_inter_frame=True):
+def make_couple_graphs(model, device, batch, nn_radius, do_inter_frame=True,
+                       do_self_loop=True):
     """
     Builds edge array with nearest neighbors on same frame and next-frame
     Also assign clusters to each label according to DEC model
@@ -89,12 +94,19 @@ def make_couple_graphs(model, device, batch, nn_radius, do_inter_frame=True):
 
     if (do_inter_frame):
         all_nodes = np.array([n for n in merged.nodes()])
-        all_edges = np.array(list(combinations(all_nodes, 2)))
+        all_edges = list(combinations(all_nodes, 2))
+        if(do_self_loop):
+            all_edges += [(n, n) for n in all_nodes]
+        all_edges = np.array(all_edges)
     else:
         all_nodes_0 = np.array([n for n in g.nodes()])
         all_nodes_1 = np.array([n for n in h_.nodes()])
-        all_edges = np.array(list(combinations(all_nodes_0, 2)) + \
-                             list(combinations(all_nodes_1, 2)) )
+        all_edges = list(combinations(all_nodes_0, 2)) + \
+                             list(combinations(all_nodes_1, 2))
+        if(do_self_loop):
+            all_edges += [(n, n) for n in np.concatenate((all_nodes_0, all_nodes_1))]
+
+        all_edges = np.array(all_edges)
 
     centroids_x = np.array([merged.nodes[n]['centroid'][0] for n in merged])
     centroids_y = np.array([merged.nodes[n]['centroid'][1] for n in merged])
@@ -112,7 +124,7 @@ def make_couple_graphs(model, device, batch, nn_radius, do_inter_frame=True):
 def make_all_couple_graphs(model, device, stack_loader, nn_radius,
                            do_inter_frame=True):
 
-    couple_graphs = nx.DiGraph()
+    couple_graphs = nx.Graph()
     print('making NN-graphs')
     for sample in tqdm(stack_loader):
         edges_nn, clst0, clst1 = make_couple_graphs(model,

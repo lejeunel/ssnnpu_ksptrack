@@ -67,7 +67,7 @@ class TrackletManager:
 
         # Get superpixels candidates
         sps = self.sps_man.graph[(t_arg.get_out_frame(),
-                                    t_arg.get_out_label())]
+                                  t_arg.get_out_label())]
         if(direction == 'forward'):
             keys = [k for k in sps.keys() if(k[0] > t_arg.get_out_frame())]
         else:

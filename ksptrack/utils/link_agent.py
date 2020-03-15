@@ -25,7 +25,7 @@ class LinkAgent(ABC):
         self.labels = np.load(pjoin(data_path, 'precomp_desc', 'sp_labels.npz'))['sp_labels']
         self.shape = self.labels[..., 0].shape
         self.trans_transform = None
-        self.thr_clip = 0.05
+        self.thr_clip = 0.001
         self.locs = csv.readCsv(csv_path, as_pandas=True)
         self.thr_entrance = thr_entrance
 

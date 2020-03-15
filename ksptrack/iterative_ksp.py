@@ -24,6 +24,20 @@ class Bunch(object):
         self.__dict__.update(adict)
 
 
+def merge_positives(sp_desc_df, pos_for, pos_back):
+
+    to_add = pd.DataFrame(list(set(pos_back + pos_for)),
+                          columns=['frame', 'label'])
+    to_add['positive'] = True
+    sp_desc_df = pd.merge(sp_desc_df,
+                          to_add,
+                          how='left',
+                          on=['frame', 'label']).fillna(False)
+    sp_desc_df['positive'] = (sp_desc_df['positive_x'] | sp_desc_df['positive_y'])
+    sp_desc_df = sp_desc_df.drop(columns=['positive_x', 'positive_y'])
+    return sp_desc_df
+
+
 def make_link_agent(labels, cfg):
 
     if (cfg.siam_path):
@@ -33,25 +47,25 @@ def make_link_agent(labels, cfg):
         with open(cfg_path) as f:
             cfg_siam = Bunch(yaml.load(f, Loader=yaml.FullLoader))
         model = Siamese(cfg_siam.embedded_dims, cfg_siam.n_clusters,
-                    cfg_siam.roi_output_size, cfg_siam.roi_spatial_scale,
-                    cfg_siam.alpha)
+                        cfg_siam.roi_output_size, cfg_siam.roi_spatial_scale,
+                        cfg_siam.alpha)
         print('loading checkpoint {}'.format(cfg.siam_path))
         state_dict = torch.load(cfg.siam_path,
                                 map_location=lambda storage, loc: storage)
-        model.load_state_dict(state_dict)
+        model.load_state_dict(state_dict, strict=True)
         link_agent = LinkAgentModel(csv_path=pjoin(cfg.in_path, cfg.locs_dir,
-                                                    cfg.csv_fname),
-                                     data_path=cfg.in_path,
-                                     model=model,
-                                     entrance_radius=cfg.norm_neighbor_in,
-                                     cuda=cfg.cuda)
+                                                   cfg.csv_fname),
+                                    data_path=cfg.in_path,
+                                    model=model,
+                                    entrance_radius=cfg.norm_neighbor_in,
+                                    cuda=cfg.cuda)
         # compute features if necessary
         path_feats = pjoin(cfg.in_path, cfg.precomp_dir, 'sp_desc_siam.p')
-        path_centroids = pjoin(cfg.in_path, cfg.precomp_dir, 'centroids_loc_df.p')
+        path_centroids = pjoin(cfg.in_path, cfg.precomp_dir,
+                               'centroids_loc_df.p')
 
         print('computing features to {}'.format(path_feats))
-        feats = [list(f.cpu().numpy()) for f in link_agent.feats]
-        feats = [item for sublist in feats for item in sublist]
+        feats = [item for sublist in link_agent.feats for item in sublist]
         centroids = pd.read_pickle(path_centroids)
         feats = centroids.assign(desc=feats)
         print('Saving features to {}'.format(path_feats))
@@ -109,15 +123,16 @@ def main(cfg):
     dm.calc_sp_feats(cfg)
 
     link_agent = make_link_agent(dm.labels, cfg)
-    if(isinstance(link_agent, LinkAgentModel)):
+    if (isinstance(link_agent, LinkAgentModel)):
         print('will use DEC/siam features')
         dm.feats_mode = 'siam'
         #force reload features
         dm.sp_desc_df_ = None
 
     locs2d_sps = link_agent.get_all_entrance_sps(dm.sp_desc_df)
+    dm.sp_desc_df['positive'] = locs2d_sps
 
-    dm.calc_pm(np.array(locs2d_sps), cfg.bag_n_feats, cfg.bag_t,
+    dm.calc_pm(dm.sp_desc_df['positive'], cfg.bag_n_feats, cfg.bag_t,
                cfg.bag_max_depth, cfg.bag_max_samples, cfg.bag_jobs)
 
     link_agent.update_trans_transform(np.vstack(dm.sp_desc_df['desc'].values),
@@ -239,17 +254,20 @@ def main(cfg):
 
             # Recompute PM values
             if (i + 1 < cfg.n_iters_ksp):
+                dm.sp_desc_df_ = merge_positives(dm.sp_desc_df_,
+                                                 marked_for,
+                                                 marked_back)
                 dm.calc_pm(
-                    np.array(list(set(locs2d_sps + marked_back + marked_for))),
+                    dm.sp_desc_df['positive'],
                     cfg.bag_n_feats, cfg.bag_t, cfg.bag_max_depth,
                     cfg.bag_max_samples, cfg.bag_jobs)
-            link_agent.update_trans_transform(np.vstack(dm.sp_desc_df['desc'].values),
-                                              dm.fg_pm_df['proba'].values,
-                                              [cfg.ml_down_thr, cfg.ml_up_thr],
-                                              cfg.ml_n_samps,
-                                              cfg.lfda_dim,
-                                              cfg.lfda_k,
-                                              embedding_type=cfg.ml_embedding)
+            link_agent.update_trans_transform(
+                np.vstack(dm.sp_desc_df['desc'].values),
+                dm.fg_pm_df['proba'].values, [cfg.ml_down_thr, cfg.ml_up_thr],
+                cfg.ml_n_samps,
+                cfg.lfda_dim,
+                cfg.lfda_k,
+                embedding_type=cfg.ml_embedding)
 
             i += 1
 

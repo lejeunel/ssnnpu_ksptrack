@@ -34,10 +34,7 @@ def fit_trees(args):
         model = DecisionTreeClassifier(
             max_depth=bag_max_depth,
             criterion='gini',
-            splitter='best',
-            presort=True,
-            # max_features=bag_n_feats,
-            max_features=None,
+            max_features=bag_n_feats,
             class_weight='balanced')
 
         model.fit(data_bootstrap, train_label)
@@ -57,7 +54,6 @@ def calc_bagging(feats,
                  T,
                  bag_max_depth,
                  bag_n_feats,
-                 all_feats_df=None,
                  bag_max_samples=500,
                  n_jobs=4):
     #marked_arr: has index of frame and corresponding superpixel label. Taken as positive samples
@@ -78,6 +74,8 @@ def calc_bagging(feats,
     NU = data_U.shape[0]
 
     print('number of positives samples: {}'.format(NP))
+    print('max tree depth: {}'.format(bag_max_depth))
+    print('max num feats: {}'.format(bag_n_feats))
 
     np.random.seed(0)
 

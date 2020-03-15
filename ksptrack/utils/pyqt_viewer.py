@@ -157,6 +157,12 @@ class Window(QtGui.QMainWindow):
             pbar.update(1)
         pbar.close()
 
+        self.mouse_clicks = []
+
+        if(os.path.exists(out_csv)):
+            print('found csv file {}'.format(out_csv))
+            print('will load it')
+            self.read_click_csv(out_csv)
         self.out_csv = out_csv
 
         path = os.path.split(self.out_csv)[0]
@@ -166,8 +172,6 @@ class Window(QtGui.QMainWindow):
 
         print('done.')
         self.curr_img = self.frames[0]
-
-        self.mouse_clicks = []
 
         # add the menubar with the method createMenuBar()
         self.createMenuBar()
@@ -241,6 +245,14 @@ class Window(QtGui.QMainWindow):
         })
 
         self.updateFrame(self.curr_idx)
+
+    def read_click_csv(self, out_csv):
+        in_ = pd.read_csv(out_csv, header=4, sep=';')
+        self.mouse_clicks = [{
+            'frame': r['frame'],
+            'x': r['x'],
+            'y': r['y']
+        } for _, r in in_.iterrows()]
 
     def write_click_csv(self, n_frames):
 

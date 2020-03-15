@@ -7,7 +7,7 @@ def main(cfg):
 
     train_init_clst.main(cfg)
 
-    train_dec.main(cfg)
+    # train_dec.main(cfg)
 
     train_siam.main(cfg)
 

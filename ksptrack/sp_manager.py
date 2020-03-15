@@ -1,14 +1,11 @@
 import logging
 import numpy as np
-from ksptrack.utils import my_utils as utls
 from ksptrack.hoof_extractor import HOOFExtractor
 import tqdm
 import os
 import pickle as pk
-import matplotlib.pyplot as plt
 import networkx as nx
 import pandas as pd
-import tqdm
 
 
 class SuperpixelManager:
@@ -16,7 +13,6 @@ class SuperpixelManager:
     Builds undirected graphs to decide which SP connects to which 
     Optionally computes Histograms of Oriented Optical Flow intersections
     """
-
     def __init__(self,
                  dm,
                  directions=['forward', 'backward'],
@@ -33,12 +29,10 @@ class SuperpixelManager:
         self.desc_path = dm.desc_path
         self.graph = self.make_dicts()
 
-
     def make_dicts(self):
         #self.dict_init = self.make_init_dicts()
         self.graph = self.make_transition_constraint()
-        file_hoof_sps = os.path.join(self.desc_path,
-                                        'hoof_inters_graph.npz')
+        file_hoof_sps = os.path.join(self.desc_path, 'hoof_inters_graph.npz')
 
         hoof_extr = HOOFExtractor(self.dm.root_path,
                                   self.dm.desc_dir,
@@ -55,8 +49,7 @@ class SuperpixelManager:
         Makes a first "gross" filtering of transition.
         """
 
-        file_graph = os.path.join(self.desc_path,
-                                  'transition_constraint.p')
+        file_graph = os.path.join(self.desc_path, 'transition_constraint.p')
         if (not os.path.exists(file_graph)):
             f = self.c_loc['frame']
             s = self.c_loc['label']
@@ -81,26 +74,21 @@ class SuperpixelManager:
                     deep=False)
                 df1 = self.c_loc.loc[self.c_loc['frame'] == f1].copy(
                     deep=False)
+
+                # this compute distance between all combinations
                 df0.columns = ['frame_0', 'label_0', 'x0', 'y0']
                 df1.columns = ['frame_1', 'label_1', 'x1', 'y1']
                 df0.loc[:, 'key'] = 1
                 df1.loc[:, 'key'] = 1
-                df_combs = pd.merge(df0, df1, on='key').drop('key', axis=1)
-                df_combs['rx'] = df_combs['x0'] - df_combs['x1']
-                df_combs['ry'] = df_combs['y0'] - df_combs['y1']
-                r = np.concatenate((df_combs['rx'].values.reshape(-1, 1),
-                                    df_combs['ry'].values.reshape(-1, 1)),
-                                    axis=1)
-                dists = np.linalg.norm(r, axis=1)
-                df_combs['dist'] = dists
-                df_combs = df_combs.loc[
-                    df_combs['dist'] < self.init_radius]
-
-                # add edges with overlap=False by default, will change below
-                edges = [((row[1], row[2]), (row[5], row[6]),
-                          dict(dist=row[10], overlap=False))
-                            for row in df_combs.itertuples()]
-                g.add_edges_from(edges)
+                df_dists = pd.merge(df0, df1, on='key').drop('key', axis=1)
+                df_dists['rx'] = df_dists['x0'] - df_dists['x1']
+                df_dists['ry'] = df_dists['y0'] - df_dists['y1']
+                r = np.concatenate((df_dists['rx'].values.reshape(
+                    -1, 1), df_dists['ry'].values.reshape(-1, 1)),
+                                   axis=1)
+                dists = np.sqrt(r[:, 0]**2 + r[:, 1]**2)
+                df_dists['dist'] = dists
+                df_dists = df_dists.loc[df_dists['dist'] < self.init_radius]
 
                 # Find overlapping labels between consecutive frames
                 l_0 = self.labels[..., frames_tup[i][0]][..., np.newaxis]
@@ -108,8 +96,29 @@ class SuperpixelManager:
                 concat_ = np.concatenate((l_0, l_1), axis=-1)
                 concat_ = concat_.reshape((-1, 2))
                 ovl = np.asarray(list(set(list(map(tuple, concat_)))))
-                edges = [((f0, l[0]), (f1, l[1]), dict(overlap=True))
-                         for l in ovl]
+                df_overlap = pd.DataFrame(data=ovl, columns=['label_0',
+                                                             'label_1'])
+                df_overlap['frame_0'] = f0
+                df_overlap['frame_1'] = f1
+                df_overlap['overlap'] = True
+
+                # set overlap values
+                df_all = pd.merge(df_dists,
+                                  df_overlap,
+                                  how='left',
+                                  on=['frame_0', 'label_0',
+                                      'frame_1', 'label_1']).fillna(False)
+
+                # add edges
+                edges = np.stack((df_all['frame_0'].values,
+                                  df_all['label_0'].values,
+                                  df_all['frame_1'].values,
+                                  df_all['label_1'].values,
+                                  df_all['dist'].values,
+                                  df_all['overlap'])).T.astype(np.float16)
+                edges = [((e[0], e[1]), (e[2], e[3]),
+                          dict(dist=e[4], overlap=e[5]))
+                         for e in edges]
                 g.add_edges_from(edges)
 
             bar.close()
@@ -129,8 +138,7 @@ class SuperpixelManager:
         Makes a first "gross" filtering of transition.
         """
 
-        file_graph = os.path.join(self.desc_path,
-                                  'overlap_constraint.p')
+        file_graph = os.path.join(self.desc_path, 'overlap_constraint.p')
         if (not os.path.exists(file_graph)):
             f = self.c_loc['frame']
             s = self.c_loc['label']
@@ -157,7 +165,6 @@ class SuperpixelManager:
                 concat_ = np.concatenate((l_0, l_1), axis=-1)
                 concat_ = concat_.reshape((-1, 2))
                 ovl = np.asarray(list(set(list(map(tuple, concat_)))))
-                ovl_list = list()
                 for l0 in np.unique(ovl[:, 0]):
                     ovl_ = ovl[ovl[:, 0] == l0, 1].tolist()
                     edges = [((f0, l0), (f1, l1)) for l1 in ovl_]
@@ -174,7 +181,6 @@ class SuperpixelManager:
                 g = pk.load(f)
         self.graph_init = g
         return g
-
 
     def __getstate__(self):
         d = dict(self.__dict__)

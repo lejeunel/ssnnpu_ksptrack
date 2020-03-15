@@ -2,38 +2,52 @@ from string import Template
 import subprocess
 from os.path import join as pjoin
 
-job_names = ['tw', 'co', 'sl', 'br', 'sp', 'lv']
-seq_type = list(range(6))
-n_seqs_per_type = [6, 4, 6, 6, 6, 5]
 
-run_dirs = [
-    ' '.join([
-        'Dataset' + str(t) + str(n) for n in list(range((n_seqs_per_type[t])))
-    ]) for t in seq_type
-]
-train_dirs = [
-    ' '.join([str(t) + str(n) for n in list(range(n_seqs_per_type[t]))])
-    for t in seq_type
-]
+def split_list(alist, wanted_parts=1):
+    length = len(alist)
+    return [alist[i*length // wanted_parts: (i+1)*length // wanted_parts]
+            for i in range(wanted_parts)]
+
+
+seq_type = list(range(4))
+seqs_per_type = [[0, 4],
+                 [0, 2],
+                 [0, 1, 2, 3],
+                 [0, 1, 2, 3]]
+
+run_dirs = [['Dataset' + str(t) + str(n)
+             for n in seqs_per_type[t]]
+            for t in seq_type]
+
+train_dirs = [[str(t) + str(n) for n in seqs_per_type[t]]
+              for t in seq_type]
+
+n_jobs = 12
+
+run_dirs = [item for sublist in run_dirs for item in sublist]
+run_dirs = split_list(run_dirs, n_jobs)
+
+train_dirs = [item for sublist in train_dirs for item in sublist]
+train_dirs = split_list(train_dirs, n_jobs)
 
 script_path = '$HOME/Documents/software/ksptrack/ksptrack/siamese'
 script_name = 'train_all_type.py'
 
 out_root = pjoin('$HOME/runs', 'siamese_dec')
-flags = '--cuda --skip-train-dec'
+flags = '--cuda'
 
 job_prefix = 'sm'
 
 args = [{
-    'job_name': job_prefix + jn,
-    'run_dirs': rd,
-    'train_dirs': td,
+    'job_name': job_prefix + str(i),
+    'run_dirs': ' '.join(rd),
+    'train_dirs': ' '.join(td),
     'script_path': script_path,
     'script_name': script_name,
     'in_root': '$HOME/data/medical-labeling',
     'out_root': out_root,
     'flags': flags
-} for jn, rd, td in zip(job_names, run_dirs, train_dirs)]
+} for i, (rd, td) in enumerate(zip(run_dirs, train_dirs))]
 
 template = """#!/bin/env bash
 
@@ -45,7 +59,7 @@ template = """#!/bin/env bash
 #SBATCH --gres=gpu:gtx1080ti:1
 #SBATCH --output=/home/ubelix/artorg/lejeune/runs/logs/%x.out
 
-simg=$$HOME/ksptrack-ubelix.simg
+simg=$$HOME/mleval-ubelix.simg
 pyversion=my-3.7
 
 export OMP_NUM_THREADS=1
@@ -56,17 +70,18 @@ singularity exec --nv $$simg /bin/bash -c "source $$HOME/.bashrc && pyenv activa
 
 """
 
-job_mask = [True, True, True, True, True, True]
+# job_mask = [True, False, False, False, False, False]
+# job_mask = [True, True, True, True, False, False]
 
 for i, args_ in enumerate(args):
-    if (job_mask[i]):
-        src = Template(template)
-        content = src.substitute(args_)
+    # if (job_mask[i]):
+    src = Template(template)
+    content = src.substitute(args_)
 
-        print('-----------------------------------')
-        print(content)
-        print('-----------------------------------')
-        text_file = open('tmp_', 'w')
-        text_file.write(content)
-        text_file.close()
-        subprocess.call(["sbatch", 'tmp_'])
+    print('-----------------------------------')
+    print(content)
+    print('-----------------------------------')
+    text_file = open('tmp_', 'w')
+    text_file.write(content)
+    text_file.close()
+    subprocess.call(["sbatch", 'tmp_'])

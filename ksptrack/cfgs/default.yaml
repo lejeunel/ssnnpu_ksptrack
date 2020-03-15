@@ -20,7 +20,7 @@ slic-rel-size : 0.1
 # Superpixel transitions
 # sp-trans-init-mode : 'overlap'
 sp-trans-init-mode : 'radius'
-sp-trans-init-radius : 0.15
+sp-trans-init-radius : 0.08
 
 # Optical flow
 oflow-alpha : 0.012
@@ -35,31 +35,31 @@ n-iters-ksp : 1
 monitor-score : False
 
 # Bagging---------------
-bag-t : 300
+bag-t : 500
 bag-n-bins : 100
-bag-n-feats : 256
+bag-n-feats : 0.02
 bag-max-samples : 1000
 bag-max-depth : 64
 bag-jobs : 1
 #-----------------------
 
 use-hoof : True
-hoof-tau-u : 0.
-hoof-n-bins: 10
+hoof-tau-u : -1 # set to -1 to disactivate!
+hoof-n-bins: 100
 
 # Metric learning
 n-comp-pca : 3
 lfda-k : 7
 lfda-dim : 10
 ml-n-samps : 6000
-ml-up-thr : 0.5
-ml-down-thr : 0.5
+ml-up-thr : 0.7
+ml-down-thr : 0.3
 ml-sigma : 1
 ml-embedding : 'orthonormalized'
 pca : False  #Overrides LFDA and computes PCA with n-components:lfda-dims
 
 # Graph parameters
-norm-neighbor : 0.
+norm-neighbor : 0.05
 norm-neighbor-in : 0.08
 thr-entrance : 0.8
 

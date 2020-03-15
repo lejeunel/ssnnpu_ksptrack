@@ -308,7 +308,7 @@ class DataManager:
                 os.path.join(self.desc_path,
                             'centroids_loc_df.p'))
         else:
-            self.logger.info("Superpixels were already computer. Delete to re-run.")
+            self.logger.info("Superpixels were already computed. Delete to re-run.")
 
 
     def calc_sp_feats(self, cfg):
@@ -454,6 +454,35 @@ class DataManager:
 
         return scores
 
+    def calc_svc(self,
+                 X,
+                 y):
+
+        from ksptrack.utils.puAdapter import PUAdapter
+        from sklearn.svm import SVC
+
+        y = y.astype(int)
+        y[np.where(y == 0)[0]] = -1.
+        estimator = SVC(C=10,
+                        kernel='rbf',
+                        gamma=0.4,
+                        probability=True)
+        pu_estimator = PUAdapter(estimator, hold_out_ratio=0.2)
+
+        self.logger.info('Fitting PU SVC model')
+        pu_estimator.fit(X, y)
+
+        probas = pu_estimator.predict(X)
+
+        self.fg_pm_df = pd.DataFrame({
+            'frame': self.sp_desc_df['frame'],
+            'label': self.sp_desc_df['label'],
+            'proba': probas
+        })
+
+        return self.fg_pm_df
+
+
     def calc_pm(self,
                 pos_sps,
                 n_feats,
@@ -471,9 +500,12 @@ class DataManager:
         feats = np.vstack(self.sp_desc_df['desc'].to_numpy())
         frame_label_arr = np.stack((self.sp_desc_df['frame'],
                                           self.sp_desc_df['label'])).T
-        pos_idxs = [np.where((frame_label_arr[:, 0] == f) & (frame_label_arr[:, 1] == l))[0]
-                    for f, l in pos_sps]
-        pos_idxs = np.array(pos_idxs).flatten()
+        if(pos_sps.dtype != bool):
+            pos_idxs = [np.where((frame_label_arr[:, 0] == f) & (frame_label_arr[:, 1] == l))[0]
+                        for f, l in pos_sps]
+            pos_idxs = np.array(pos_idxs).flatten()
+        else:
+            pos_idxs = pos_sps
         class_labels = np.zeros(feats.shape[0]).astype(bool)
         class_labels[pos_idxs] = True
 

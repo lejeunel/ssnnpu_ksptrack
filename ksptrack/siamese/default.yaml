@@ -1,27 +1,27 @@
 frames: []
 
-epochs-autoenc: 80
+epochs-autoenc: 150
 epochs-dec: 100
-epochs-dist: 100
+epochs-dist: 200
 
 # generate previews every x epochs
-prev-period: 1
+prev-period: 5
 
-tgt-update-period: 800
-proba-update-period: 10
+tgt-update-period: 10
+proba-update-period: 5
 cp-period: 5
 
 # optimizer
-lr-dist: 0.1
-lr-autoenc: 0.01
-lr-assign: 1e-4
-decay : .01
-lr-power : 0.97
+lr-dist: 1e-3
+lr-autoenc: 1e-2
+lr-assign: 1e-3
+decay : 2e-4
+lr-power : 0.9
 momentum: 0.9
-gamma: 2e2
-lambda-: 1
+gamma: 0.1
+lambda-: 1e-5
+beta: 1
 alpha: 1
-beta: 0.8
 
 # batch
 batch-size: 2
@@ -41,21 +41,23 @@ in-shape: 600
 n-frames-epoch: 100
 
 # augmentation
-aug-noise: 0.1
-aug-blur: 1.
-aug-gamma: 0.05
+aug-noise: 0.08
+aug-blur-color: 30
+aug-blur-space: 50
+aug-gamma-low: 0.5
+aug-gamma-high: 2.0
 aug-flip-proba: 0.5
 aug-some: 2
 aug-scale: 0.3
-aug-rotate: 5.
-aug-shear: 12.5
+aug-rotate: 10.
+aug-shear: 20.
 
 # sampling
 n-edges-ratio: 0.05
 nn-radius: 0.1
 
 n-clusters: 15
-embedded-dims: 10
+embedded-dims: 15
 
 roi-output-size: 1
 roi-spatial-scale: 1.0
@@ -64,9 +66,11 @@ with-agglo: False
 with-pck: False
 with-flow: False
 reduc-method: 'lfda'
-ml-up-thr: 0.5
-ml-down-thr: 0.5
+ml-up-thr: 0.7
+ml-down-thr: 0.3
 bag-t: 300
+bag-n-feats : 0.1
+bag-max-depth : 64
 
 linkage: 'ward'
 

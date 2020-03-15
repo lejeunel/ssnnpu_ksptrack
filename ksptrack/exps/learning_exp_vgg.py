@@ -350,8 +350,8 @@ def main(confs,
             # Get normalization parameters of training set
             logger.info('Extracting X (train) normalization factors')
 
-            train_folds = np.asarray([fold_ids[j] for j in range(n_folds) if(fold_ids[j] != pred_fold)])
-
+            train_folds = np.asarray([fold_ids[j]
+                                      for j in range(n_folds) if(fold_ids[j] != pred_fold)])
 
             im_list_train = [datasets[train_folds[j]].conf.frameFileNames for j in range(train_folds.shape[0])]
             im_list_train = [item for sublist in im_list_train for item in sublist]

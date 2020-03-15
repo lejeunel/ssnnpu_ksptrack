@@ -324,22 +324,25 @@ class UNet(nn.Module):
     @classmethod
     def from_state_dict(cls, dict_):
         model = cls(dict_['in_channels'],
-                     dict_['out_channels'],
-                     depth=dict_['depth'],
-                     start_filts=dict_['start_filts'],
-                     up_mode=dict_['up_mode'],
-                     merge_mode=dict_['merge_mode'],
-                     cuda=False)
+                    dict_['out_channels'],
+                    depth=dict_['depth'],
+                    start_filts=dict_['start_filts'],
+                    up_mode=dict_['up_mode'],
+                    merge_mode=dict_['merge_mode'],
+                    cuda=False)
         model.load_state_dict(dict_)
         return model
 
     def forward(self, x):
         encoder_outs = []
+        in_shape = x.shape
 
         # encoder pathway, save outputs for merging
         for i, module in enumerate(self.down_convs):
             x, before_pool = module(x)
             encoder_outs.append(before_pool)
+
+        feats = encoder_outs[-1]
 
         for i, module in enumerate(self.up_convs):
             before_pool = encoder_outs[-(i + 2)]
@@ -352,8 +355,16 @@ class UNet(nn.Module):
 
         # pass through sigmoid
         x = self.sigmoid(x)
+        feats = F.interpolate(encoder_outs[-1],
+                              size=in_shape[2:],
+                              mode='bilinear',
+                              align_corners=True)
+        x = F.interpolate(x,
+                          size=in_shape[2:],
+                          mode='bilinear',
+                          align_corners=True)
 
-        return x
+        return {'output': x, 'aspp_feats': feats}
 
 
 if __name__ == "__main__":

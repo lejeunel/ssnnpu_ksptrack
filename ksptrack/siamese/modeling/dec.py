@@ -1,12 +1,9 @@
 import torch
 import torch.nn as nn
 from ksptrack.siamese.modeling.cluster import ClusterAssignment
-from ksptrack.models.deeplab_resnet import DeepLabv3_plus
 from ksptrack.models.deeplab import DeepLabv3Plus
-from ksptrack.siamese import utils as utls
-import numpy as np
 from torchvision.ops import RoIPool
-import torch.nn.functional as F
+from ksptrack.siamese.modeling.superpixPool.pytorch_superpixpool.suppixpool_layer import SupPixPool
 
 
 class SuperpixelPooling(nn.Module):
@@ -84,7 +81,7 @@ class DEC(nn.Module):
                  roi_size=1,
                  roi_scale=1.0,
                  alpha: float = 1.0,
-                 use_locations=False):
+                 use_flow=True):
         """
         Module which holds all the moving parts of the DEC algorithm, as described in
         Xie/Girshick/Farhadi; this includes the AutoEncoder stage and the ClusterAssignment stage.
@@ -100,16 +97,27 @@ class DEC(nn.Module):
         self.autoencoder = DeepLabv3Plus(pretrained=True)
         self.cluster_number = cluster_number
         self.alpha = alpha
+        self.embedding_dims = embedding_dims
 
-        self.use_locations = use_locations
+        self.use_flow = use_flow
 
-        self.roi_pool = RoIPooling((roi_size, roi_size), roi_scale)
+        # self.roi_pool = RoIPooling((roi_size, roi_size), roi_scale)
+        # self.roi_pool = PrRoIPool2D(roi_size, roi_size, roi_scale)
+        self.roi_pool = SupPixPool()
 
-        self.transform = nn.Linear(256, embedding_dims, bias=False)
-        self.assignment = ClusterAssignment(cluster_number, embedding_dims,
+        dim = 256
+        if(self.use_flow):
+            dim += 1
+        self.transform = nn.Linear(dim,
+                                   embedding_dims, bias=False)
+        self.assignment = ClusterAssignment(cluster_number,
+                                            embedding_dims,
                                             alpha)
 
     def set_clusters(self, clusters, requires_grad=True):
+        self.assignment = ClusterAssignment(clusters.shape[0],
+                                            self.embedding_dims,
+                                            self.alpha)
         clusters.requires_grad = requires_grad
         self.assignment.cluster_centers = nn.Parameter(clusters)
 
@@ -139,7 +147,14 @@ class DEC(nn.Module):
         """
 
         res = self.autoencoder(data['image'])
-        pooled_aspp_feats = self.roi_pool(res['aspp_feats'], data['bboxes'])
+        feats = res['aspp_feats']
+        if(self.use_flow):
+            feats = torch.cat((res['aspp_feats'], data['flows']), dim=1)
+
+        pooled_aspp_feats = [self.roi_pool(feats[b].unsqueeze(0),
+                                           data['labels'][b].unsqueeze(0)).squeeze().T
+                             for b in range(data['labels'].shape[0])]
+        pooled_aspp_feats = torch.cat(pooled_aspp_feats)
         res.update({'pooled_aspp_feats': pooled_aspp_feats})
 
         proj_pooled_aspp_feats = self.transform(pooled_aspp_feats)

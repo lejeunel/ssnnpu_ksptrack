@@ -1,13 +1,10 @@
 import numpy as np
-from ksptrack.utils import my_utils as utls
 from ksptrack.utils import optical_flow_extractor as oflowx
 from ksptrack.utils.regionprops import regionprops
 import pickle as pk
 import os
 from os.path import join as pjoin
-import matplotlib.pyplot as plt
 import networkx as nx
-import collections
 import pandas as pd
 import tqdm
 
@@ -98,7 +95,7 @@ class HOOFExtractor:
         if (not os.path.exists(file_out)):
             self.hoof = self.make_hoof()
 
-            edges_ = np.array([e for e in g.edges()])
+            edges_ = np.array([e for e in g.edges()]).astype(int)
             for dir_ in self.directions:
                 print('Computing HOOF intersections in {} direction'.format(
                     dir_))

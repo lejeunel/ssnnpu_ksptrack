@@ -50,10 +50,28 @@ def rescale_images(images, random_state, parents, hooks):
         result.append(image_aug)
     return result
 
+def center_rescaled_images(images, random_state, parents, hooks):
+
+    result = []
+    for image in images:
+        image_aug = np.copy(image)
+        if (image.dtype == np.uint8):
+            image_aug = image_aug - 128
+        else:
+            image_aug = 2*(image_aug - 0.5)
+        result.append(image_aug)
+    return result
+
 
 void_fun = lambda x, random_state, parents, hooks: x
 
 rescale_augmenter = iaa.Lambda(
     func_images=rescale_images,
+    func_heatmaps=void_fun,
+    func_keypoints=void_fun)
+
+
+center_augmenter = iaa.Lambda(
+    func_images=center_rescaled_images,
     func_heatmaps=void_fun,
     func_keypoints=void_fun)

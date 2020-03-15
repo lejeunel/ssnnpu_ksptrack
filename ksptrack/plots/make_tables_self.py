@@ -1,16 +1,9 @@
 from sklearn.metrics import (precision_recall_curve)
 from skimage import (color, segmentation)
 import os
-import datetime
-import yaml
-from labeling.utils import my_utils as utls
-import logging
 import numpy as np
-import matplotlib.pyplot as plt
 import pandas as pd
-from labeling.utils import learning_dataset
-from labeling.utils import csv_utils as csv
-from labeling.exps import results_dirs as rd
+from ksptrack.exps import results_dirs as rd
 
 """
 Reads (max) F1 scores in directories and make csv table
@@ -28,7 +21,7 @@ for key in rd.types:
     f1s_pm = []
     f1s_ksp = []
     f1s_crf = []
-    f1s_vilar = []
+    # f1s_vilar = []
     f1s_g2s = []
     f1s_mic17 = []
     f1s_wtp = []
@@ -36,7 +29,7 @@ for key in rd.types:
     prs_pm = []
     prs_ksp = []
     prs_crf = []
-    prs_vilar = []
+    # prs_vilar = []
     prs_g2s = []
     prs_mic17 = []
     prs_wtp = []
@@ -44,7 +37,7 @@ for key in rd.types:
     rcs_pm = []
     rcs_ksp = []
     rcs_crf = []
-    rcs_vilar = []
+    # rcs_vilar = []
     rcs_g2s = []
     rcs_mic17 = []
     rcs_wtp = []
@@ -65,7 +58,6 @@ for key in rd.types:
             pr_ksp = df.iloc[0]['PR']
             rc_pm = df.iloc[1]['RC']
             rc_ksp = df.iloc[0]['RC']
-            #f1_crf = df.iloc[3]['F1']
             f1s_pm.append(f1_pm)
             f1s_ksp.append(f1_ksp)
             rcs_pm.append(rc_pm)
@@ -94,21 +86,21 @@ for key in rd.types:
             print(file_wtp + ' does not exist')
 
         # Vilarino model
-        file_vilar = os.path.join(rd.root_dir,
-                                  rd.res_dirs_dict_vilar[key][i],
-                                  'scores.csv')
-        if(os.path.exists(file_vilar)):
-            print('Loading: ' + file_vilar)
-            df_vilar = pd.read_csv(file_vilar)
-            f1_vilar = df_vilar.loc[0]['F1']
-            f1s_vilar.append(f1_vilar)
-            pr_vilar = df_vilar.loc[0]['PR']
-            prs_vilar.append(pr_vilar)
-            rc_vilar = df_vilar.loc[0]['RC']
-            rcs_vilar.append(rc_vilar)
-        else:
-            print(file_vilar + ' does not exist.')
-            f1s_vilar.append(0.15)
+        # file_vilar = os.path.join(rd.root_dir,
+        #                           rd.res_dirs_dict_vilar[key][i],
+        #                           'scores.csv')
+        # if(os.path.exists(file_vilar)):
+        #     print('Loading: ' + file_vilar)
+        #     df_vilar = pd.read_csv(file_vilar)
+        #     f1_vilar = df_vilar.loc[0]['F1']
+        #     f1s_vilar.append(f1_vilar)
+        #     pr_vilar = df_vilar.loc[0]['PR']
+        #     prs_vilar.append(pr_vilar)
+        #     rc_vilar = df_vilar.loc[0]['RC']
+        #     rcs_vilar.append(rc_vilar)
+        # else:
+        #     print(file_vilar + ' does not exist.')
+            # f1s_vilar.append(0.15)
 
         # G2S model
         file_g2s = os.path.join(rd.root_dir,
@@ -125,7 +117,7 @@ for key in rd.types:
             rcs_g2s.append(rc_g2s)
         else:
             print(file_g2s + ' does not exist')
-            f1s_g2s.append(-1)
+            # f1s_g2s.append(-1)
 
         # MICCAI17 model
         file_mic17 = os.path.join(rd.root_dir,
@@ -139,7 +131,7 @@ for key in rd.types:
             rcs_mic17.append(df_mic17.iloc[0]['RC'])
         else:
             print(file_mic17 + ' does not exist')
-            f1s_mic17.append(-1)
+            # f1s_mic17.append(-1)
 
     all_scores.append(np.concatenate((np.asarray(f1s_pm).reshape(1,-1),
                                       np.asarray(prs_pm).reshape(1,-1),
@@ -161,16 +153,16 @@ for key in rd.types:
                                       np.mean(rcs_ksp).reshape(1,1),
                                       np.std(rcs_ksp).reshape(1,1)),
                                      axis=1))
-    all_scores.append(np.concatenate((np.asarray(f1s_vilar).reshape(1,-1),
-                                      np.asarray(prs_vilar).reshape(1,-1),
-                                      np.asarray(rcs_vilar).reshape(1,-1),
-                                      np.mean(f1s_vilar).reshape(1,1),
-                                      np.std(f1s_vilar).reshape(1,1),
-                                      np.mean(prs_vilar).reshape(1,1),
-                                      np.std(prs_vilar).reshape(1,1),
-                                      np.mean(rcs_vilar).reshape(1,1),
-                                      np.std(rcs_vilar).reshape(1,1)),
-                                     axis=1))
+    # all_scores.append(np.concatenate((np.asarray(f1s_vilar).reshape(1,-1),
+    #                                   np.asarray(prs_vilar).reshape(1,-1),
+    #                                   np.asarray(rcs_vilar).reshape(1,-1),
+    #                                   np.mean(f1s_vilar).reshape(1,1),
+    #                                   np.std(f1s_vilar).reshape(1,1),
+    #                                   np.mean(prs_vilar).reshape(1,1),
+    #                                   np.std(prs_vilar).reshape(1,1),
+    #                                   np.mean(rcs_vilar).reshape(1,1),
+    #                                   np.std(rcs_vilar).reshape(1,1)),
+    #                                  axis=1))
     all_scores.append(np.concatenate((np.asarray(f1s_g2s).reshape(1,-1),
                                       np.asarray(prs_g2s).reshape(1,-1),
                                       np.asarray(rcs_g2s).reshape(1,-1),
@@ -209,7 +201,7 @@ C = pd.Index(['0_F1', '1_F1', '2_F1', '3_F1',
               'PR mean', 'PR std',
               'RC mean', 'RC std'
 ], name="columns")
-indices = [rd.types, ['KSPopt', 'KSP', 'vilar', 'gaze2', 'mic17', 'wtp']]
+indices = [rd.types, ['KSPopt', 'KSP', 'gaze2', 'mic17', 'wtp']]
 
 I = pd.MultiIndex.from_product(indices, names=['Types', 'Methods'])
 
@@ -221,10 +213,10 @@ all_df = pd.concat(dfs)
 all_df.sort_index(axis='columns', inplace=True)
 
 file_out = os.path.join(rd.root_dir, 'plots_results', 'all_self.csv')
-all_df.to_csv(path_or_buf=file_out, header=False)
+all_df.to_csv(path_or_buf=file_out, header=True)
 
 prob_based_methods = ['mic17', 'wtp', 'KSPopt']
-bin_based_methods = ['KSP', 'vilar', 'gaze2']
+bin_based_methods = ['KSP', 'gaze2']
 all_methods = prob_based_methods + bin_based_methods
 
 for t in rd.types:

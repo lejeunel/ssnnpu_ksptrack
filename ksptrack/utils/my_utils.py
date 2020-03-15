@@ -67,7 +67,7 @@ def sample_features(X, y, threshs, n_samp, check_thr=False,
         threshs = check_thrs(threshs, y, n_samp)
 
     idx_neg = np.where(y < threshs[0])[0]
-    idx_pos = np.where(y > threshs[1])[0]
+    idx_pos = np.where(y >= threshs[1])[0]
 
     p_pos = None
     p_neg = None

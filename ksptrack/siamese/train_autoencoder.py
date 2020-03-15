@@ -1,4 +1,4 @@
-from loader import Loader
+from ksptrack.utils.loc_prior_dataset import LocPriorDataset
 from torch.utils.data import DataLoader, SubsetRandomSampler
 import torch.optim as optim
 import params
@@ -10,10 +10,12 @@ from tensorboardX import SummaryWriter
 import utils as utls
 import tqdm
 from ksptrack.models.deeplab import DeepLabv3Plus
+from ksptrack.models.unet_model import UNet
 from ksptrack.siamese import im_utils
 from skimage import io
 import numpy as np
-import matplotlib.pyplot as plt
+from ksptrack.models.my_augmenters import rescale_augmenter
+from torch.nn.functional import sigmoid, tanh
 
 
 class PriorMSELoss(torch.nn.Module):
@@ -26,6 +28,10 @@ class PriorMSELoss(torch.nn.Module):
 
         return L
 
+def adjust_lr(cfg, optimizer, itr, max_itr):
+    now_lr = cfg.lr_autoenc * (1 - itr/(max_itr+1)) ** cfg.lr_power
+    optimizer.param_groups[0]['lr'] = now_lr
+    return now_lr
 
 def train(cfg, model, dataloaders, run_path, batch_to_device, optimizer):
 
@@ -41,8 +47,11 @@ def train(cfg, model, dataloaders, run_path, batch_to_device, optimizer):
 
     # criterion = PriorMSELoss()
     criterion = torch.nn.MSELoss()
+    # criterion = torch.nn.BCEWithLogitsLoss()
     writer = SummaryWriter(run_path)
-    lr_sch = torch.optim.lr_scheduler.ExponentialLR(optimizer, cfg.lr_power)
+
+    itr = 0
+    max_itr = cfg.epochs_autoenc*len(dataloaders['train'])
 
     best_loss = float('inf')
     for epoch in range(cfg.epochs_autoenc):
@@ -56,6 +65,7 @@ def train(cfg, model, dataloaders, run_path, batch_to_device, optimizer):
             pbar = tqdm.tqdm(total=len(dataloaders[phase]))
             for i, data in enumerate(dataloaders[phase]):
                 if (phase == 'train'):
+                    now_lr = adjust_lr(cfg, optimizer, itr, max_itr)
                     model.train()
                 else:
                     model.eval()
@@ -69,12 +79,14 @@ def train(cfg, model, dataloaders, run_path, batch_to_device, optimizer):
                     optimizer.zero_grad()
 
                     # loss = criterion(res['output'], data['image'], data['prior'])
-                    loss = criterion(res['output'], data['image'])
+                    loss = criterion(tanh(res['output']), data['image'])
+                    # loss = criterion(res['output'], data['image'])
 
                     loss.backward()
                     optimizer.step()
                     running_loss += loss.cpu().detach().numpy()
                     loss_ = running_loss / ((i + 1) * cfg.batch_size)
+                    itr += 1
 
                 else:
                     prev_ims.update({
@@ -84,21 +96,21 @@ def train(cfg, model, dataloaders, run_path, batch_to_device, optimizer):
                     })
                     prev_ims_recons.update({
                         data['frame_name'][0]:
-                        np.rollaxis(res['output'][0].cpu().detach().numpy(), 0, 3)
+                        np.rollaxis(tanh(res['output'])[0].cpu().detach().numpy(), 0, 3)
+                        # np.rollaxis(res['output'][0].cpu().detach().numpy(), 0, 3)
                     })
 
                 pbar.set_description(
                     '[{}] epch {}/{} lss: {:.6f} lr: {:.3f}'.format(
                         phase, epoch + 1, cfg.epochs_autoenc,
                         loss_ if phase == 'train' else 0,
-                        lr_sch.get_lr()[0] if phase == 'train' else 0))
+                        now_lr if phase == 'train' else 0))
 
                 pbar.update(1)
 
             pbar.close()
             if (phase == 'train'):
                 writer.add_scalar('loss_autoenc', loss_, epoch)
-                lr_sch.step()
 
                 if(epoch % cfg.cp_period == 0):
                     # save checkpoint
@@ -127,6 +139,7 @@ def train(cfg, model, dataloaders, run_path, batch_to_device, optimizer):
                 all = np.concatenate((prev_ims, prev_ims_recons), axis=1)
 
                 io.imsave(pjoin(test_im_dir, 'im_{:04d}.png'.format(epoch)),
+                          # (all*255).astype(np.uint8))
                           all)
 
 
@@ -142,12 +155,11 @@ def main(cfg):
     if (not os.path.exists(run_path)):
         os.makedirs(run_path)
 
-    _, transf_normal = im_utils.make_data_aug(cfg)
-    # transf_rescale = iaa.Sequential([
-    #     rescale_augmenter])
+    transf, transf_normal = im_utils.make_data_aug(cfg)
 
-    dl = Loader(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
-                normalization=transf_normal)
+    dl = LocPriorDataset(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
+                         augmentations=transf,
+                         normalization=transf_normal)
 
     prev_sampler = SubsetRandomSampler(
         np.random.choice(len(dl), size=cfg.n_ims_test, replace=False))
@@ -155,6 +167,7 @@ def main(cfg):
                                  sampler=prev_sampler,
                                  collate_fn=dl.collate_fn)
 
+    cfg.batch_size = 2
     dataloader_train = DataLoader(dl,
                                   batch_size=cfg.batch_size,
                                   shuffle=True,
@@ -173,12 +186,13 @@ def main(cfg):
         for k, v in batch.items()
     }
 
-    optimizer = optim.SGD(params=[{
-        'params': model.parameters(),
-        'lr': cfg.lr_autoenc
-    }],
-                          momentum=cfg.momentum,
-                          weight_decay=cfg.decay)
+    optimizer = optim.SGD(
+        params=[
+            {'params': model.parameters(), 'lr': cfg.lr_autoenc},
+        ],
+        momentum=cfg.momentum,
+        weight_decay=cfg.decay,
+        )
 
     print('run_path: {}'.format(run_path))
 

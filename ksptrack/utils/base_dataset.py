@@ -7,7 +7,7 @@ from os.path import join as pjoin
 import glob
 from torch.utils import data
 import torch
-
+np.random.bit_generator = np.random._bit_generator
 
 def imread(path, scale=True):
     im = io.imread(path)

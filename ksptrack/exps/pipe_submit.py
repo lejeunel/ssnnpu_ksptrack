@@ -41,7 +41,7 @@ template = """#!/bin/env bash
 #SBATCH --gres=gpu:gtx1080ti:1
 #SBATCH --output=/home/ubelix/artorg/lejeune/runs/logs/%x.out
 
-simg=$$HOME/ksptrack-ubelix.simg
+simg=$$HOME/mleval-ubelix.simg
 pyversion=my-3.7
 
 export OMP_NUM_THREADS=1

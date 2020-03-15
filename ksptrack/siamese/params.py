@@ -57,8 +57,10 @@ def get_params(path='.'):
 
     p.add('--aug-noise', type=float)
     p.add('--aug-scale', type=float)
-    p.add('--aug-blur', type=float)
-    p.add('--aug-gamma', type=float)
+    p.add('--aug-blur-color', type=int)
+    p.add('--aug-blur-space', type=int)
+    p.add('--aug-gamma-low', type=float)
+    p.add('--aug-gamma-high', type=float)
     p.add('--aug-rotate', type=float)
     p.add('--aug-shear', type=float)
     p.add('--aug-flip-proba', type=float)
@@ -82,6 +84,8 @@ def get_params(path='.'):
     p.add('--ml-up-thr', type=float)
     p.add('--ml-down-thr', type=float)
     p.add('--bag-t', type=int)
+    p.add('--bag-n-feats', type=float)
+    p.add('--bag-max-depth', type=float)
 
     p.add('--linkage', type=str)
 
@@ -92,4 +96,5 @@ def get_params(path='.'):
 
     p.add('--thr-assign', type=float)
     p.add('--skip-train-dec', default=False, action='store_true')
+    p.add('--pw', default=False, action='store_true')
     return p

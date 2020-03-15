@@ -18,7 +18,7 @@ def target_distribution(batch):
 
 class DistribBuffer:
     def __init__(self, period, thr_assign=0.001):
-        self.batch = 0
+        self.epoch = 0
         self.period = period
         self.thr_assign = thr_assign
 
@@ -28,17 +28,29 @@ class DistribBuffer:
         self.converged = False
         self.ratio_changed = 1
 
-    def do_update(self, model, dataloader, device, *args, **kwargs):
+    def do_update(self, model, dataloader, device,
+                  all_edges_nn=None, probas=None,
+                  thrs=[0.5, 0.5],
+                  clst_field='clusters'):
 
         print('updating targets...')
         model.eval()
         clusters = []
         for i, data in enumerate(dataloader):
             data = utls.batch_to_device(data, device)
+            edges_nn = probas_ = None
+            if(all_edges_nn is not None):
+                edges_nn = utls.combine_nn_edges(
+                    [all_edges_nn[i] for i in data['frame_idx']])
+
+            if(probas is not None):
+                probas_ = torch.cat([probas[i] for i in data['frame_idx']])
 
             with torch.no_grad():
-                res = model(data, *args)
-            clusters.append(res['clusters'])
+                res = model(data, edges_nn=edges_nn,
+                            probas=probas_,
+                            thrs=thrs)
+            clusters.append(res[clst_field])
 
         distrib = torch.cat(clusters)
         tgt = target_distribution(torch.cat(clusters))
@@ -64,17 +76,24 @@ class DistribBuffer:
                 self.converged = True
         model.train()
 
-    def maybe_update(self, model, dataloader, device, *args, **kwargs):
+    def maybe_update(self, model, dataloader, device,
+                     all_edges_nn=None, probas=None,
+                     thrs=[0.5, 0.5],
+                     clst_field='clusters'):
         """
         Update target probabilities when we hit update period
         Increments epoch counter
         """
 
-        if((self.batch == 0) or (self.batch % self.period == 0)):
-            self.do_update(model, dataloader, device, *args, **kwargs)
-            print('Next update in {} batches'.format(self.period))
+        if((self.epoch == 0) or (self.epoch % self.period == 0)):
+            self.do_update(model, dataloader, device,
+                           all_edges_nn, probas,
+                           thrs=[0.5, 0.5],
+                           clst_field=clst_field)
+            print('Next update in {} epochs'.format(self.period))
 
-        self.batch += 1
+    def inc_epoch(self):
+        self.epoch += 1
 
 
     def __getitem__(self, idx):

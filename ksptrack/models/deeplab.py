@@ -11,18 +11,23 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 from ksptrack.models import drn
+from ksptrack.siamese.modeling.xception import xception
 from ksptrack.models.decoder import Decoder
 from ksptrack.models.aspp import build_aspp
+from os.path import join as pjoin
 
 
 class DeepLabv3Plus(nn.Module):
-    def __init__(self, pretrained=True, num_classes=3):
+    def __init__(self,
+                 pretrained=False,
+                 num_classes=3):
 
         super(DeepLabv3Plus, self).__init__()
 
         self.encoder = drn.__dict__.get('drn_d_22')(pretrained=pretrained,
                                                     num_classes=1000)
         self.encoder.out_middle = True
+
         self.aspp = build_aspp('drn',
                                output_stride=8,
                                BatchNorm=nn.BatchNorm2d)
@@ -34,7 +39,20 @@ class DeepLabv3Plus(nn.Module):
             BatchNorm=nn.BatchNorm2d,
             aspp_out_dims=256)
 
-        self.sigmoid = nn.Sigmoid()
+        #init weights
+        # for m in self.modules():
+        #     if isinstance(m, nn.Conv2d):
+        #         nn.init.kaiming_normal_(m.weight,
+        #                                 mode='fan_out',
+        #                                 nonlinearity='relu')
+        #     elif isinstance(m, nn.BatchNorm2d):
+        #         nn.init.constant_(m.weight, 1)
+        #         nn.init.constant_(m.bias, 0.5)
+
+        # if(pretrained):
+        #     state_dict = torch.load(pretrained,
+        #                             map_location=lambda storage, loc: storage)
+        #     self.backbone.load_state_dict(state_dict, strict=False)
 
     def forward(self, input):
         x, _ = self.encoder(input)
@@ -53,18 +71,6 @@ class DeepLabv3Plus(nn.Module):
             'output': x,
             'aspp_feats': aspp_feats,
         }
-
-    def to_autoenc(self, in_channels=3, out_channels=3):
-        self.decoder.last_conv[-1] = nn.Conv2d(256,
-                                               out_channels,
-                                               kernel_size=(1, 1),
-                                               stride=(1, 1))
-
-    def to_predictor(self, out_channels=1):
-        self.model.last_conv[-1] = nn.Conv2d(256,
-                                             out_channels,
-                                             kernel_size=(1, 1),
-                                             stride=(1, 1))
 
 
 if __name__ == "__main__":

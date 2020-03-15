@@ -1,12 +1,12 @@
-from loader import Loader
 from torch.utils.data import DataLoader
+from ksptrack.utils.loc_prior_dataset import LocPriorDataset
 import params
 import torch
 import os
 from os.path import join as pjoin
 import yaml
 from tensorboardX import SummaryWriter
-from ksptrack.siamese.modeling.dec import DEC
+from ksptrack.siamese.modeling.siamese import Siamese
 from ksptrack.siamese import im_utils
 from ksptrack.siamese import utils as utls
 from ksptrack.utils.bagging import calc_bagging
@@ -47,6 +47,7 @@ def get_lfda_transform(features,
                   k=nn_scale,
                   embedding_type=embedding_type)
 
+    print('fitting LFDA with thrs: {}'.format(thrs))
     lfda.fit(features, probas, thrs, n_samps)
 
     return lfda.components_.T
@@ -57,16 +58,14 @@ def train_kmeans(model,
                  device,
                  n_clusters,
                  embedded_dims=30,
-                 nn_scaling=None,
                  bag_t=300,
                  bag_max_depth=64,
-                 bag_n_feats=0.013,
+                 bag_n_feats=0.02,
                  up_thr=0.8,
                  down_thr=0.2,
-                 reduc_method='pls',
-                 init_clusters=None):
+                 reduc_method='pls'):
 
-    features, pos_masks, _ = clst.get_features(model, dataloader, device)
+    features, pos_masks = clst.get_features(model, dataloader, device)
 
     cat_features = np.concatenate(features)
     cat_pos_mask = np.concatenate(pos_masks)
@@ -80,7 +79,7 @@ def train_kmeans(model,
                               cat_pos_mask,
                               bag_t,
                               bag_max_depth,
-                              None,
+                              bag_n_feats,
                               bag_max_samples=500,
                               n_jobs=1)
         if (reduc_method == 'lfda'):
@@ -96,10 +95,15 @@ def train_kmeans(model,
 
     print('fitting {} clusters with kmeans'.format(n_clusters))
 
-    kmeans = KMeans(n_clusters=n_clusters,
-                    init=init_clusters if init_clusters is not None else 'k-means++')
-    preds = kmeans.fit_predict(np.dot(cat_features, L))
-    init_clusters = kmeans.cluster_centers_
+    # clf = MeanShift(bandwidth=2, n_jobs=-1, bin_seeding=True)
+    # preds = clf.fit_predict(np.dot(cat_features, L))
+    # init_clusters = clf.cluster_centers_
+    # n_clusters = init_clusters.shape[0]
+
+    clf = KMeans(n_clusters=n_clusters, n_init=30)
+    preds = clf.fit_predict(np.dot(cat_features, L))
+    init_clusters = clf.cluster_centers_
+
     predictions = [utls.to_onehot(p, n_clusters).ravel() for p in preds]
 
     # split predictions by frame
@@ -127,6 +131,8 @@ def train(cfg, model, device, dataloaders, run_path):
                                                embedded_dims=cfg.embedded_dims,
                                                reduc_method=cfg.reduc_method,
                                                bag_t=cfg.bag_t,
+                                               bag_n_feats=cfg.bag_n_feats,
+                                               bag_max_depth=cfg.bag_max_depth,
                                                up_thr=cfg.ml_up_thr,
                                                down_thr=cfg.ml_down_thr)
         np.savez(init_clusters_path, **{
@@ -137,20 +143,37 @@ def train(cfg, model, device, dataloaders, run_path):
 
     preds = np.load(init_clusters_path, allow_pickle=True)['preds']
     init_clusters = np.load(init_clusters_path, allow_pickle=True)['clusters']
+    L = np.load(init_clusters_path, allow_pickle=True)['L']
     prev_ims = clst.do_prev_clusters_init(dataloaders['prev'], preds)
 
     # save initial clusterings to disk
-    if (not os.path.exists(init_clusters_prev_path)):
-        os.makedirs(init_clusters_prev_path)
-        print('saving initial clustering previews...')
-        for k, v in prev_ims.items():
-            io.imsave(pjoin(init_clusters_prev_path, k), v)
+    os.makedirs(init_clusters_prev_path)
+    print('saving initial clustering previews to {}'.format(init_clusters_prev_path))
+    for k, v in prev_ims.items():
+        io.imsave(pjoin(init_clusters_prev_path, k), v)
 
     init_prev = np.vstack([prev_ims[k] for k in prev_ims.keys()])
 
     writer = SummaryWriter(run_path)
 
     writer.add_image('clusters', init_prev, 0, dataformats='HWC')
+
+    L = torch.tensor(L).float().to(device)
+    init_clusters = torch.tensor(init_clusters,
+                                 dtype=torch.float).to(device)
+
+    model.dec.set_clusters(init_clusters)
+    model.dec.set_transform(L.T)
+    path = pjoin(run_path, 'checkpoints')
+    print('saving DEC with initial parameters to {}'.format(path))
+    utls.save_checkpoint(
+        {
+            'epoch': -1,
+            'model': model
+        },
+        False,
+        fname_cp='init_dec.pth.tar',
+        path=path)
 
 
 def main(cfg):
@@ -162,17 +185,17 @@ def main(cfg):
 
     device = torch.device('cuda' if cfg.cuda else 'cpu')
 
-    model = DEC(embedding_dims=cfg.n_clusters,
-                cluster_number=cfg.n_clusters,
-                roi_size=cfg.roi_output_size,
-                roi_scale=cfg.roi_spatial_scale,
-                alpha=cfg.alpha)
+    model = Siamese(embedded_dims=cfg.embedded_dims,
+                    cluster_number=cfg.n_clusters,
+                    roi_size=cfg.roi_output_size,
+                    roi_scale=cfg.roi_spatial_scale,
+                    alpha=cfg.alpha)
     path_cp = pjoin(run_path, 'checkpoints', 'best_autoenc.pth.tar')
     if (os.path.exists(path_cp)):
         print('loading checkpoint {}'.format(path_cp))
         state_dict = torch.load(path_cp,
                                 map_location=lambda storage, loc: storage)
-        model.autoencoder.load_state_dict(state_dict)
+        model.dec.autoencoder.load_state_dict(state_dict)
     else:
         print(
             'checkpoint {} not found. Train autoencoder first'.format(path_cp))
@@ -180,8 +203,8 @@ def main(cfg):
 
     _, transf_normal = im_utils.make_data_aug(cfg)
 
-    dl = Loader(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
-                normalization=transf_normal)
+    dl = LocPriorDataset(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
+                         normalization=transf_normal)
 
     frames_tnsr_brd = np.linspace(0,
                                   len(dl) - 1,

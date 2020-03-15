@@ -124,9 +124,15 @@ class LocPriorDataset(BaseDataset, data.Dataset):
         rounded_kps = [(np.clip(kp.x_int, a_min=0, a_max=shape[1] - 1),
                         np.clip(kp.y_int, a_min=0, a_max=shape[0] - 1))
                        for kp in keypoints.keypoints]
-        sample['label_keypoints'] = [
-            sample['labels'][y, x, 0]
-            for x, y in rounded_kps]
+
+        coords = np.array([(np.round(kp.y).astype(int), np.round_(kp.x).astype(int))
+                           for kp in keypoints.keypoints])
+        if(coords.shape[0] > 0):
+            coords[:, 0] = np.clip(coords[:, 0], a_min=0, a_max=shape[0]-1)
+            coords[:, 1] = np.clip(coords[:, 1], a_min=0, a_max=shape[1]-1)
+
+        sample['labels_clicked'] = [self.labels[i, j, idx] for i, j in coords]
+
 
         return sample
 
@@ -141,7 +147,7 @@ class LocPriorDataset(BaseDataset, data.Dataset):
 
         out['prior'] = obj_prior
         out['loc_keypoints'] = [d['loc_keypoints'] for d in data]
-        out['label_keypoints'] = [d['label_keypoints'] for d in data]
+        out['labels_clicked'] = [s['labels_clicked'] for s in data]
 
         return out
 
