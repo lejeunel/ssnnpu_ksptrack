@@ -55,13 +55,12 @@ def calc_bagging(feats,
                  bag_max_depth,
                  bag_n_feats,
                  bag_max_samples=500,
-                 n_jobs=4):
+                 n_jobs=1):
     #marked_arr: has index of frame and corresponding superpixel label. Taken as positive samples
     #all_feats_df: Pandas frame with all samples (positive and unlabeled)
     #feat_fields: List of feature names as appearing in all_feats_df. Will be concatenated
     #labels: Superpixel labels
     #remove_marked (boolean): If True, marked SPs will be removed from all_feats_df
-
 
     #Remove positive samples from all_feats_df
     global data_U

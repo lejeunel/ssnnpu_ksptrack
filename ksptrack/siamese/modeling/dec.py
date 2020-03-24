@@ -80,8 +80,7 @@ class DEC(nn.Module):
                  cluster_number: int = 30,
                  roi_size=1,
                  roi_scale=1.0,
-                 alpha: float = 1.0,
-                 use_flow=True):
+                 alpha: float = 1.0):
         """
         Module which holds all the moving parts of the DEC algorithm, as described in
         Xie/Girshick/Farhadi; this includes the AutoEncoder stage and the ClusterAssignment stage.
@@ -94,20 +93,16 @@ class DEC(nn.Module):
         """
 
         super(DEC, self).__init__()
-        self.autoencoder = DeepLabv3Plus(pretrained=True)
+        self.autoencoder = DeepLabv3Plus(pretrained=False)
         self.cluster_number = cluster_number
         self.alpha = alpha
         self.embedding_dims = embedding_dims
-
-        self.use_flow = use_flow
 
         # self.roi_pool = RoIPooling((roi_size, roi_size), roi_scale)
         # self.roi_pool = PrRoIPool2D(roi_size, roi_size, roi_scale)
         self.roi_pool = SupPixPool()
 
         dim = 256
-        if(self.use_flow):
-            dim += 1
         self.transform = nn.Linear(dim,
                                    embedding_dims, bias=False)
         self.assignment = ClusterAssignment(cluster_number,
@@ -148,8 +143,6 @@ class DEC(nn.Module):
 
         res = self.autoencoder(data['image'])
         feats = res['aspp_feats']
-        if(self.use_flow):
-            feats = torch.cat((res['aspp_feats'], data['flows']), dim=1)
 
         pooled_aspp_feats = [self.roi_pool(feats[b].unsqueeze(0),
                                            data['labels'][b].unsqueeze(0)).squeeze().T

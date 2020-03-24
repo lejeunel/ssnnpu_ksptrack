@@ -1,26 +1,26 @@
 frames: []
 
-epochs-autoenc: 150
+epochs-autoenc: 90
 epochs-dec: 100
 epochs-dist: 200
 
 # generate previews every x epochs
-prev-period: 5
+prev-period: 10
 
 tgt-update-period: 10
 proba-update-period: 5
-cp-period: 5
+cp-period: 2
 
 # optimizer
 lr-dist: 1e-3
-lr-autoenc: 1e-2
+lr-autoenc: 1e-3
 lr-assign: 1e-3
 decay : 2e-4
-lr-power : 0.9
+lr-power : 0.98
 momentum: 0.9
-gamma: 0.1
 lambda-: 1e-5
-beta: 1
+gamma: 10
+beta: 10
 alpha: 1
 
 # batch
@@ -66,10 +66,10 @@ with-agglo: False
 with-pck: False
 with-flow: False
 reduc-method: 'lfda'
-ml-up-thr: 0.7
-ml-down-thr: 0.3
+ml-up-thr: 0.5
+ml-down-thr: 0.5
 bag-t: 300
-bag-n-feats : 0.1
+bag-n-feats : 0.05
 bag-max-depth : 64
 
 linkage: 'ward'

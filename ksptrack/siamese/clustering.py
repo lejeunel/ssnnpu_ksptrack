@@ -104,7 +104,10 @@ def do_prev_clusters(model, device, dataloader, *args):
 
 
 def get_features(model, dataloader, device, all_edges_nn=None,
-                 return_assign=False):
+                 probas=None,
+                 return_assign=False,
+                 thrs=[0.5, 0.5],
+                 feat_field='pooled_aspp_feats'):
     # form initial cluster centres
     labels_pos_mask = []
     assignments = []
@@ -117,41 +120,32 @@ def get_features(model, dataloader, device, all_edges_nn=None,
     for index, data in enumerate(dataloader):
         data = utls.batch_to_device(data, device)
         with torch.no_grad():
-            res = model(data)
+            if(all_edges_nn is not None):
+                edges_nn = utls.combine_nn_edges(
+                    [all_edges_nn[i] for i in data['frame_idx']])
+                probas_ = torch.cat([probas[i] for i in data['frame_idx']])
+                res = model(data,
+                            edges_nn=edges_nn,
+                            probas=probas_)
+            else:
+                res = model(data)
 
         if(return_assign):
             assignments.append(res['clusters'].argmax(dim=1).cpu().numpy())
 
+        clicked_labels = []
         if (len(data['labels_clicked']) > 0):
             clicked_labels = [
                 item for sublist in data['labels_clicked']
                 for item in sublist
             ]
 
-            if(all_edges_nn is not None):
-                new_pseudo_clicked = []
-                edges_nn = all_edges_nn[data['frame_idx'][0]]
-                edges_mask = torch.zeros(edges_nn.shape[0]).bool().to(device)
-                for l in clicked_labels:
-                    edges_mask += (edges_nn[:, 0] == l)
-                    edges_mask += (edges_nn[:, 1] == l)
-                    c = res['clusters'][l].argmax()
-                    edges_mask *= res['clusters'].argmax(dim=1)[edges_nn[:, 0]] == c
-                    edges_mask *= res['clusters'].argmax(dim=1)[edges_nn[:, 1]] == c
-                    new_labels = edges_nn[edges_mask, :].cpu().numpy()
-                    new_labels = np.unique(new_labels).tolist()
-                    new_pseudo_clicked += new_labels
+        labels_pos_mask.append([
+            True if l in clicked_labels else False
+            for l in np.unique(data['labels'].cpu().numpy())
+        ])
 
-                clicked_labels += new_pseudo_clicked
-
-            labels_pos_mask.append([
-                True if l in clicked_labels else False
-                for l in np.unique(data['labels'].cpu().numpy())
-            ])
-
-        # aspp_feats = res['aspp_feats'].detach().cpu().numpy().squeeze()
-        # labels = data['labels'].squeeze().detach().cpu().numpy()
-        features.append(res['pooled_aspp_feats'].detach().cpu().numpy().squeeze())
+        features.append(res[feat_field].detach().cpu().numpy().squeeze())
         pbar.update(1)
     pbar.close()
 

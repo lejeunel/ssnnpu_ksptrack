@@ -57,8 +57,8 @@ class DistribBuffer:
 
         splits = [np.unique(s['labels']).size
                     for s in dataloader.dataset]
-        self.tgt_distribs = torch.split(tgt, splits)
-        self.distribs = torch.split(distrib, splits)
+        self.tgt_distribs = torch.split(tgt.cpu().detach(), splits)
+        self.distribs = torch.split(distrib.cpu().detach(), splits)
 
         curr_assignments = [torch.argmax(f, dim=-1).cpu().detach().numpy()
                             for f in self.distribs]

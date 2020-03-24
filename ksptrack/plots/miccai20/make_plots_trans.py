@@ -80,6 +80,7 @@ for t in types:
     idx = df_all.loc[t]['F1'].values.argmax()
     df_all.loc[t]['bold'].iloc[idx] = True
 
+import pdb; pdb.set_trace() ## DEBUG ##
 # add bold tags
 def myformat(r):
     if(r['bold'].iat[0]):
@@ -92,15 +93,21 @@ def myformat(r):
 
     return r
 
+
+# compute mean over all types
+means = df_all.groupby(['Methods'])['F1'].mean()
+std = df_all.groupby(['Methods'])['_F1'].mean()
+
 df_all = df_all.groupby(['Types', 'Methods']).apply(myformat)
 
 # remove dummy columns
 df_all = df_all.drop(columns=['_F1', '_PR', '_RC', 'bold'])
 
-# take only F1
-df_all = df_all['F1']
-
 df_all = df_all.reset_index().pivot('Methods', 'Types')
+
+# take only F1
+# df_all = df_all[['F1', 'mean', 'std']]
+df_all = df_all[['F1']]
 
 # sort by methods
 order = ['KSPTrack/DEC',
@@ -119,10 +126,9 @@ Quantitative results on all datasets. We report the F1 scores and standard devia
 """
 
 print('writing table to {}'.format(out_path))
-# with open(out_path, 'w') as tf:
-     # tf.write(df_all.to_latex(escape=False,
+import pdb; pdb.set_trace() ## DEBUG ##
 table = df_all.to_latex(escape=False,
-                        column_format='llp{1.8cm}p{1.8cm}p{1.8cm}',
+                        column_format='llp{1.8cm}p{1.8cm}p{1.8cm}p{1.8cm}p{1.8cm}',
                         multirow=True,
                         caption=caption,
                         label='tab:results')
@@ -133,5 +139,3 @@ with open(out_path, 'w') as tf:
         if line.startswith('KSPTrack/GMM'):
             line += '\n\hdashline'
         tf.write(line + '\n') 
-        
-

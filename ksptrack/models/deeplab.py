@@ -20,9 +20,11 @@ from os.path import join as pjoin
 class DeepLabv3Plus(nn.Module):
     def __init__(self,
                  pretrained=False,
+                 do_skip=False,
                  num_classes=3):
 
         super(DeepLabv3Plus, self).__init__()
+        self.do_skip = do_skip
 
         self.encoder = drn.__dict__.get('drn_d_22')(pretrained=pretrained,
                                                     num_classes=1000)
@@ -33,31 +35,43 @@ class DeepLabv3Plus(nn.Module):
                                BatchNorm=nn.BatchNorm2d)
         self.aspp_out_dims = 256
 
+        if(self.do_skip):
+            self.shortcut_conv = nn.Sequential(
+                            nn.Conv2d(256, 48, 1, 1,
+                                    padding=1//2,
+                                    bias=True),
+                            nn.BatchNorm2d(48),
+                            nn.ReLU(inplace=True))	
+
         self.decoder = Decoder(
             num_classes=num_classes,
             backbone='drn',
             BatchNorm=nn.BatchNorm2d,
-            aspp_out_dims=256)
+            aspp_out_dims=256+48 if do_skip else 256)
 
         #init weights
-        # for m in self.modules():
-        #     if isinstance(m, nn.Conv2d):
-        #         nn.init.kaiming_normal_(m.weight,
-        #                                 mode='fan_out',
-        #                                 nonlinearity='relu')
-        #     elif isinstance(m, nn.BatchNorm2d):
-        #         nn.init.constant_(m.weight, 1)
-        #         nn.init.constant_(m.bias, 0.5)
-
-        # if(pretrained):
-        #     state_dict = torch.load(pretrained,
-        #                             map_location=lambda storage, loc: storage)
-        #     self.backbone.load_state_dict(state_dict, strict=False)
+        if(not pretrained):
+            for m in self.modules():
+                if isinstance(m, nn.Conv2d):
+                    nn.init.kaiming_normal_(m.weight,
+                                            mode='fan_out',
+                                            nonlinearity='relu')
+                elif isinstance(m, nn.BatchNorm2d):
+                    nn.init.constant_(m.weight, 1)
+                    nn.init.constant_(m.bias, 0)
 
     def forward(self, input):
-        x, _ = self.encoder(input)
+        x, layers = self.encoder(input)
         aspp_feats = self.aspp(x)
-        x = self.decoder(aspp_feats)
+
+        if(self.do_skip):
+            feature_shallow = self.shortcut_conv(layers[4])
+            feature_cat = torch.cat([aspp_feats,
+                                     feature_shallow],1)
+            x = self.decoder(feature_cat)
+        else:
+            x = self.decoder(aspp_feats)
+
         x = F.interpolate(x,
                           size=input.size()[2:],
                           mode='bilinear',
@@ -68,6 +82,7 @@ class DeepLabv3Plus(nn.Module):
                                    align_corners=True)
 
         return {
+            'layers': layers,
             'output': x,
             'aspp_feats': aspp_feats,
         }

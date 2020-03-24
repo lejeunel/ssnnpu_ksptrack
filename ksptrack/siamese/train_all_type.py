@@ -47,13 +47,13 @@ if __name__ == "__main__":
         iterative_ksp.main(cfg_ksp)
 
         # train DML + PW constraints
-        # cfg.pw = True
-        # train_all.main(cfg)
+        cfg.pw = True
+        train_all.main(cfg)
 
-        # cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir,
-        #                           'checkpoints',
-        #                           'checkpoint_siam_pw.pth.tar')
-        # cfg_ksp.exp_name = 'exp_dml_pw'
-        # iterative_ksp.main(cfg_ksp)
+        cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir,
+                                  'checkpoints',
+                                  'checkpoint_siam_pw.pth.tar')
+        cfg_ksp.exp_name = 'exp_dml_pw'
+        iterative_ksp.main(cfg_ksp)
 
 

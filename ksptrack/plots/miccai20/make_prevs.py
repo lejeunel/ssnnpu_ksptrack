@@ -7,6 +7,7 @@ import numpy as np
 import pickle as pk
 from mpl_toolkits.axes_grid1 import ImageGrid
 import matplotlib.pyplot as plt
+from skimage import (color, io, segmentation, draw)
 
 
 if __name__ == "__main__":

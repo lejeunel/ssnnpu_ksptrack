@@ -95,11 +95,6 @@ def train_kmeans(model,
 
     print('fitting {} clusters with kmeans'.format(n_clusters))
 
-    # clf = MeanShift(bandwidth=2, n_jobs=-1, bin_seeding=True)
-    # preds = clf.fit_predict(np.dot(cat_features, L))
-    # init_clusters = clf.cluster_centers_
-    # n_clusters = init_clusters.shape[0]
-
     clf = KMeans(n_clusters=n_clusters, n_init=30)
     preds = clf.fit_predict(np.dot(cat_features, L))
     init_clusters = clf.cluster_centers_
@@ -147,10 +142,11 @@ def train(cfg, model, device, dataloaders, run_path):
     prev_ims = clst.do_prev_clusters_init(dataloaders['prev'], preds)
 
     # save initial clusterings to disk
-    os.makedirs(init_clusters_prev_path)
-    print('saving initial clustering previews to {}'.format(init_clusters_prev_path))
-    for k, v in prev_ims.items():
-        io.imsave(pjoin(init_clusters_prev_path, k), v)
+    if(not os.path.exists(init_clusters_prev_path)):
+        os.makedirs(init_clusters_prev_path)
+        print('saving initial clustering previews to {}'.format(init_clusters_prev_path))
+        for k, v in prev_ims.items():
+            io.imsave(pjoin(init_clusters_prev_path, k), v)
 
     init_prev = np.vstack([prev_ims[k] for k in prev_ims.keys()])
 

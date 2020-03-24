@@ -7,6 +7,9 @@ from os.path import join as pjoin
 import glob
 from torch.utils import data
 import torch
+from ksptrack.models.my_augmenters import Rescale, Normalize
+
+
 np.random.bit_generator = np.random._bit_generator
 
 def imread(path, scale=True):
@@ -63,6 +66,7 @@ class BaseDataset(data.Dataset):
                                     len(self.imgs))).astype(int)
 
         self.augmentations = augmentations
+
         self.normalization = normalization
 
     def __len__(self):

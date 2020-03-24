@@ -61,8 +61,8 @@ def train_model(model, cfg, dataloader, checkpoint, out_dir,
     if(os.path.exists(checkpoint)):
         print('checkpoint {} exists'.format(checkpoint))
         dict_ = torch.load(checkpoint,
-                            map_location=lambda storage,
-                            loc: storage)
+                           map_location=lambda storage,
+                           loc: storage)
         model.load_state_dict(dict_)
 
         return model
@@ -368,7 +368,7 @@ class DataManager:
                                 collate_fn=dl.collate_fn,
                                 drop_last=True,
                                 num_workers=cfg.feat_n_workers)
-        model = DeepLabv3Plus()
+        model = DeepLabv3Plus(pretrained=False)
         train_model(model,
                     cfg, dataloader,
                     cp_path.format('autoenc'),

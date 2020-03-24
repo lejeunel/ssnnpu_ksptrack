@@ -165,8 +165,9 @@ def make_data_aug(cfg):
 
     # transf_normal = Normalize(
     #         mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    transf_normal = iaa.Sequential([rescale_augmenter,
-                                    center_augmenter])
+    # transf_normal = iaa.Sequential([rescale_augmenter,
+    #                                 center_augmenter])
+    transf_normal = iaa.Sequential([rescale_augmenter])
 
     return transf, transf_normal
 

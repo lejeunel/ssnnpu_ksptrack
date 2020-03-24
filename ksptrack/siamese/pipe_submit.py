@@ -10,10 +10,12 @@ def split_list(alist, wanted_parts=1):
 
 
 seq_type = list(range(4))
-seqs_per_type = [[0, 4],
-                 [0, 2],
+# seq_type = list(range(2))
+seqs_per_type = [[0, 1, 2, 3],
                  [0, 1, 2, 3],
-                 [0, 1, 2, 3]]
+                 [0, 1, 2, 3],
+                 [0, 1, 2, 3]
+]
 
 run_dirs = [['Dataset' + str(t) + str(n)
              for n in seqs_per_type[t]]
@@ -22,9 +24,9 @@ run_dirs = [['Dataset' + str(t) + str(n)
 train_dirs = [[str(t) + str(n) for n in seqs_per_type[t]]
               for t in seq_type]
 
-n_jobs = 12
-
 run_dirs = [item for sublist in run_dirs for item in sublist]
+
+n_jobs = min((len(run_dirs), 12))
 run_dirs = split_list(run_dirs, n_jobs)
 
 train_dirs = [item for sublist in train_dirs for item in sublist]
@@ -56,7 +58,7 @@ template = """#!/bin/env bash
 #SBATCH --time=24:00:00
 #SBATCH --cpus-per-task=1
 #SBATCH --partition=gpu
-#SBATCH --gres=gpu:gtx1080ti:1
+#SBATCH --gres=gpu
 #SBATCH --output=/home/ubelix/artorg/lejeune/runs/logs/%x.out
 
 simg=$$HOME/mleval-ubelix.simg

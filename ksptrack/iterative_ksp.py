@@ -120,7 +120,7 @@ def main(cfg):
                                     init_radius=cfg.sp_trans_init_radius,
                                     hoof_n_bins=cfg.hoof_n_bins)
 
-    dm.calc_sp_feats(cfg)
+    # dm.calc_sp_feats(cfg)
 
     link_agent = make_link_agent(dm.labels, cfg)
     if (isinstance(link_agent, LinkAgentModel)):
