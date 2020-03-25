@@ -41,7 +41,7 @@ def get_features(model, cfg, dataloader, checkpoint, mode='autoenc'):
         with torch.no_grad():
             inputs = sample['image'].to(device)
             res = model(inputs)
-            feat = res['aspp_feats'].detach().cpu().numpy()
+            feat = res['feats'].detach().cpu().numpy()
             sp_labels = np.array([s[0, ...].cpu().numpy() for s in sample['labels']])[0]
             feat = [feat[0, :, sp_labels == l].mean(axis=0)
                     for l in np.unique(sp_labels)]

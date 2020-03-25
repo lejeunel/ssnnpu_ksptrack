@@ -195,10 +195,7 @@ def save_checkpoint(dict_,
     if (not os.path.exists(path)):
         os.makedirs(path)
 
-    try:
-        state_dict = dict_['model'].module.state_dict()
-    except AttributeError:
-        state_dict = dict_['model'].state_dict()
+    state_dict = dict_['model'].state_dict()
 
     torch.save(state_dict, cp_path)
 

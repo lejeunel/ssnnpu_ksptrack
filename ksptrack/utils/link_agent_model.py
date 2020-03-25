@@ -42,12 +42,12 @@ class LinkAgentModel(LinkAgentRadius):
         self.prepare_feats()
         self.fit_gmm()
 
-    def prepare_feats(self, all_edges_nn=None, mode='mean'):
-
+    def prepare_feats(self, all_edges_nn=None, feat_field='pooled_feats'):
         print('preparing features for linkAgentModel')
 
         self.feats, self.labels_pos, self.assignments = get_features(
-            self.model, self.dl, self.device, return_assign=True)
+            self.model, self.dl, self.device, return_assign=True,
+            feat_field=feat_field)
 
     def get_all_entrance_sps(self, *args):
 
@@ -75,6 +75,7 @@ class LinkAgentModel(LinkAgentRadius):
             self.gmm = GaussianMixture(n_components=centroids.shape[0],
                                        means_init=centroids,
                                        weights_init=weights,
+                                       reg_covar=1e-3,
                                        covariance_type='diag')
             # precisions_init=precs)
             self.gmm.fit(feats_)
@@ -83,8 +84,8 @@ class LinkAgentModel(LinkAgentRadius):
             self.gmm = GaussianMixture(n_components=centroids.shape[0],
                                        means_init=centroids,
                                        weights_init=weights,
+                                       reg_covar=1e-3,
                                        covariance_type='diag')
-            precs = None
             self.gmm.fit(feats_)
         self.probas = [
             self.gmm.predict_proba(np.dot(f, L.T)) for f in self.feats

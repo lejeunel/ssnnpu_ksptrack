@@ -305,34 +305,6 @@ class UNet(nn.Module):
         for m in [self.down_convs, self.up_convs]:
             m.training = False
 
-    def state_dict(self):
-        return {'in_channels': self.in_channels,
-                'out_channels': self.out_channels,
-                'start_filts': self.start_filts,
-                'depth': self.depth,
-                'up_mode': self.up_mode,
-                'merge_mode': self.merge_mode,
-                'down_convs': self.down_convs.state_dict(),
-                'up_convs': self.up_convs.state_dict(),
-                'conv_final': self.conv_final.state_dict()}
-
-    def load_state_dict(self, dict_):
-        self.down_convs.load_state_dict(dict_['down_convs'])
-        self.up_convs.load_state_dict(dict_['up_convs'])
-        self.conv_final.load_state_dict(dict_['conv_final'])
-
-    @classmethod
-    def from_state_dict(cls, dict_):
-        model = cls(dict_['in_channels'],
-                    dict_['out_channels'],
-                    depth=dict_['depth'],
-                    start_filts=dict_['start_filts'],
-                    up_mode=dict_['up_mode'],
-                    merge_mode=dict_['merge_mode'],
-                    cuda=False)
-        model.load_state_dict(dict_)
-        return model
-
     def forward(self, x):
         encoder_outs = []
         in_shape = x.shape
@@ -354,7 +326,7 @@ class UNet(nn.Module):
         x = self.conv_final(x)
 
         # pass through sigmoid
-        x = self.sigmoid(x)
+        # x = self.sigmoid(x)
         feats = F.interpolate(encoder_outs[-1],
                               size=in_shape[2:],
                               mode='bilinear',
@@ -364,7 +336,8 @@ class UNet(nn.Module):
                           mode='bilinear',
                           align_corners=True)
 
-        return {'output': x, 'aspp_feats': feats}
+        return {'output': x, 'aspp_feats': feats,
+                'layers': encoder_outs}
 
 
 if __name__ == "__main__":

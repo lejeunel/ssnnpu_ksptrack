@@ -45,15 +45,19 @@ class Siamese(nn.Module):
 
         self.roi_pool = RoIPooling((roi_size, roi_size), roi_scale)
 
-        in_dims = [3, 64, 512, 256]
+        self.in_dims = [3, 32, 64, 128, 256]
         self.gcns = []
-        for i in range(len(in_dims) - 1):
+        for i in range(len(self.in_dims) - 1):
             # gcn_ = gnn.GCNConv(in_channels=in_dims[i],
             #                    out_channels=in_dims[i+1],
             #                    normalize=False)
-            gcn_ = gnn.SAGEConv(in_channels=in_dims[i],
-                                out_channels=in_dims[i+1],
-                                normalize=False)
+            # gcn_ = gnn.SAGEConv(in_channels=in_dims[i],
+            #                     out_channels=in_dims[i+1],
+            #                     normalize=False)
+            gcn_ = gnn.SignedConv(in_channels=self.in_dims[i],
+                                  out_channels=self.in_dims[i+1],
+                                  first_aggr=True if i == 0 else False)
+
             self.gcns.append(gcn_)
 
         self.gcns = nn.ModuleList(self.gcns)
@@ -69,52 +73,56 @@ class Siamese(nn.Module):
         pooled_feats = torch.cat(pooled_feats)
         return pooled_feats
 
-    def forward(self, data, edges_nn=None, nodes_color=None, probas=None, thrs=[0.5, 0.5]):
+    def forward(self, data,
+                targets=None,
+                edges_nn=None,
+                nodes_color=None,
+                probas=None, thrs=[0.5, 0.5]):
 
         res = self.dec(data)
 
         if(edges_nn is not None):
-            # remove edges according to probas
-            edges_mask_sim = (probas[edges_nn[:, 0]] >=
-                              thrs[1]) * (probas[edges_nn[:, 1]] >= thrs[1])
-            edges_mask_sim += (probas[edges_nn[:, 0]] <
-                               thrs[0]) * (probas[edges_nn[:, 1]] < thrs[0])
-            edges_nn = edges_nn[edges_mask_sim, :]
+            # similar edges according to probas and clusters
+            edges_mask_sim_p = (probas[edges_nn[:, 0]] >=
+                                thrs[1]) * (probas[edges_nn[:, 1]] >= thrs[1])
+            edges_mask_sim_p += (probas[edges_nn[:, 0]] <
+                                 thrs[0]) * (probas[edges_nn[:, 1]] < thrs[0])
+            edges_mask_sim_c = (targets[edges_nn[:, 0]].argmax(dim=1) ==
+                                targets[edges_nn[:, 1]].argmax(dim=1))
+            edges_nn_sim = edges_nn[edges_mask_sim_p * edges_mask_sim_c, :].T
 
-            # remove edges according to clusters
-            edges_mask_sim = (res['clusters'][edges_nn[:, 0]].argmax(dim=1) ==
-                              res['clusters'][edges_nn[:, 1]].argmax(dim=1))
-            edges_nn = edges_nn[edges_mask_sim, :].T
+            # dissimilar edges according to probas and clusters
+            edges_mask_disim_p = (probas[edges_nn[:, 0]] >=
+                                  thrs[1]) * (probas[edges_nn[:, 1]] < thrs[0])
+            edges_mask_disim_p += (probas[edges_nn[:, 1]] >=
+                                   thrs[1]) * (probas[edges_nn[:, 0]] < thrs[0])
+            edges_mask_disim_c = (targets[edges_nn[:, 0]].argmax(dim=1) !=
+                                  targets[edges_nn[:, 1]].argmax(dim=1))
+            edges_nn_disim = edges_nn[edges_mask_disim_p * edges_mask_disim_c, :].T
 
             # add self loops
-            edges_nn, _ = gutls.add_self_loops(edges_nn)
+            edges_nn_sim, _ = gutls.add_self_loops(edges_nn_sim)
 
-            # get features from image itself
-            if(nodes_color is None):
-                Z0 = self.sp_pool(data['image'], data['labels'])
-                f0 = torch.stack((Z0[edges_nn[0, :]], Z0[edges_nn[1, :]]))
-                S0 = torch.exp(-torch.norm(f0[0, ...] - f0[1, ...], p=2, dim=-1)**2)
-            else:
-                f0 = torch.stack((nodes_color[edges_nn[0, :]],
-                                  nodes_color[edges_nn[1, :]]))
-                S0 = torch.exp(-torch.norm(f0[0, ...] - f0[1, ...], p=2, dim=-1)**2/255.)
-            # g = Data(x=Z0, edge_index=edges_nn, edge_attr=S0.unsqueeze(1))
-            g = Data(x=Z0, edge_index=edges_nn, edge_attr=S0)
+            Z = self.sp_pool(data['image'], data['labels'])
 
-            H = [res['layers'][2], res['layers'][5],
-                 res['aspp_feats']]
+            H = [r for r in res['layers']][:-1]
+            H.append(res['feats'])
             for i, gcn in enumerate(self.gcns):
                 # do GCNConv and average result with encoder features
-                Z = F.relu(gcn(g.x, g.edge_index, g.edge_attr))
-                Z = torch.stack((Z, self.sp_pool(H[i],
-                                                 data['labels'])),
-                                dim=0).mean(dim=0)
-                g = Data(x=Z, edge_index=edges_nn, edge_attr=S0)
+                H_pool = self.sp_pool(H[i], data['labels'])
+                Z = F.relu(gcn(Z, edges_nn_sim, edges_nn_disim))
+                Z_pos = Z[:, :self.in_dims[i+1]]
+                Z_pos = torch.stack((Z_pos, H_pool),
+                                    dim=0).mean(dim=0)
+                Z_neg = Z[:, self.in_dims[i+1]:]
+                Z_neg = torch.stack((Z_neg, H_pool),
+                                    dim=0).mean(dim=0)
+                Z = torch.cat((Z_pos, Z_neg), dim=1)
 
-            f2 = self.dec.transform(Z)
-            clusters = F.softmax(f2, dim=1)
+            Z_pos = self.dec.transform(Z[:, :self.in_dims[i+1]])
+            Z_neg = self.dec.transform(Z[:, self.in_dims[i+1]:])
 
-            res.update({'clusters_gcn': clusters})
-            res.update({'pooled_aspp_gcn_feats': Z})
+            res.update({'Z_pos': Z_pos})
+            res.update({'Z_neg': Z_neg})
 
         return res

@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from ksptrack.siamese.modeling.cluster import ClusterAssignment
 from ksptrack.models.deeplab import DeepLabv3Plus
+from ksptrack.siamese.modeling.dil_unet import UNet
 from torchvision.ops import RoIPool
 from ksptrack.siamese.modeling.superpixPool.pytorch_superpixpool.suppixpool_layer import SupPixPool
 
@@ -93,7 +94,7 @@ class DEC(nn.Module):
         """
 
         super(DEC, self).__init__()
-        self.autoencoder = DeepLabv3Plus(pretrained=False)
+        self.autoencoder = UNet(depth=4, skip_mode='none')
         self.cluster_number = cluster_number
         self.alpha = alpha
         self.embedding_dims = embedding_dims
@@ -142,18 +143,18 @@ class DEC(nn.Module):
         """
 
         res = self.autoencoder(data['image'])
-        feats = res['aspp_feats']
+        feats = res['feats']
 
-        pooled_aspp_feats = [self.roi_pool(feats[b].unsqueeze(0),
+        pooled_feats = [self.roi_pool(feats[b].unsqueeze(0),
                                            data['labels'][b].unsqueeze(0)).squeeze().T
                              for b in range(data['labels'].shape[0])]
-        pooled_aspp_feats = torch.cat(pooled_aspp_feats)
-        res.update({'pooled_aspp_feats': pooled_aspp_feats})
+        pooled_feats = torch.cat(pooled_feats)
+        res.update({'pooled_feats': pooled_feats})
 
-        proj_pooled_aspp_feats = self.transform(pooled_aspp_feats)
-        res.update({'proj_pooled_aspp_feats': proj_pooled_aspp_feats})
+        proj_pooled_feats = self.transform(pooled_feats)
+        res.update({'proj_pooled_feats': proj_pooled_feats})
 
-        clusters = self.assignment(proj_pooled_aspp_feats)
+        clusters = self.assignment(proj_pooled_feats)
         res.update({'clusters': clusters})
 
         return res

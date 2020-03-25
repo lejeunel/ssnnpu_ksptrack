@@ -64,23 +64,16 @@ def train_one_epoch(model, dataloaders, optimizers, device,
             for k in optimizers.keys():
                 optimizers[k].zero_grad()
 
-            # nodes_color = torch.cat([[g.nodes[n]['mean color']
-            #                           for n in g.nodes()]
-            #                          for g in data['graph']]).to(device)
-
-            edges_nn = None
-            nodes_color = None
-            probas_ = None
-
             _, targets = distrib_buff[data['frame_idx']]
 
             if(cfg.pw):
                 probas_ = torch.cat([probas[i] for i in data['frame_idx']])
                 edges_nn = utls.combine_nn_edges(
                     [all_edges_nn[i] for i in data['frame_idx']])
-                res = model(data, edges_nn=edges_nn,
+                res = model(data,
+                            targets=targets.to(edges_nn.device),
+                            edges_nn=edges_nn,
                             probas=probas_,
-                            nodes_color=nodes_color,
                             thrs=[cfg.ml_down_thr,
                                   cfg.ml_up_thr])
                 loss_gcn = criterion_gcn(res['clusters_gcn'],
@@ -206,26 +199,24 @@ def train(cfg, model, device, dataloaders, run_path):
 
     optimizers = {
         'gcn':
-        optim.SGD(params=[{
+        optim.Adam(params=[{
             'params': model.gcns.parameters(),
             'lr': cfg.lr_dist,
         }],
-                  momentum=cfg.momentum,
                   weight_decay=cfg.decay),
         'feats':
-        optim.SGD(params=[{
+        optim.Adam(params=[{
             'params': model.dec.autoencoder.parameters(),
             'lr': cfg.lr_autoenc,
         }],
-                  momentum=cfg.momentum,
                   weight_decay=cfg.decay),
         'L':
-        optim.SGD(params=[{
+        optim.Adam(params=[{
             'params': model.dec.transform.parameters(),
             'lr': cfg.lr_dist,
         }]),
         'assign':
-        optim.SGD(params=[{
+        optim.Adam(params=[{
             'params': model.dec.assignment.parameters(),
             'lr': cfg.lr_dist,
         }])
@@ -262,8 +253,7 @@ def train(cfg, model, device, dataloaders, run_path):
         for phase in ['train', 'prev']:
             if phase == 'train':
                 distrib_buff.maybe_update(model, dataloaders['all_prev'],
-                                          device,
-                                          thrs=[cfg.ml_down_thr, cfg.ml_up_thr])
+                                          device)
 
                 res = train_one_epoch(model, dataloaders,
                                       optimizers, device,
@@ -282,10 +272,7 @@ def train(cfg, model, device, dataloaders, run_path):
                 if ((epoch % cfg.proba_update_period == 0) and cfg.pw):
                     features, pos_masks = clst.get_features(model,
                                                             dataloaders['all_prev'],
-                                                            device,
-                                                            all_edges_nn=all_edges_nn,
-                                                            probas=probas,
-                                                            feat_field='pooled_aspp_gcn_feats')
+                                                            device)
                     cat_features = np.concatenate(features)
                     cat_pos_mask = np.concatenate(pos_masks)
                     print('computing probability map')

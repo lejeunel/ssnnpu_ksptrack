@@ -7,10 +7,11 @@ import os
 from os.path import join as pjoin
 import yaml
 from tensorboardX import SummaryWriter
-import utils as utls
+import ksptrack.siamese.utils as utls
 import tqdm
 from ksptrack.models.deeplab import DeepLabv3Plus
-from ksptrack.models.unet_model import UNet
+# from ksptrack.models.unet_model import UNet
+from ksptrack.siamese.modeling.dil_unet import UNet
 from ksptrack.siamese import im_utils
 from skimage import io
 import numpy as np
@@ -66,14 +67,14 @@ def get_features(model, dataloader, device):
         with torch.no_grad():
             res = model(data['image'])
 
-        pooled_aspp_feats = [
-            roi_pool(res['aspp_feats'][b].unsqueeze(0),
+        pooled_feats = [
+            roi_pool(res['feats'][b].unsqueeze(0),
                      data['labels'][b].unsqueeze(0)).squeeze().T
             for b in range(data['labels'].shape[0])
         ]
 
-        pooled_aspp_feats = torch.cat(pooled_aspp_feats)
-        features.append(pooled_aspp_feats.detach().cpu().numpy().squeeze())
+        pooled_feats = torch.cat(pooled_feats)
+        features.append(pooled_feats.detach().cpu().numpy().squeeze())
         clicked_labels = [
             item for sublist in data['labels_clicked'] for item in sublist
         ]
@@ -263,7 +264,9 @@ def main(cfg):
 
     device = torch.device('cuda' if cfg.cuda else 'cpu')
 
-    model = DeepLabv3Plus(pretrained=False)
+    # model = DeepLabv3Plus(pretrained=False)
+    # model = UNet(merge_mode='none', depth=4)
+    model = UNet(depth=4, skip_mode='none')
     model.to(device)
 
     run_path = pjoin(cfg.out_root, cfg.run_dir)
@@ -304,13 +307,6 @@ def main(cfg):
     with open(pjoin(run_path, 'cfg.yml'), 'w') as outfile:
         yaml.dump(cfg.__dict__, stream=outfile, default_flow_style=False)
 
-    # optimizer = optim.SGD(
-    #     params=[
-    #         {'params': model.parameters(), 'lr': cfg.lr_autoenc},
-    #     ],
-    #     momentum=cfg.momentum,
-    #     weight_decay=cfg.decay,
-    #     )
     optimizer = optim.Adam(
         params=[
             {

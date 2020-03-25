@@ -59,7 +59,7 @@ def make_link_agent(labels, cfg):
                                     model=model,
                                     entrance_radius=cfg.norm_neighbor_in,
                                     cuda=cfg.cuda)
-        # compute features if necessary
+        # compute features
         path_feats = pjoin(cfg.in_path, cfg.precomp_dir, 'sp_desc_siam.p')
         path_centroids = pjoin(cfg.in_path, cfg.precomp_dir,
                                'centroids_loc_df.p')

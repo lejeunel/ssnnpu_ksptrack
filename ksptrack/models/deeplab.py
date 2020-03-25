@@ -38,8 +38,8 @@ class DeepLabv3Plus(nn.Module):
         if(self.do_skip):
             self.shortcut_conv = nn.Sequential(
                             nn.Conv2d(256, 48, 1, 1,
-                                    padding=1//2,
-                                    bias=True),
+                                      padding=1//2,
+                                      bias=True),
                             nn.BatchNorm2d(48),
                             nn.ReLU(inplace=True))	
 

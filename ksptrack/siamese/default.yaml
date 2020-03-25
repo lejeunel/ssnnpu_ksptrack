@@ -1,6 +1,6 @@
 frames: []
 
-epochs-autoenc: 90
+epochs-autoenc: 150
 epochs-dec: 100
 epochs-dist: 200
 

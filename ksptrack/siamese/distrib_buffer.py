@@ -29,8 +29,6 @@ class DistribBuffer:
         self.ratio_changed = 1
 
     def do_update(self, model, dataloader, device,
-                  all_edges_nn=None, probas=None,
-                  thrs=[0.5, 0.5],
                   clst_field='clusters'):
 
         print('updating targets...')
@@ -38,25 +36,16 @@ class DistribBuffer:
         clusters = []
         for i, data in enumerate(dataloader):
             data = utls.batch_to_device(data, device)
-            edges_nn = probas_ = None
-            if(all_edges_nn is not None):
-                edges_nn = utls.combine_nn_edges(
-                    [all_edges_nn[i] for i in data['frame_idx']])
-
-            if(probas is not None):
-                probas_ = torch.cat([probas[i] for i in data['frame_idx']])
 
             with torch.no_grad():
-                res = model(data, edges_nn=edges_nn,
-                            probas=probas_,
-                            thrs=thrs)
+                res = model(data)
             clusters.append(res[clst_field])
 
         distrib = torch.cat(clusters)
         tgt = target_distribution(torch.cat(clusters))
 
         splits = [np.unique(s['labels']).size
-                    for s in dataloader.dataset]
+                  for s in dataloader.dataset]
         self.tgt_distribs = torch.split(tgt.cpu().detach(), splits)
         self.distribs = torch.split(distrib.cpu().detach(), splits)
 
@@ -77,8 +66,6 @@ class DistribBuffer:
         model.train()
 
     def maybe_update(self, model, dataloader, device,
-                     all_edges_nn=None, probas=None,
-                     thrs=[0.5, 0.5],
                      clst_field='clusters'):
         """
         Update target probabilities when we hit update period
@@ -87,8 +74,6 @@ class DistribBuffer:
 
         if((self.epoch == 0) or (self.epoch % self.period == 0)):
             self.do_update(model, dataloader, device,
-                           all_edges_nn, probas,
-                           thrs=[0.5, 0.5],
                            clst_field=clst_field)
             print('Next update in {} epochs'.format(self.period))
 

@@ -107,7 +107,7 @@ def get_features(model, dataloader, device, all_edges_nn=None,
                  probas=None,
                  return_assign=False,
                  thrs=[0.5, 0.5],
-                 feat_field='pooled_aspp_feats'):
+                 feat_field='pooled_feats'):
     # form initial cluster centres
     labels_pos_mask = []
     assignments = []
