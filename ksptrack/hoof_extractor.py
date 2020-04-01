@@ -56,14 +56,14 @@ class HOOFExtractor:
                 (flows['bvx'][..., 0][..., None], flows['bvx']), axis=-1)
             bvy = np.concatenate(
                 (flows['bvy'][..., 0][..., None], flows['bvy']), axis=-1)
-            pbar = tqdm.tqdm(total=self.labels.shape[-1])
-            for f in range(self.labels.shape[-1]):
+            pbar = tqdm.tqdm(total=self.labels.shape[0])
+            for f in range(self.labels.shape[0]):
 
-                regions_for = regionprops(self.labels[..., f] + 1,
+                regions_for = regionprops(self.labels[f] + 1,
                                           flow=np.stack((fvx[..., f],
                                                          fvy[..., f])),
                                           n_bins_hoof=self.n_bins_hoof)
-                regions_back = regionprops(self.labels[..., f] + 1,
+                regions_back = regionprops(self.labels[f] + 1,
                                            flow=np.stack((bvx[..., f],
                                                           bvy[..., f])),
                                            n_bins_hoof=self.n_bins_hoof)
@@ -105,8 +105,8 @@ class HOOFExtractor:
                 else:
                     ind_hoof = self.hoof.columns == 'hoof_backward'
 
-                bar = tqdm.tqdm(total=self.labels.shape[-1] - 1)
-                for f in range(self.labels.shape[-1] - 1):
+                bar = tqdm.tqdm(total=self.labels.shape[0] - 1)
+                for f in range(self.labels.shape[0] - 1):
 
                     # get indices of edges from from f
                     edges_idx_0 = (edges_[..., 0] == f)[:, 0].astype(bool)

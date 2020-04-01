@@ -1,5 +1,4 @@
 import numpy as np
-from ksptrack.utils.loc_prior_dataset import LocPriorDataset
 from ksptrack.siamese.clustering import get_features
 import torch
 from imgaug import augmenters as iaa
@@ -33,11 +32,7 @@ class LinkAgentModel(LinkAgentRadius):
             for k, v in batch.items()
         }
 
-        self.transf_normal = iaa.Sequential(
-            [rescale_augmenter])
-        self.dl = LocPriorDataset(self.data_path,
-                                  normalization=self.transf_normal)
-        self.dl = DataLoader(self.dl, collate_fn=self.dl.collate_fn)
+        self.dl = DataLoader(self.dset, collate_fn=self.dset.collate_fn)
 
         self.prepare_feats()
         self.fit_gmm()
@@ -45,9 +40,10 @@ class LinkAgentModel(LinkAgentRadius):
     def prepare_feats(self, all_edges_nn=None, feat_field='pooled_feats'):
         print('preparing features for linkAgentModel')
 
-        self.feats, self.labels_pos, self.assignments = get_features(
+        self.feats, self.labels_pos, self.assignments, self.obj_preds = get_features(
             self.model, self.dl, self.device, return_assign=True,
-            feat_field=feat_field)
+            feat_field=feat_field,
+            return_obj_preds=True)
 
     def get_all_entrance_sps(self, *args):
 
@@ -114,14 +110,10 @@ class LinkAgentModel(LinkAgentRadius):
             for k, v in batch.items()
         }
 
-        transf = iaa.Sequential(
-            [rescale_augmenter])
-        dl = LocPriorDataset(self.data_path, normalization=transf)
-        dl = DataLoader(dl, collate_fn=dl.collate_fn)
         maps = []
 
-        pbar = tqdm.tqdm(total=len(dl))
-        for i, data in enumerate(dl):
+        pbar = tqdm.tqdm(total=len(self.dl))
+        for i, data in enumerate(self.dl):
             data = batch_to_device(data)
             with torch.no_grad():
                 res = self.model(data)
@@ -138,9 +130,6 @@ class LinkAgentModel(LinkAgentRadius):
         proba0 = self.probas[f0][l0]
         proba1 = self.probas[f1][l1]
 
-        # proba0 = np.clip(proba0, a_min=self.thr_clip)
-        # proba1 = np.clip(proba1, a_min=self.thr_clip)
-        # proba = (1 - (proba0 - proba1)**2 / (proba0 + proba1)).sum()
         proba = np.sqrt(proba0 * proba1).sum()
 
         proba = np.clip(proba, a_min=self.thr_clip, a_max=1 - self.thr_clip)

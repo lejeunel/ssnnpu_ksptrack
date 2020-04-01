@@ -29,7 +29,7 @@ class Siamese(nn.Module):
                  roi_size=1,
                  roi_scale=1.0,
                  alpha: float = 1.0,
-                 out_dim=128):
+                 backbone='drn'):
         """
         Arguments:
             in_channels: int, number of channels in the input tensor.
@@ -39,24 +39,29 @@ class Siamese(nn.Module):
 
         self.dec = DEC(embedded_dims, cluster_number, roi_size, roi_scale,
                        alpha)
-        self.out_dim = out_dim
 
-        self.clf = nn.Linear(embedded_dims, 1)
+        self.clf = nn.Linear(self.dec.autoencoder.last_feats_dims, 1)
+        self.pw_clf = nn.Linear(2 * embedded_dims, 1)
+        self.sigmoid = nn.Sigmoid()
 
         self.roi_pool = RoIPooling((roi_size, roi_size), roi_scale)
 
-        self.in_dims = [3, 32, 64, 128, 256]
+        if(backbone == 'drn'):
+            self.in_dims = [3, 32, 64, 128, 256]
+        else:
+            self.in_dims = self.dec.autoencoder.filts_dims
+
         self.gcns = []
         for i in range(len(self.in_dims) - 1):
             # gcn_ = gnn.GCNConv(in_channels=in_dims[i],
             #                    out_channels=in_dims[i+1],
             #                    normalize=False)
-            # gcn_ = gnn.SAGEConv(in_channels=in_dims[i],
-            #                     out_channels=in_dims[i+1],
-            #                     normalize=False)
-            gcn_ = gnn.SignedConv(in_channels=self.in_dims[i],
-                                  out_channels=self.in_dims[i+1],
-                                  first_aggr=True if i == 0 else False)
+            gcn_ = gnn.SAGEConv(in_channels=self.in_dims[i],
+                                out_channels=self.in_dims[i+1],
+                                normalize=False)
+            # gcn_ = gnn.SignedConv(in_channels=self.in_dims[i],
+            #                       out_channels=self.in_dims[i+1],
+            #                       first_aggr=True if i == 0 else False)
 
             self.gcns.append(gcn_)
 
@@ -76,29 +81,26 @@ class Siamese(nn.Module):
     def forward(self, data,
                 targets=None,
                 edges_nn=None,
-                nodes_color=None,
-                probas=None, thrs=[0.5, 0.5]):
+                probas=None):
 
         res = self.dec(data)
 
-        if(edges_nn is not None):
-            # similar edges according to probas and clusters
-            edges_mask_sim_p = (probas[edges_nn[:, 0]] >=
-                                thrs[1]) * (probas[edges_nn[:, 1]] >= thrs[1])
-            edges_mask_sim_p += (probas[edges_nn[:, 0]] <
-                                 thrs[0]) * (probas[edges_nn[:, 1]] < thrs[0])
-            edges_mask_sim_c = (targets[edges_nn[:, 0]].argmax(dim=1) ==
-                                targets[edges_nn[:, 1]].argmax(dim=1))
-            edges_nn_sim = edges_nn[edges_mask_sim_p * edges_mask_sim_c, :].T
+        obj_pred = self.clf(res['pooled_feats'])
+        res.update({'obj_pred': obj_pred})
 
-            # dissimilar edges according to probas and clusters
-            edges_mask_disim_p = (probas[edges_nn[:, 0]] >=
-                                  thrs[1]) * (probas[edges_nn[:, 1]] < thrs[0])
-            edges_mask_disim_p += (probas[edges_nn[:, 1]] >=
-                                   thrs[1]) * (probas[edges_nn[:, 0]] < thrs[0])
-            edges_mask_disim_c = (targets[edges_nn[:, 0]].argmax(dim=1) !=
-                                  targets[edges_nn[:, 1]].argmax(dim=1))
-            edges_nn_disim = edges_nn[edges_mask_disim_p * edges_mask_disim_c, :].T
+        if(edges_nn is not None):
+            # similar edges according clusters
+            edges_mask_sim = (targets[edges_nn[:, 0]].argmax(dim=1) ==
+                              targets[edges_nn[:, 1]].argmax(dim=1))
+            edges_nn_sim = edges_nn[edges_mask_sim, :].T
+
+            # dissimilar edges according to probas
+            # dp = (probas[edges_nn[:, 0]] - probas[edges_nn[:, 1]]).abs()
+            # edges_mask_disim_p = dp > 0.5
+
+            # edges_mask_disim_c = (targets[edges_nn[:, 0]].argmax(dim=1) !=
+            #                       targets[edges_nn[:, 1]].argmax(dim=1))
+            # edges_nn_disim = edges_nn[edges_mask_disim_p, :].T
 
             # add self loops
             edges_nn_sim, _ = gutls.add_self_loops(edges_nn_sim)
@@ -110,19 +112,29 @@ class Siamese(nn.Module):
             for i, gcn in enumerate(self.gcns):
                 # do GCNConv and average result with encoder features
                 H_pool = self.sp_pool(H[i], data['labels'])
-                Z = F.relu(gcn(Z, edges_nn_sim, edges_nn_disim))
-                Z_pos = Z[:, :self.in_dims[i+1]]
-                Z_pos = torch.stack((Z_pos, H_pool),
-                                    dim=0).mean(dim=0)
-                Z_neg = Z[:, self.in_dims[i+1]:]
-                Z_neg = torch.stack((Z_neg, H_pool),
-                                    dim=0).mean(dim=0)
-                Z = torch.cat((Z_pos, Z_neg), dim=1)
+                Z = torch.stack((Z, H_pool),
+                                dim=0).mean(dim=0)
+                Z = F.relu(gcn(Z, edges_nn_sim))
+                # Z_pos = Z[:, :self.in_dims[i+1]]
+                # Z_pos = torch.stack((Z_pos, H_pool),
+                #                     dim=0).mean(dim=0)
+                # Z_neg = Z[:, self.in_dims[i+1]:]
+                # Z_neg = torch.stack((Z_neg, H_pool),
+                #                     dim=0).mean(dim=0)
+                # Z = torch.cat((Z_pos, Z_neg), dim=1)
 
-            Z_pos = self.dec.transform(Z[:, :self.in_dims[i+1]])
-            Z_neg = self.dec.transform(Z[:, self.in_dims[i+1]:])
+            Z = self.dec.transform(Z)
+            # Z_pos = self.dec.transform(Z[:, :self.in_dims[i+1]])
+            # Z_neg = self.dec.transform(Z[:, self.in_dims[i+1]:])
+            # Z = torch.cat((Z_pos, Z_neg), dim=1)
 
-            res.update({'Z_pos': Z_pos})
-            res.update({'Z_neg': Z_neg})
+            # res.update({'Z_pos': Z_pos})
+            # res.update({'Z_neg': Z_neg})
+            res.update({'Z': Z})
+            # res.update({'edges_neg': edges_nn_disim})
+            res.update({'edges_pos': edges_nn_sim})
+
+            pw_pred = self.pw_clf(Z)
+            res.update({'pw_pred': pw_pred})
 
         return res

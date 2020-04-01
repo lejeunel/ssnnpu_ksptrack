@@ -14,28 +14,33 @@ class SuperpixelManager:
     Optionally computes Histograms of Oriented Optical Flow intersections
     """
     def __init__(self,
-                 dm,
+                 root_path,
+                 desc_dir,
+                 labels,
+                 desc_df,
                  directions=['forward', 'backward'],
                  init_radius=0.15,
                  hoof_n_bins=30):
 
-        self.dm = dm
         self.init_radius = init_radius
-        self.labels = dm.labels
-        self.c_loc = dm.centroids_loc
+        self.labels = labels
+        self.desc_df = desc_df
         self.hoof_n_bins = hoof_n_bins
         self.logger = logging.getLogger('SuperpixelManager')
         self.directions = directions
-        self.desc_path = dm.desc_path
+        self.root_path = root_path
+        self.desc_dir = desc_dir
         self.graph = self.make_dicts()
 
     def make_dicts(self):
         #self.dict_init = self.make_init_dicts()
         self.graph = self.make_transition_constraint()
-        file_hoof_sps = os.path.join(self.desc_path, 'hoof_inters_graph.npz')
+        file_hoof_sps = os.path.join(self.root_path,
+                                     self.desc_dir,
+                                     'hoof_inters_graph.npz')
 
-        hoof_extr = HOOFExtractor(self.dm.root_path,
-                                  self.dm.desc_dir,
+        hoof_extr = HOOFExtractor(self.root_path,
+                                  self.desc_dir,
                                   self.labels,
                                   n_bins=self.hoof_n_bins)
 
@@ -49,7 +54,9 @@ class SuperpixelManager:
         Makes a first "gross" filtering of transition.
         """
 
-        file_graph = os.path.join(self.desc_path, 'transition_constraint.p')
+        file_graph = os.path.join(self.root_path,
+                                  self.desc_dir,
+                                  'transition_constraint.p')
         if (not os.path.exists(file_graph)):
             f = self.c_loc['frame']
             s = self.c_loc['label']
@@ -91,8 +98,8 @@ class SuperpixelManager:
                 df_dists = df_dists.loc[df_dists['dist'] < self.init_radius]
 
                 # Find overlapping labels between consecutive frames
-                l_0 = self.labels[..., frames_tup[i][0]][..., np.newaxis]
-                l_1 = self.labels[..., frames_tup[i][1]][..., np.newaxis]
+                l_0 = self.labels[frames_tup[i][0]][..., np.newaxis]
+                l_1 = self.labels[frames_tup[i][1]][..., np.newaxis]
                 concat_ = np.concatenate((l_0, l_1), axis=-1)
                 concat_ = concat_.reshape((-1, 2))
                 ovl = np.asarray(list(set(list(map(tuple, concat_)))))
@@ -138,7 +145,9 @@ class SuperpixelManager:
         Makes a first "gross" filtering of transition.
         """
 
-        file_graph = os.path.join(self.desc_path, 'overlap_constraint.p')
+        file_graph = os.path.join(self.root_path,
+                                  self.desc_dir,
+                                  'overlap_constraint.p')
         if (not os.path.exists(file_graph)):
             f = self.c_loc['frame']
             s = self.c_loc['label']
@@ -158,8 +167,8 @@ class SuperpixelManager:
                 bar.update(1)
 
                 # Find overlapping labels between consecutive frames
-                l_0 = self.labels[..., frames_tup[i][0]][..., np.newaxis]
-                l_1 = self.labels[..., frames_tup[i][1]][..., np.newaxis]
+                l_0 = self.labels[frames_tup[i][0]][..., np.newaxis]
+                l_1 = self.labels[frames_tup[i][1]][..., np.newaxis]
                 f0 = frames_tup[i][0]
                 f1 = frames_tup[i][1]
                 concat_ = np.concatenate((l_0, l_1), axis=-1)

@@ -88,6 +88,7 @@ def get_params(path='.'):
     p.add('--bag-max-depth', type=float)
 
     p.add('--linkage', type=str)
+    p.add('--backbone', type=str)
 
     p.add('--beta', type=float)
     p.add('--gamma', type=float)
@@ -96,5 +97,8 @@ def get_params(path='.'):
 
     p.add('--thr-assign', type=float)
     p.add('--skip-train-dec', default=False, action='store_true')
-    p.add('--pw', default=False, action='store_true')
+    p.add('--triplet', default=False, action='store_true', help='optimize GCN')
+    p.add('--dec', default=False, action='store_true', help='do DEC')
+    p.add('--clf', default=False, action='store_true', help='optimize classifier')
+    p.add('--pw-clf', default=False, action='store_true', help='optimize classifier')
     return p

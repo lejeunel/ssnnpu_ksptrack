@@ -36,20 +36,13 @@ class Loader(LocPriorDataset):
                  root_path,
                  augmentations=None,
                  normalization=None,
-                 resize_shape=None,
                  csv_fname='video1.csv',
                  labels_fname='sp_labels.npz',
-                 sig_prior=0.1,
                  nn_radius=0.1):
         """
 
         """
-        super().__init__(root_path=root_path,
-                         augmentations=augmentations,
-                         normalization=normalization,
-                         resize_shape=resize_shape,
-                         csv_fname=csv_fname,
-                         sig_prior=sig_prior)
+        super().__init__(root_path, augmentations, normalization, csv_fname)
 
         self.nn_radius = nn_radius
 
@@ -192,8 +185,9 @@ class Loader(LocPriorDataset):
         centroids = np.array(
             [graph.nodes[n]['centroid'] for n in graph.nodes()])
 
+        shape = sample['image'].shape
         sample['graph'] = graph
-        # sample['labels'] = self.labels[..., idx][..., None]
+        sample['labels'] = self.labels[..., idx][..., None]
         sample['bboxes'] = bboxes
         sample['centroids'] = centroids
         # sample['flows'] = flows

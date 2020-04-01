@@ -148,7 +148,7 @@ def make_tiled_clusters(im, labels, predictions):
     return np.concatenate((im, clusters_colorized), axis=1)
 
 
-def make_data_aug(cfg):
+def make_data_aug(cfg, do_resize=False):
     transf = iaa.Sequential([
         iaa.BilateralBlur(d=3, sigma_color=cfg.aug_blur_color,
                           sigma_space=cfg.aug_blur_space),
@@ -168,6 +168,9 @@ def make_data_aug(cfg):
     # transf_normal = iaa.Sequential([rescale_augmenter,
     #                                 center_augmenter])
     transf_normal = iaa.Sequential([rescale_augmenter])
+
+    if(do_resize):
+        transf_normal.add(iaa.size.Resize(cfg.in_shape))
 
     return transf, transf_normal
 

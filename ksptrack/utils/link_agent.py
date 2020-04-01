@@ -13,6 +13,8 @@ from sklearn.decomposition import PCA
 import warnings
 import torch
 from abc import ABC, abstractmethod
+from ksptrack.utils.loc_prior_dataset import LocPriorDataset
+
 
 class LinkAgent(ABC):
     def __init__(self,
@@ -22,13 +24,21 @@ class LinkAgent(ABC):
 
         super().__init__()
 
-        self.labels = np.load(pjoin(data_path, 'precomp_desc', 'sp_labels.npz'))['sp_labels']
-        self.shape = self.labels[..., 0].shape
+        self.dset = LocPriorDataset(data_path,
+                                    normalization='rescale',
+                                    resize_shape=512)
+
+        self.labels_ = np.squeeze(np.array([s['labels'] for s in self.dset]))
+        self.shape = self.labels.shape[1:]
         self.trans_transform = None
         self.thr_clip = 0.001
         self.locs = csv.readCsv(csv_path, as_pandas=True)
         self.thr_entrance = thr_entrance
 
+    @property
+    def labels(self):
+
+        return self.labels_
 
     def get_i_j(self, loc):
         i, j = csv.coord2Pixel(loc['x'], loc['y'], self.shape[1],
@@ -39,9 +49,9 @@ class LinkAgent(ABC):
 
         sps = []
 
-        for f in range(self.labels.shape[-1]):
+        for f in range(self.labels.shape[0]):
             mask = self.make_entrance_mask(f) > self.thr_entrance
-            labels_ = np.unique(self.labels[mask, f])
+            labels_ = np.unique(self.labels[f, mask])
             descs_ = sp_desc_df[sp_desc_df['frame'] == f]
             descs_ = descs_.loc[descs_['label'].isin(labels_)]
             sps += [(f, row['label']) for _, row in descs_.iterrows()
@@ -58,7 +68,7 @@ class LinkAgent(ABC):
         """
 
         mask = self.make_entrance_mask(frame)
-        return np.mean(mask[self.labels[..., frame] == label]) > self.thr_entrance
+        return np.mean(mask[self.labels[frame] == label]) > self.thr_entrance
 
     def get_closest_label(self, sp):
         """
@@ -77,7 +87,7 @@ class LinkAgent(ABC):
         loc_min = loc_compare.iloc[np.argmin(dists)]
         i_min, j_min = csv.coord2Pixel(loc_min['x'], loc_min['y'],
                                        self.shape[1], self.shape[0])
-        return self.labels[i_min, j_min, sp['frame']]
+        return self.labels[sp['frame'], i_min, j_min]
 
     def make_trans_transform(self,
                              sp_desc,

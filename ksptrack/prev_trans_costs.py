@@ -27,25 +27,24 @@ def main(cfg):
     dm = DataManager(cfg.in_path, cfg.precomp_dir)
     dm.calc_superpix(cfg.slic_compactness, cfg.slic_n_sp)
 
-    link_agent = make_link_agent(dm.labels, cfg)
+    link_agent, desc_df = make_link_agent(cfg)
 
-    if (isinstance(link_agent, LinkAgentModel)):
-        print('will use DEC/siam features')
-        dm.feats_mode = 'siam'
-        # force reload features
-        dm.sp_desc_df_ = None
+    if(cfg.use_siam_pred):
+        print('will use DEC/siam objectness probabilities')
+        probas = link_agent.obj_preds
+        pm_scores_fg = utls.get_pm_array(link_agent.labels, probas)
+    else:
+        pm = utls.calc_pm(desc_df,
+                          np.array(link_agent.get_all_entrance_sps(desc_df)),
+                          cfg.bag_n_feats, cfg.bag_t, cfg.bag_max_depth,
+                          cfg.bag_max_samples, cfg.bag_jobs)
+        pm_scores_fg = utls.get_pm_array(link_agent.labels, pm)
 
-    dm.calc_pm(np.array(link_agent.get_all_entrance_sps(dm.sp_desc_df)),
-               cfg.bag_n_feats, cfg.bag_t, cfg.bag_max_depth,
-               cfg.bag_max_samples, cfg.bag_jobs)
-    # dm.calc_svc(np.concatenate(link_agent.feats),
-    #             np.array(link_agent.get_all_entrance_sps(dm.sp_desc_df)))
+    dl = LocPriorDataset(cfg.in_path,
+                         resize_shape=512,
+                         normalization='rescale',
+                         csv_fname=cfg.csv_fname)
 
-    labels = dm.labels
-
-    dl = LocPriorDataset(cfg.in_path)
-
-    pm_scores_fg = dm.get_pm_array(mode='foreground')
     cluster_maps = link_agent.make_cluster_maps()
 
     if(cfg.do_all):
@@ -59,19 +58,20 @@ def main(cfg):
         if(loc.shape[0] > 0):
             i_in, j_in = link_agent.get_i_j(loc.iloc[0])
 
-            entrance_probas = np.zeros(labels.shape[:2])
-            label_in = labels[i_in, j_in, fin]
-            for l in np.unique(labels[..., fin]):
-                proba = link_agent.get_proba(fin, label_in, fin, l, dm.sp_desc_df)
-                entrance_probas[labels[..., fin] == l] = proba
+            entrance_probas = np.zeros(link_agent.labels.shape[1:])
+            label_in = link_agent.labels[fin, i_in, j_in]
+            for l in np.unique(link_agent.labels[fin]):
+                proba = link_agent.get_proba(fin, label_in, fin, l, desc_df)
+                entrance_probas[link_agent.labels[fin] == l] = proba
 
             truth = dl[fin]['label/segmentation'][..., 0]
             truth_ct = segmentation.find_boundaries(truth, mode='thick')
-            im1 = dl[fin]['image']
+            im1 = dl[fin]['image_unnormal']
             rr, cc = draw.circle_perimeter(i_in,
                                            j_in,
                                            int(cfg.norm_neighbor_in * im1.shape[1]),
                                            shape=im1.shape)
+
             im1[truth_ct, ...] = (255, 0, 0)
 
             im1[rr, cc, 0] = 0
@@ -81,23 +81,23 @@ def main(cfg):
             im1 = csv.draw2DPoint(locs2d.to_numpy(), fin, im1, radius=7)
             ims_ = []
             ims_.append(im1)
-            ims_.append(colorize(pm_scores_fg[..., fin]))
+            ims_.append(colorize(pm_scores_fg[fin]))
             ims_.append(
-                colorize((pm_scores_fg[..., fin] > cfg.pm_thr).astype(float)))
-            ims_.append(cluster_maps[fin, ...])
+                colorize((pm_scores_fg[fin] > cfg.pm_thr).astype(float)))
+            ims_.append(cluster_maps[fin])
             ims_.append(colorize(entrance_probas))
             ims.append(ims_)
 
         else:
-            im1 = dl[fin]['image']
+            im1 = dl[fin]['image_unnormal']
 
             ims_ = []
             ims_.append(im1)
-            ims_.append(colorize(pm_scores_fg[..., fin]))
+            ims_.append(colorize(pm_scores_fg[fin]))
             ims_.append(
-                colorize((pm_scores_fg[..., fin] > cfg.pm_thr).astype(float)))
-            ims_.append(cluster_maps[fin, ...])
-            ims_.append(colorize(np.zeros_like(pm_scores_fg[..., fin])))
+                colorize((pm_scores_fg[fin] > cfg.pm_thr).astype(float)))
+            ims_.append(cluster_maps[fin])
+            ims_.append(colorize(np.zeros_like(pm_scores_fg[fin])))
             ims.append(ims_)
 
         pbar.update(1)
@@ -133,6 +133,7 @@ if __name__ == "__main__":
     p = params.get_params()
     p.add('--in-path', required=True)
     p.add('--siam-path', default='')
+    p.add('--use-siam-pred', default=False, action='store_true')
     p.add('--fin', nargs='+', type=int, default=[0])
     p.add('--save-path', default='')
     p.add('--do-all', default=False, action='store_true')

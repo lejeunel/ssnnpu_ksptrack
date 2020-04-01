@@ -1,0 +1,19 @@
+#!/bin/env bash
+
+#SBATCH --job-name=trlv
+#SBATCH --mem-per-cpu=40G
+#SBATCH --time=24:00:00
+#SBATCH --cpus-per-task=1
+#SBATCH --partition=gpu
+#SBATCH --gres=gpu
+#SBATCH --output=/home/ubelix/artorg/lejeune/runs/logs/%x.out
+
+simg=$HOME/ksptrack-ubelix.simg
+pyversion=my-3.7
+
+export OMP_NUM_THREADS=1
+
+args="--cuda --out-path $HOME/runs/ksptrack --root_path $HOME/data/medical-labeling --sets 50 51 52 53 54 --siam-run-root $HOME/runs/siamese_dec"
+
+singularity exec --nv $simg /bin/bash -c "source $HOME/.bashrc && pyenv activate $pyversion && cd $HOME/Documents/software/ksptrack/ksptrack/exps && python pipe_trans.py $args"
+

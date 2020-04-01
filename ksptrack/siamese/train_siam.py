@@ -12,7 +12,7 @@ from tqdm import tqdm
 from ksptrack.siamese.modeling.siamese import Siamese
 from ksptrack.siamese import utils as utls
 from ksptrack.siamese import im_utils
-from ksptrack.siamese.losses import LabelKLPairwiseLoss, LDALoss
+from ksptrack.siamese.losses import EmbeddingLoss, TripletLoss
 import numpy as np
 from skimage import io
 import clustering as clst
@@ -48,12 +48,19 @@ def train_one_epoch(model, dataloaders, optimizers, device,
     running_clst = 0.0
     running_recons = 0.0
     running_gcn = 0.0
+    running_obj_pred = 0.0
 
-    # criterion_recons = PriorMSE()
     criterion_recons = torch.nn.MSELoss()
     criterion_clst = torch.nn.KLDivLoss(reduction='mean')
-    criterion_gcn = torch.nn.KLDivLoss(reduction='mean')
-    # criterion_lda = LDALoss(thr=cfg.ml_up_thr)
+    criterion_embd = TripletLoss()
+
+    if(probas is not None):
+        pos = (torch.cat(probas) > 0.3)
+        pos_weight = (pos == 0).sum() / (pos == 1).sum()
+        criterion_obj_pred = torch.nn.BCEWithLogitsLoss(pos_weight)
+        del pos
+    else:
+        criterion_obj_pred = torch.nn.BCEWithLogitsLoss()
 
     pbar = tqdm(total=len(dataloaders['train']))
     for i, data in enumerate(dataloaders['train']):
@@ -66,34 +73,34 @@ def train_one_epoch(model, dataloaders, optimizers, device,
 
             _, targets = distrib_buff[data['frame_idx']]
 
-            if(cfg.pw):
-                probas_ = torch.cat([probas[i] for i in data['frame_idx']])
-                edges_nn = utls.combine_nn_edges(
-                    [all_edges_nn[i] for i in data['frame_idx']])
-                res = model(data,
-                            targets=targets.to(edges_nn.device),
-                            edges_nn=edges_nn,
-                            probas=probas_,
-                            thrs=[cfg.ml_down_thr,
-                                  cfg.ml_up_thr])
-                loss_gcn = criterion_gcn(res['clusters_gcn'],
-                                         targets.to(res['clusters_gcn']))
-            else:
-                res = model(data)
+            probas_ = torch.cat([probas[i] for i in data['frame_idx']])
+            edges_nn = utls.combine_nn_edges(
+                [all_edges_nn[i] for i in data['frame_idx']])
+            res = model(data,
+                        targets=targets.to(edges_nn.device),
+                        edges_nn=edges_nn,
+                        probas=probas_)
 
-            loss_recons = criterion_recons(sigmoid(res['output']),
-                                           data['image'])
-            loss = cfg.gamma * loss_recons
+            loss = 0
 
-            # loss_lda = criterion_lda(res['proj_pooled_aspp_feats'],
-            #                          probas_)
-            # loss += loss_lda
+            if(cfg.clf):
+                loss_obj_pred = criterion_obj_pred(res['obj_pred'].squeeze(),
+                                                   (probas_ > 0.5).float())
+                loss += cfg.lambda_ * loss_obj_pred
 
-            loss_clst = criterion_clst(res['clusters'], targets.to(res['clusters']))
+            if(cfg.dec):
 
-            loss += loss_clst
+                loss_recons = criterion_recons(sigmoid(res['output']),
+                                               data['image'])
+                loss += cfg.gamma * loss_recons
+                loss_clst = criterion_clst(res['clusters'],
+                                        targets.to(res['clusters']))
+
+                loss += loss_clst
 
             if(cfg.pw):
+                loss_gcn = criterion_embd(res['Z'],
+                                          res['edges_pos'])
                 loss += cfg.beta * loss_gcn
 
             loss.backward()
@@ -107,6 +114,8 @@ def train_one_epoch(model, dataloaders, optimizers, device,
         running_loss += loss.cpu().detach().numpy()
         running_recons += loss_recons.cpu().detach().numpy()
         running_clst += loss_clst.cpu().detach().numpy()
+        if(cfg.clf):
+            running_obj_pred += loss_obj_pred.cpu().detach().numpy()
         if(cfg.pw):
             running_gcn += loss_gcn.cpu().detach().numpy()
         loss_ = running_loss / ((i + 1) * cfg.batch_size)
@@ -118,10 +127,12 @@ def train_one_epoch(model, dataloaders, optimizers, device,
     loss_recons = running_recons / (cfg.batch_size * len(dataloaders['train']))
     loss_gcn = running_gcn / (cfg.batch_size * len(dataloaders['train']))
     loss_clst = running_clst / (cfg.batch_size * len(dataloaders['train']))
+    loss_obj_pred = running_obj_pred / (cfg.batch_size * len(dataloaders['train']))
 
     out = {'loss': loss_,
            'loss_gcn': loss_gcn,
            'loss_clst': loss_clst,
+           'loss_obj_pred': loss_obj_pred,
            'loss_recons': loss_recons}
 
     return out
@@ -129,15 +140,17 @@ def train_one_epoch(model, dataloaders, optimizers, device,
 
 def train(cfg, model, device, dataloaders, run_path):
 
-    if (cfg.pw):
-        cp_fname = 'checkpoint_siam_pw.pth.tar'
-        best_cp_fname = 'best_siam_pw.pth.tar'
-        rags_prevs_path = pjoin(run_path, 'prevs_pw')
-    else:
-        cfg.beta = 0.
-        cp_fname = 'checkpoint_siam.pth.tar'
-        best_cp_fname = 'best_siam.pth.tar'
-        rags_prevs_path = pjoin(run_path, 'prevs')
+    suffix = ''
+    if(cfg.dec):
+        suffix += '_dec'
+    if(cfg.pw):
+        suffix += '_pw'
+    if(cfg.clf):
+        suffix += '_clf'
+
+    cp_fname = 'checkpoint_siam{}.pth.tar'.format(suffix)
+    best_cp_fname = 'best_siam{}.pth.tar'.format(suffix)
+    rags_prevs_path = pjoin(run_path, 'prevs{}'.format(suffix))
 
     path_ = pjoin(run_path, 'checkpoints', 'init_dec.pth.tar')
     print('loading checkpoint {}'.format(path_))
@@ -181,6 +194,7 @@ def train(cfg, model, device, dataloaders, run_path):
     cfg_ksp.bag_n_feats = cfg.bag_n_feats
     cfg_ksp.bag_max_depth = cfg.bag_max_depth
     cfg_ksp.siam_path = pjoin(run_path, 'checkpoints', 'init_dec.pth.tar')
+    cfg_ksp.use_siam_pred = False
     cfg_ksp.in_path = pjoin(cfg.in_root, 'Dataset' + cfg.train_dir)
     cfg_ksp.precomp_desc_path = pjoin(cfg_ksp.in_path, 'precomp_desc')
     cfg_ksp.fin = [s['frame_idx'] for s in dataloaders['prev'].dataset]
@@ -210,6 +224,12 @@ def train(cfg, model, device, dataloaders, run_path):
             'lr': cfg.lr_autoenc,
         }],
                   weight_decay=cfg.decay),
+        'clf':
+        optim.Adam(params=[{
+            'params': model.clf.parameters(),
+            'lr': cfg.lr_autoenc,
+        }],
+                  weight_decay=cfg.decay),
         'L':
         optim.Adam(params=[{
             'params': model.dec.transform.parameters(),
@@ -224,25 +244,21 @@ def train(cfg, model, device, dataloaders, run_path):
 
     lr_sch = {'feats': torch.optim.lr_scheduler.ExponentialLR(optimizers['feats'],
                                                               0.99),
-              # 'feats_pw0': torch.optim.lr_scheduler.ExponentialLR(optimizers['feats_pw0'],
-              #                                             0.99),
-              # 'feats_pw1': torch.optim.lr_scheduler.ExponentialLR(optimizers['feats_pw1'],
-              #                                             0.99),
               'L': torch.optim.lr_scheduler.ExponentialLR(optimizers['L'],
+                                                          0.99),
+              'gcn': torch.optim.lr_scheduler.ExponentialLR(optimizers['gcn'],
+                                                          0.99),
+              'clf': torch.optim.lr_scheduler.ExponentialLR(optimizers['clf'],
                                                           0.99),
               'assign': torch.optim.lr_scheduler.ExponentialLR(optimizers['assign'],
                                                                0.99)}
     distrib_buff = DistribBuffer(cfg.tgt_update_period,
                                  thr_assign=cfg.thr_assign)
 
-
-    if(cfg.pw):
-        all_edges_nn = [
-            utls.make_single_graph_nn_edges(s['graph'], device, cfg.nn_radius)
-            for s in dataloaders['all_prev'].dataset
-        ]
-    else:
-        all_edges_nn = None
+    all_edges_nn = [
+        utls.make_single_graph_nn_edges(s['graph'], device, cfg.nn_radius)
+        for s in dataloaders['all_prev'].dataset
+    ]
 
     for epoch in range(1, cfg.epochs_dist + 1):
         if (distrib_buff.converged):
@@ -269,7 +285,7 @@ def train(cfg, model, device, dataloaders, run_path):
                 for k, v in res.items():
                     writer.add_scalar(k, v, epoch)
 
-                if ((epoch % cfg.proba_update_period == 0) and cfg.pw):
+                if ((epoch % cfg.proba_update_period) == 0):
                     features, pos_masks = clst.get_features(model,
                                                             dataloaders['all_prev'],
                                                             device)
@@ -315,6 +331,7 @@ def train(cfg, model, device, dataloaders, run_path):
                     print('generating previews to {}'.format(out_path))
 
                     cfg_ksp.siam_path = pjoin(run_path, 'checkpoints', cp_fname)
+                    cfg_ksp.use_siam_pred = cfg.clf
                     prev_ims = prev_trans_costs.main(cfg_ksp)
                     io.imsave(pjoin(out_path, 'ep_{:04d}.png'.format(epoch)), prev_ims)
 
@@ -338,12 +355,12 @@ def main(cfg):
                     cfg.n_clusters,
                     roi_size=1,
                     roi_scale=cfg.roi_spatial_scale,
-                    alpha=cfg.alpha).to(device)
-
-    _, transf_normal = im_utils.make_data_aug(cfg)
+                    alpha=cfg.alpha,
+                    backbone=cfg.backbone).to(device)
 
     dl_single = Loader(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
-                       normalization=transf_normal)
+                       normalization='rescale',
+                       resize_shape=cfg.in_shape)
 
     frames_tnsr_brd = np.linspace(0,
                                   len(dl_single) - 1,

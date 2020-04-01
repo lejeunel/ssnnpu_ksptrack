@@ -7,7 +7,8 @@ from skimage import segmentation
 
 
 def do_prev_clusters_init(dataloader,
-                          predictions):
+                          predictions,
+                          probas=None):
     # form initial cluster centres
 
     prev_ims = {}
@@ -103,16 +104,17 @@ def do_prev_clusters(model, device, dataloader, *args):
     return prevs
 
 
-def get_features(model, dataloader, device, all_edges_nn=None,
-                 probas=None,
+def get_features(model, dataloader, device,
                  return_assign=False,
-                 thrs=[0.5, 0.5],
+                 return_obj_preds=False,
                  feat_field='pooled_feats'):
     # form initial cluster centres
     labels_pos_mask = []
     assignments = []
     features = []
+    obj_preds = []
 
+    sigmoid = torch.nn.Sigmoid()
     model.eval()
     model.to(device)
     print('getting features')
@@ -120,18 +122,13 @@ def get_features(model, dataloader, device, all_edges_nn=None,
     for index, data in enumerate(dataloader):
         data = utls.batch_to_device(data, device)
         with torch.no_grad():
-            if(all_edges_nn is not None):
-                edges_nn = utls.combine_nn_edges(
-                    [all_edges_nn[i] for i in data['frame_idx']])
-                probas_ = torch.cat([probas[i] for i in data['frame_idx']])
-                res = model(data,
-                            edges_nn=edges_nn,
-                            probas=probas_)
-            else:
-                res = model(data)
+            res = model(data)
 
         if(return_assign):
             assignments.append(res['clusters'].argmax(dim=1).cpu().numpy())
+
+        if(return_obj_preds):
+            obj_preds.append(sigmoid(res['obj_pred']).cpu().numpy())
 
         clicked_labels = []
         if (len(data['labels_clicked']) > 0):
@@ -149,7 +146,12 @@ def get_features(model, dataloader, device, all_edges_nn=None,
         pbar.update(1)
     pbar.close()
 
+    res = [features, labels_pos_mask]
+
     if(return_assign):
-        return features, labels_pos_mask, np.concatenate(assignments)
-    else:
-        return features, labels_pos_mask
+        res.append(np.concatenate(assignments))
+
+    if(return_obj_preds):
+        res.append(obj_preds)
+
+    return res

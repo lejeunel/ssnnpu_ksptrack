@@ -13,7 +13,6 @@ import glob
 from sklearn.metrics import f1_score
 import networkx as nx
 from itertools import combinations
-#import selective_search as ss
 import logging
 import logging.config
 from scipy import interpolate
@@ -21,6 +20,89 @@ import pandas as pd
 from . import csv_utils as csv
 import ksptrack
 import warnings
+from ksptrack.utils import bagging as bag
+
+
+def probas_to_df(labels, probas):
+    probas = np.concatenate(probas)
+    frame_labels_list = [[(f, l) for f in range(labels.shape[0])
+                          for l in np.unique(labels[f])]]
+    frame_labels = np.squeeze(np.array(frame_labels_list))
+    frame_labels_probas = np.hstack((frame_labels, probas))
+    probas = pd.DataFrame(frame_labels_probas,
+                          columns=['frame', 'label', 'proba'])
+    probas = probas.astype({'frame': int, 'label': int})
+
+    return probas
+
+
+def calc_pm(desc_df, pos_sps, n_feats, T, max_depth, max_samples, n_jobs):
+    """
+    Main function that computes transductive learning model (bagging)
+    Inputs:
+    """
+
+    print('Training bagging model with {} trees'.format(T))
+
+    feats = np.vstack(desc_df['desc'].to_numpy())
+    frame_label_arr = np.stack((desc_df['frame'], desc_df['label'])).T
+    if (pos_sps.dtype != bool):
+        pos_idxs = [
+            np.where((frame_label_arr[:, 0] == f)
+                     & (frame_label_arr[:, 1] == l))[0] for f, l in pos_sps
+        ]
+        pos_idxs = np.array(pos_idxs).flatten()
+    else:
+        pos_idxs = pos_sps
+    class_labels = np.zeros(feats.shape[0]).astype(bool)
+    class_labels[pos_idxs] = True
+
+    probas = bag.calc_bagging(feats,
+                              class_labels,
+                              T,
+                              max_depth,
+                              n_feats,
+                              bag_max_samples=max_samples,
+                              n_jobs=n_jobs)
+
+    pm_df = pd.DataFrame({
+        'frame': desc_df['frame'],
+        'label': desc_df['label'],
+        'proba': probas
+    })
+
+    return pm_df
+
+
+def get_pm_array(labels, probas):
+    """ Returns array same size as labels with probabilities of bagging model
+    """
+
+    if (not isinstance(probas, pd.DataFrame)):
+        probas = probas_to_df(labels, probas)
+
+    scores = labels.copy().astype(float)
+    frames = np.arange(scores.shape[0])
+
+    i = 0
+    bar = tqdm.tqdm(total=len(frames))
+    for f in frames:
+        this_frame_pm_df = probas[probas['frame'] == f]
+        dict_keys = this_frame_pm_df['label']
+        dict_vals = this_frame_pm_df['proba']
+        dict_map = dict(zip(dict_keys, dict_vals))
+        # Create 2D replacement matrix
+        replace = np.array([list(dict_map.keys()), list(dict_map.values())])
+        # Find elements that need replacement
+        mask = np.isin(scores[f], replace[0, :])
+        # Replace elements
+        scores[f, mask] = replace[
+            1, np.searchsorted(replace[0, :], scores[f, mask])]
+        i += 1
+        bar.update(1)
+    bar.close()
+
+    return scores
 
 
 def check_thrs(threshs, y, n_samp):
@@ -40,7 +122,7 @@ def check_thrs(threshs, y, n_samp):
         warnings.warn('Not enough positives!')
         recompute_thrs = True
 
-    if(recompute_thrs):
+    if (recompute_thrs):
         dthresh = threshs[1] - threshs[0]
         sorted_probas = np.sort(y)[::-1]
         threshs[1] = sorted_probas[n_samp]
@@ -50,8 +132,7 @@ def check_thrs(threshs, y, n_samp):
     return threshs
 
 
-def sample_features(X, y, threshs, n_samp, check_thr=False,
-                    n_bins=None):
+def sample_features(X, y, threshs, n_samp, check_thr=False, n_bins=None):
     """
     X: features matrix
     y: probability values
@@ -72,7 +153,7 @@ def sample_features(X, y, threshs, n_samp, check_thr=False,
     p_pos = None
     p_neg = None
 
-    if(n_bins is not None):
+    if (n_bins is not None):
         bins_neg = np.linspace(0, threshs[0], n_bins)
         bins_pos = np.linspace(threshs[1], 1, n_bins)
         idx_bins_neg = np.digitize(y[idx_neg], bins_neg, right=True)
@@ -93,8 +174,7 @@ def sample_features(X, y, threshs, n_samp, check_thr=False,
     y_neg = y[idx_neg]
     descs = np.concatenate((X_pos, X_neg), axis=0)
 
-    y = np.concatenate(
-        (np.ones_like(y_pos), np.zeros_like(y_neg)), axis=0)
+    y = np.concatenate((np.ones_like(y_pos), np.zeros_like(y_neg)), axis=0)
 
     return descs, y
 
@@ -677,8 +757,8 @@ def sp_tuples_to_mat(P, labels):
     scores = np.zeros(labels.shape, dtype=bool)
     for p in P:
         for s in p:
-            mask = labels[..., s[0]] == s[1]
-            scores[..., s[0]] += mask
+            mask = labels[s[0]] == s[1]
+            scores[s[0]] += mask
 
     return scores
 

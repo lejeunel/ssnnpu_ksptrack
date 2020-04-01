@@ -38,7 +38,7 @@ def merge_positives(sp_desc_df, pos_for, pos_back):
     return sp_desc_df
 
 
-def make_link_agent(labels, cfg):
+def make_link_agent(cfg):
 
     if (cfg.siam_path):
         cfg_path = os.path.split(cfg.siam_path)[0]
@@ -71,14 +71,7 @@ def make_link_agent(labels, cfg):
         print('Saving features to {}'.format(path_feats))
         feats.to_pickle(path_feats)
 
-        return link_agent
-    else:
-        return LinkAgentRadius(csv_path=pjoin(cfg.in_path, cfg.locs_dir,
-                                              cfg.csv_fname),
-                               data_path=cfg.in_path,
-                               thr_entrance=cfg.thr_entrance,
-                               sigma=cfg.ml_sigma,
-                               entrance_radius=cfg.norm_neighbor_in)
+        return link_agent, feats
 
 
 def main(cfg):
@@ -115,33 +108,26 @@ def main(cfg):
     dm = DataManager(cfg.in_path, cfg.precomp_dir, feats_mode=cfg.feats_mode)
     dm.calc_superpix(cfg.slic_compactness, cfg.slic_n_sp)
 
+    link_agent, desc_df = make_link_agent(cfg)
+
     logger.info('Building superpixel managers')
-    sps_man = spm.SuperpixelManager(dm,
+    sps_man = spm.SuperpixelManager(cfg.in_path,
+                                    cfg.precomp_dir,
+                                    link_agent.labels,
+                                    desc_df,
                                     init_radius=cfg.sp_trans_init_radius,
                                     hoof_n_bins=cfg.hoof_n_bins)
 
-    # dm.calc_sp_feats(cfg)
 
-    link_agent = make_link_agent(dm.labels, cfg)
-    if (isinstance(link_agent, LinkAgentModel)):
-        print('will use DEC/siam features')
-        dm.feats_mode = 'siam'
-        #force reload features
-        dm.sp_desc_df_ = None
+    locs2d_sps = link_agent.get_all_entrance_sps(desc_df)
+    desc_df['positive'] = locs2d_sps
 
-    locs2d_sps = link_agent.get_all_entrance_sps(dm.sp_desc_df)
-    dm.sp_desc_df['positive'] = locs2d_sps
-
-    dm.calc_pm(dm.sp_desc_df['positive'], cfg.bag_n_feats, cfg.bag_t,
-               cfg.bag_max_depth, cfg.bag_max_samples, cfg.bag_jobs)
-
-    link_agent.update_trans_transform(np.vstack(dm.sp_desc_df['desc'].values),
-                                      dm.fg_pm_df['proba'].values,
-                                      [cfg.ml_down_thr, cfg.ml_up_thr],
-                                      cfg.ml_n_samps,
-                                      cfg.lfda_dim,
-                                      cfg.lfda_k,
-                                      embedding_type=cfg.ml_embedding)
+    if(cfg.use_siam_pred):
+        pm = utls.probas_to_df(link_agent.labels, link_agent.obj_preds)
+    else:
+        pm = utls.calc_pm(desc_df,
+                          desc_df['positive'], cfg.bag_n_feats, cfg.bag_t,
+                          cfg.bag_max_depth, cfg.bag_max_samples, cfg.bag_jobs)
 
     ksp_scores_mat = []
 
@@ -165,22 +151,22 @@ def main(cfg):
         logger.info("i: " + str(i + 1))
 
         if ((i > 0) & find_new_forward):
-            g_for.merge_tracklets_temporally(pos_tls_for, dm.fg_pm_df,
-                                             dm.sp_desc_df, cfg.pm_thr)
+            g_for.merge_tracklets_temporally(pos_tls_for, pm,
+                                             desc_df, cfg.pm_thr)
 
         if ((i > 0) & find_new_backward):
-            g_back.merge_tracklets_temporally(pos_tls_back, dm.fg_pm_df,
-                                              dm.sp_desc_df, cfg.pm_thr)
+            g_back.merge_tracklets_temporally(pos_tls_back, pm,
+                                              desc_df, cfg.pm_thr)
         # Make backward graph
         if (find_new_backward):
 
-            g_back.makeFullGraph(dm.get_sp_desc_from_file(),
-                                 dm.fg_pm_df,
+            g_back.makeFullGraph(desc_df,
+                                 pm,
                                  cfg.pm_thr,
                                  cfg.hoof_tau_u,
                                  cfg.norm_neighbor,
                                  direction='backward',
-                                 labels=dm.labels)
+                                 labels=link_agent.labels)
 
             logger.info("Computing KSP on backward graph. (i: {}".format(i +
                                                                          1))
@@ -193,13 +179,13 @@ def main(cfg):
         # Make forward graph
         if (find_new_forward):
 
-            g_for.makeFullGraph(dm.get_sp_desc_from_file(),
-                                dm.fg_pm_df,
+            g_for.makeFullGraph(desc_df,
+                                pm,
                                 cfg.pm_thr,
                                 cfg.hoof_tau_u,
                                 cfg.norm_neighbor,
                                 direction='forward',
-                                labels=dm.labels)
+                                labels=link_agent.labels)
 
             logger.info("Computing KSP on forward graph. (i: {})".format(i +
                                                                          1))
@@ -212,7 +198,7 @@ def main(cfg):
 
             ksp_scores_mat = utls.sp_tuples_to_mat(
                 dict_ksp['forward_sets'] + dict_ksp['backward_sets'],
-                dm.labels)
+                link_agent.labels)
 
             # Update marked superpixels if graph is not "finished"
             if (find_new_forward):
@@ -254,20 +240,14 @@ def main(cfg):
 
             # Recompute PM values
             if (i + 1 < cfg.n_iters_ksp):
-                dm.sp_desc_df_ = merge_positives(dm.sp_desc_df_,
-                                                 marked_for,
-                                                 marked_back)
-                dm.calc_pm(
-                    dm.sp_desc_df['positive'],
+                desc_df = merge_positives(desc_df,
+                                          marked_for,
+                                          marked_back)
+                pm = utls.calc_pm(
+                    desc_df,
+                    desc_df['positive'],
                     cfg.bag_n_feats, cfg.bag_t, cfg.bag_max_depth,
                     cfg.bag_max_samples, cfg.bag_jobs)
-            link_agent.update_trans_transform(
-                np.vstack(dm.sp_desc_df['desc'].values),
-                dm.fg_pm_df['proba'].values, [cfg.ml_down_thr, cfg.ml_up_thr],
-                cfg.ml_n_samps,
-                cfg.lfda_dim,
-                cfg.lfda_k,
-                embedding_type=cfg.ml_embedding)
 
             i += 1
 
@@ -276,7 +256,7 @@ def main(cfg):
     data = dict()
     data['n_iters_ksp'] = cfg.n_iters_ksp
     data['ksp_scores_mat'] = ksp_scores_mat
-    data['pm_scores_mat'] = dm.get_pm_array()
+    data['pm_scores_mat'] = utls.get_pm_array(link_agent.labels, pm)
     data['paths_back'] = dict_ksp['backward_sets']
     data['paths_for'] = dict_ksp['forward_sets']
     logger.info("Saving results and cfg to: " + fileOut)
@@ -287,7 +267,7 @@ def main(cfg):
     logger.info('Finished experiment: ' + cfg.run_dir)
 
     write_frames_results.main(cfg, cfg.run_dir, logger)
-    comp_scores.main(cfg, cfg.run_dir, logger)
+    comp_scores.main(cfg)
 
     return cfg
 
@@ -299,6 +279,7 @@ if __name__ == "__main__":
     p.add('--out-path', required=True)
     p.add('--in-path', required=True)
     p.add('--siam-path', default='')
+    p.add('--use-siam-pred', default=False, action='store_true')
 
     cfg = p.parse_args()
 

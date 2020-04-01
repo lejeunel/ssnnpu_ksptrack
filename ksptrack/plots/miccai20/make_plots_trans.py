@@ -80,7 +80,6 @@ for t in types:
     idx = df_all.loc[t]['F1'].values.argmax()
     df_all.loc[t]['bold'].iloc[idx] = True
 
-import pdb; pdb.set_trace() ## DEBUG ##
 # add bold tags
 def myformat(r):
     if(r['bold'].iat[0]):
@@ -126,7 +125,6 @@ Quantitative results on all datasets. We report the F1 scores and standard devia
 """
 
 print('writing table to {}'.format(out_path))
-import pdb; pdb.set_trace() ## DEBUG ##
 table = df_all.to_latex(escape=False,
                         column_format='llp{1.8cm}p{1.8cm}p{1.8cm}p{1.8cm}p{1.8cm}',
                         multirow=True,

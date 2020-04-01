@@ -2,54 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-
-class gated_resnet(nn.Module):
-    """
-    Gated Residual Block
-    """
-    def __init__(self,
-                 num_filters,
-                 kernel_size,
-                 padding,
-                 nonlinearity=nn.ReLU,
-                 dropout=0.2,
-                 dilation=1,
-                 batchNormObject=nn.BatchNorm2d):
-        super(gated_resnet, self).__init__()
-        self.gated = True
-        num_hidden_filters = 2 * num_filters if gated else num_filters
-        self.conv_input = nn.Conv2d(num_filters,
-                                    num_hidden_filters,
-                                    kernel_size=kernel_size,
-                                    stride=1,
-                                    padding=padding,
-                                    dilation=dilation)
-        self.dropout = nn.Dropout2d(dropout)
-        self.nonlinearity = nonlinearity()
-        self.batch_norm1 = batchNormObject(num_hidden_filters)
-        self.conv_out = nn.Conv2d(num_hidden_filters,
-                                  num_hidden_filters,
-                                  kernel_size=kernel_size,
-                                  stride=1,
-                                  padding=padding,
-                                  dilation=dilation)
-        self.batch_norm2 = batchNormObject(num_filters)
-
-    def forward(self, og_x):
-        x = self.conv_input(og_x)
-        x = self.batch_norm1(x)
-        x = self.nonlinearity(x)
-        x = self.dropout(x)
-        x = self.conv_out(x)
-        if self.gated:
-            a, b = torch.chunk(x, 2, dim=1)
-            c3 = a * F.sigmoid(b)
-        else:
-            c3 = x
-        out = og_x + c3
-        out = self.batch_norm2(out)
-        return out
+from ksptrack.siamese.modeling.coordconv import CoordConv2d
 
 
 class ResidualBlock(nn.Module):
@@ -63,24 +16,26 @@ class ResidualBlock(nn.Module):
                  nonlinearity=nn.ReLU,
                  dropout=0.2,
                  dilation=1,
+                 convObject=nn.Conv2d,
                  batchNormObject=nn.BatchNorm2d):
         super(ResidualBlock, self).__init__()
         num_hidden_filters = num_filters
-        self.conv1 = nn.Conv2d(num_filters,
-                               num_hidden_filters,
-                               kernel_size=kernel_size,
-                               stride=1,
-                               padding=padding,
-                               dilation=dilation)
+
+        self.conv1 = convObject(num_filters,
+                            num_hidden_filters,
+                            kernel_size=kernel_size,
+                            stride=1,
+                            padding=padding,
+                            dilation=dilation)
         self.dropout = nn.Dropout2d(dropout)
         self.nonlinearity = nonlinearity(inplace=False)
         self.batch_norm1 = batchNormObject(num_hidden_filters)
-        self.conv2 = nn.Conv2d(num_hidden_filters,
-                               num_hidden_filters,
-                               kernel_size=kernel_size,
-                               stride=1,
-                               padding=padding,
-                               dilation=dilation)
+        self.conv2 = convObject(num_hidden_filters,
+                            num_hidden_filters,
+                            kernel_size=kernel_size,
+                            stride=1,
+                            padding=padding,
+                            dilation=dilation)
         self.batch_norm2 = batchNormObject(num_filters)
 
     def forward(self, og_x):
@@ -110,6 +65,7 @@ class ConvolutionalEncoder(nn.Module):
                  dropout_min=0,
                  dropout_max=0.2,
                  blockObject=ResidualBlock,
+                 convObject=nn.Conv2d,
                  batchNormObject=nn.BatchNorm2d):
         """
         n_features_input (int): number of intput features
@@ -131,7 +87,7 @@ class ConvolutionalEncoder(nn.Module):
                    for t in np.linspace(0, 1, depth)]
         # input convolution block
         block = [
-            nn.Conv2d(in_channels,
+            convObject(in_channels,
                       self.filts_dims[0],
                       kernel_size=kernel_size,
                       stride=1,
@@ -152,7 +108,7 @@ class ConvolutionalEncoder(nn.Module):
             # downsampling
             block = [
                 nn.MaxPool2d(2),
-                nn.Conv2d(self.filts_dims[i], self.filts_dims[i+1], kernel_size=1, padding=0),
+                convObject(self.filts_dims[i], self.filts_dims[i+1], kernel_size=1, padding=0),
                 batchNormObject(self.filts_dims[i+1]),
                 nn.ReLU()
             ]
@@ -195,6 +151,7 @@ class ConvolutionalDecoder(nn.Module):
                  dropout_min=0,
                  dropout_max=0.2,
                  blockObject=ResidualBlock,
+                 convObject=nn.Conv2d,
                  batchNormObject=nn.BatchNorm2d,
                  skip_mode='conv'):
         """
@@ -238,7 +195,7 @@ class ConvolutionalDecoder(nn.Module):
                     batchNormObject(self.filts_dims[i+1]), nn.ReLU()))
             if(self.skip_mode == 'conv'):
                 self.skipMergers.append(
-                    nn.Conv2d(2 * self.filts_dims[i+1],
+                    convObject(2 * self.filts_dims[i+1],
                             self.filts_dims[i+1],
                             kernel_size=kernel_size,
                             stride=1,
@@ -259,7 +216,7 @@ class ConvolutionalDecoder(nn.Module):
             self.residualBlocks.append(nn.Sequential(*block))
         # output convolution block
         block = [
-            nn.Conv2d(self.filts_dims[-1],
+            convObject(self.filts_dims[-1],
                       out_channels,
                       kernel_size=kernel_size,
                       stride=1,
@@ -287,9 +244,10 @@ class ConvolutionalDecoder(nn.Module):
 
 class DilatedConvolutions(nn.Module):
     """
-    Sequential Dialted convolutions
+    Sequential Dilated convolutions
     """
-    def __init__(self, n_channels, n_convolutions, dropout):
+    def __init__(self, n_channels, n_convolutions, dropout,
+                 convObject=nn.Conv2d):
         super(DilatedConvolutions, self).__init__()
         kernel_size = 3
         padding = 1
@@ -297,7 +255,7 @@ class DilatedConvolutions(nn.Module):
         self.non_linearity = nn.ReLU(inplace=True)
         self.strides = [2**(k + 1) for k in range(n_convolutions)]
         convs = [
-            nn.Conv2d(n_channels,
+            convObject(n_channels,
                       n_channels,
                       kernel_size=kernel_size,
                       dilation=s,
@@ -336,7 +294,7 @@ class UNet(nn.Module):
                  num_dilated_convs=3,
                  dropout_min=0,
                  dropout_max=0,
-                 gated=False,
+                 coordconv=True,
                  padding=1,
                  skip_mode='conv',
                  kernel_size=3,
@@ -350,14 +308,19 @@ class UNet(nn.Module):
             n_resblocks (int): number of residual blocks at each layer 
             num_dilated_convs (int): number of dilated convolutions at the last layer
             dropout (float): float in [0,1]: dropout probability
-            gated (bool): use gated Convolutions, default is False
             padding (int): padding for the convolutions
             kernel_size (int): kernel size for the convolutions
             group_norm (bool): number of groups to use for Group Normalization, default is 32, if zero: use nn.BatchNorm2d
         """
         super(UNet, self).__init__()
 
+        if coordconv:
+            convObject = CoordConv2d
+        else:
+            convObject = nn.Conv2d
+
         self.filts_dims = [start_filts*(2**i) for i in range(depth)]
+        self.last_feats_dims = self.filts_dims[-1]
         if group_norm > 0:
             for h in self.filts_dims:
                 assert h % group_norm == 0, "Number of features at each layer must be divisible by 'group_norm'"
@@ -373,11 +336,12 @@ class UNet(nn.Module):
                                             dropout_min=dropout_min,
                                             dropout_max=dropout_max,
                                             blockObject=ResidualBlock,
+                                            convObject=convObject,
                                             batchNormObject=batchNormObject)
         if num_dilated_convs > 0:
             self.dilatedConvs = DilatedConvolutions(
                 self.filts_dims[-1], num_dilated_convs,
-                dropout_max)  # <v11 uses dilatedConvs2
+                dropout_max, convObject=convObject)
         else:
             self.dilatedConvs = None
         self.decoder = ConvolutionalDecoder(out_channels=out_channels,
@@ -390,6 +354,7 @@ class UNet(nn.Module):
                                             dropout_max=dropout_max,
                                             skip_mode=skip_mode,
                                             blockObject=ResidualBlock,
+                                            convObject=convObject,
                                             batchNormObject=batchNormObject)
 
     def forward(self, x):

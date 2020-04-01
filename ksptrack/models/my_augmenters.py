@@ -99,6 +99,7 @@ void_fun = lambda x, random_state, parents, hooks: x
 
 rescale_augmenter = iaa.Lambda(
     func_images=rescale_images,
+    func_segmentation_maps=void_fun,
     func_heatmaps=void_fun,
     func_keypoints=void_fun)
 

@@ -8,7 +8,7 @@ epochs-dist: 200
 prev-period: 10
 
 tgt-update-period: 10
-proba-update-period: 5
+proba-update-period: 999
 cp-period: 2
 
 # optimizer
@@ -18,9 +18,9 @@ lr-assign: 1e-3
 decay : 2e-4
 lr-power : 0.98
 momentum: 0.9
-lambda-: 1e-5
+lambda-: 1e-1
 gamma: 10
-beta: 10
+beta: 1e-7
 alpha: 1
 
 # batch
@@ -37,7 +37,7 @@ cuda: False
 n-ims-test: 5
 
 # network input size
-in-shape: 600
+in-shape: 512
 n-frames-epoch: 100
 
 # augmentation
@@ -65,13 +65,14 @@ roi-spatial-scale: 1.0
 with-agglo: False
 with-pck: False
 with-flow: False
-reduc-method: 'lfda'
+reduc-method: 'pca'
 ml-up-thr: 0.5
 ml-down-thr: 0.5
 bag-t: 300
-bag-n-feats : 0.05
+bag-n-feats : 0.02
 bag-max-depth : 64
 
 linkage: 'ward'
+backbone: 'unet'
 
 thr-assign: 0.001

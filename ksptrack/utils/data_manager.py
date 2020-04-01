@@ -198,16 +198,6 @@ class DataManager:
             )['labels_contours'].transpose((1, 2, 0))
         return self.labels_contours_
 
-    @property
-    def labels(self):
-
-        if (self.labels_ is None):
-            path_ = os.path.join(self.desc_path, 'sp_labels.npz')
-            self.logger.info('loading superpixel labels: {}'.format(path_))
-
-            self.labels_ = np.load(path_)['sp_labels']
-
-        return self.labels_
 
     @property
     def sp_desc_df(self):
@@ -402,15 +392,12 @@ class DataManager:
             self.logger.info('Saving  features to {}.'.format(df_path.format(self.feats_mode)))
             feats_df.to_pickle(os.path.join(df_path.format(self.feats_mode)))
 
-    def get_pm_array(self, mode='foreground', save=False, frames=None):
+    def get_pm_array(self, save=False, frames=None):
         """ Returns array same size as labels with probabilities of bagging model
         """
 
         scores = self.labels.copy().astype(float)
-        if (mode == 'foreground'):
-            pm_df = self.fg_pm_df
-        else:
-            pm_df = self.bg_pm_df
+        pm_df = self.fg_pm_df
 
         if (frames is None):  #Make all frames
             frames = np.arange(scores.shape[-1])
@@ -436,21 +423,6 @@ class DataManager:
             i += 1
             bar.update(1)
         bar.close()
-
-        if (save):
-
-            if (mode == 'foreground'):
-                data = dict()
-                data['pm_scores'] = scores
-                np.savez(
-                    os.path.join(self.desc_path,
-                                 'pm_scores_fg_orig.npz'), **data)
-            else:
-                data = dict()
-                data['pm_scores'] = scores
-                np.savez(
-                    os.path.join(self.desc_path,
-                                 'pm_scores_fg_orig.npz'), **data)
 
         return scores
 
@@ -483,45 +455,3 @@ class DataManager:
         return self.fg_pm_df
 
 
-    def calc_pm(self,
-                pos_sps,
-                n_feats,
-                T,
-                max_depth,
-                max_samples,
-                n_jobs):
-        """
-        Main function that computes transductive learning model (bagging)
-        Inputs:
-        """
-
-        self.logger.info('Training bagging model with {} trees'.format(T))
-
-        feats = np.vstack(self.sp_desc_df['desc'].to_numpy())
-        frame_label_arr = np.stack((self.sp_desc_df['frame'],
-                                          self.sp_desc_df['label'])).T
-        if(pos_sps.dtype != bool):
-            pos_idxs = [np.where((frame_label_arr[:, 0] == f) & (frame_label_arr[:, 1] == l))[0]
-                        for f, l in pos_sps]
-            pos_idxs = np.array(pos_idxs).flatten()
-        else:
-            pos_idxs = pos_sps
-        class_labels = np.zeros(feats.shape[0]).astype(bool)
-        class_labels[pos_idxs] = True
-
-        probas = bag.calc_bagging(
-            feats,
-            class_labels,
-            T,
-            max_depth,
-            n_feats,
-            bag_max_samples=max_samples,
-            n_jobs=n_jobs)
-
-        self.fg_pm_df = pd.DataFrame({
-            'frame': self.sp_desc_df['frame'],
-            'label': self.sp_desc_df['label'],
-            'proba': probas
-        })
-
-        return self.fg_pm_df

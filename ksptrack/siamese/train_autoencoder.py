@@ -20,6 +20,7 @@ from torch.nn.functional import sigmoid, tanh
 from ksptrack.siamese.clustering import get_features
 from ksptrack.utils.bagging import calc_bagging
 from ksptrack.siamese.modeling.superpixPool.pytorch_superpixpool.suppixpool_layer import SupPixPool
+from ksptrack.utils.my_utils import get_pm_array
 import pandas as pd
 from ksptrack.prev_trans_costs import colorize
 
@@ -36,15 +37,16 @@ def make_pm_prevs(model, dataloaders, cfg, centroids, all_labels, device):
     frames = [item for sublist in frames for item in sublist]
 
     df = centroids.assign(desc=np.concatenate(feats), proba=probas)
-    scores = get_pm_array(all_labels, df, frames)
+    scores = get_pm_array(all_labels, df)
+    scores = [scores[f] for f in frames]
     scores_thr = [(s > 0.5).astype(float) for s in scores]
     scores = [colorize(s) for s in scores]
     scores_thr = [colorize(s) for s in scores_thr]
     images = [
-        np.rollaxis(s['image'].squeeze().cpu().numpy(), 0, 3)
+        np.rollaxis(s['image_unnormal'].squeeze().cpu().numpy(), 0, 3)
         for s in dataloaders['prev']
     ]
-    all_images = (np.concatenate(images, axis=1) * 255).astype(np.uint8)
+    all_images = (np.concatenate(images, axis=1)).astype(np.uint8)
     all_scores = np.concatenate(scores, axis=1)
     all_scores_thr = np.concatenate(scores_thr, axis=1)
     all = np.concatenate((all_images, all_scores, all_scores_thr), axis=0)
@@ -89,39 +91,6 @@ def get_features(model, dataloader, device):
     return features, labels_pos_mask
 
 
-def get_pm_array(labels, pm_df, frames=None):
-    """ Returns array same size as labels with probabilities of bagging model
-    """
-
-    scores = labels.copy().astype(float)
-    if (frames is None):  #Make all frames
-        frames = np.arange(scores.shape[-1])
-    else:
-        frames = np.asarray(frames)
-
-    i = 0
-    bar = tqdm.tqdm(total=len(frames))
-    for f in frames:
-        this_frame_pm_df = pm_df[pm_df['frame'] == f]
-        dict_keys = this_frame_pm_df['label']
-        dict_vals = this_frame_pm_df['proba']
-        dict_map = dict(zip(dict_keys, dict_vals))
-        # Create 2D replacement matrix
-        replace = np.array([list(dict_map.keys()), list(dict_map.values())])
-        # Find elements that need replacement
-        mask = np.isin(scores[..., f], replace[0, :])
-        # Replace elements
-        scores[mask, f] = replace[
-            1, np.searchsorted(replace[0, :], scores[mask, f])]
-        i += 1
-        bar.update(1)
-    bar.close()
-
-    if (frames is None):
-        return scores
-    else:
-        return [scores[..., f] for f in frames]
-
 
 class PriorMSELoss(torch.nn.Module):
     def __init__(self):
@@ -138,7 +107,6 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
 
     all_labels = np.array(
         [s['labels'].cpu().squeeze().numpy() for s in dataloaders['all']])
-    all_labels = np.rollaxis(all_labels, 0, 3)
     centroids = pd.read_pickle(
         pjoin(cfg.in_root, 'Dataset' + cfg.train_dir, 'precomp_desc',
               'sp_desc_autoenc.p'))
@@ -189,7 +157,8 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
                     # zero the parameter gradients
                     optimizer.zero_grad()
 
-                    loss = criterion(sigmoid(res['output']), data['image'])
+                    loss = criterion(sigmoid(res['output']),
+                                     data['image'])
 
                     loss.backward()
                     optimizer.step()
@@ -266,7 +235,10 @@ def main(cfg):
 
     # model = DeepLabv3Plus(pretrained=False)
     # model = UNet(merge_mode='none', depth=4)
-    model = UNet(depth=4, skip_mode='none')
+    if(cfg.backbone == 'unet'):
+        model = UNet(depth=4, skip_mode='none')
+    else:
+        model = DeepLabv3Plus()
     model.to(device)
 
     run_path = pjoin(cfg.out_root, cfg.run_dir)
@@ -274,11 +246,12 @@ def main(cfg):
     if (not os.path.exists(run_path)):
         os.makedirs(run_path)
 
-    transf, transf_normal = im_utils.make_data_aug(cfg)
+    transf, _ = im_utils.make_data_aug(cfg)
 
     dl = LocPriorDataset(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
                          augmentations=transf,
-                         normalization=transf_normal)
+                         normalization='rescale',
+                         resize_shape=cfg.in_shape)
 
     cfg.batch_size = 2
     dataloader_train = DataLoader(dl,
@@ -290,7 +263,9 @@ def main(cfg):
 
     dl_all_prev = LocPriorDataset(pjoin(cfg.in_root,
                                         'Dataset' + cfg.train_dir),
-                                  normalization=transf_normal)
+                                  normalization='std',
+                                  resize_shape=cfg.in_shape)
+
     dataloader_all_prev = DataLoader(dl_all_prev, collate_fn=dl.collate_fn)
     dl_prev = Subset(
         dl_all_prev, np.linspace(0, len(dl) - 1, num=cfg.n_ims_test,

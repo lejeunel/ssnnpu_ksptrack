@@ -2,6 +2,7 @@ from torch import nn
 import numpy as np
 import torch
 from torch.nn import functional as F
+from torch_geometric.utils import structured_negative_sampling
 
 
 def get_edges_probas(probas, edges_nn, thrs=[0.6, 0.8], clusters=None):
@@ -132,7 +133,9 @@ class LabelKLPairwiseLoss(nn.Module):
 
     def forward(self, edges_nn, probas, clusters, targets, keypoints=None):
 
-        edges = get_edges_probas(probas, edges_nn, thrs=[self.thr, self.thr],
+        edges = get_edges_probas(probas,
+                                 edges_nn,
+                                 thrs=[self.thr, self.thr],
                                  clusters=targets)
         # clusters=targets)
 
@@ -182,40 +185,61 @@ class LabelKLPairwiseLoss(nn.Module):
         return loss_pw
 
 
-class LDALoss(nn.Module):
-    def __init__(self, thr=0.5):
-        super(LDALoss, self).__init__()
-        self.n_classes = 2
-        self.thr = thr
-        self.lamb = 1e-2
-        self.margin = 2
-        self.n_comps = 4
+class EmbeddingLoss(nn.Module):
+    def __init__(self):
+        super(EmbeddingLoss, self).__init__()
 
-    def forward(self, H, probas):
-        N, C = H.shape
+    def pos_embedding_loss(self, z, pos_edge_index):
+        """Computes the triplet loss between positive node pairs and sampled
+        non-node pairs.
 
-        H_bar = H - torch.mean(H, 0, True)
-        labels = (probas >= self.thr).int()
+        Args:
+            z (Tensor): The node embeddings.
+            pos_edge_index (LongTensor): The positive edge indices.
+        """
+        i, j, k = structured_negative_sampling(pos_edge_index, z.size(0))
 
-        S_w = torch.Tensor().new_zeros((C, C)).float().to(H)
-        S_t = H_bar.t().matmul(H_bar) / (N - 1)
-        for i in range(self.n_classes):
-            H_i = H[labels == i]
-            H_i_bar = H_i - torch.mean(H_i, 0, True)
-            N_i = H_i.shape[0]
-            if N_i == 0:
-                continue
-            S_w += H_i_bar.t().matmul(H_i_bar) / (N_i - 1) / self.n_classes
-        temp = (S_w + self.lamb * torch.eye(C).to(H)).float().pinverse().matmul(S_t - S_w)
-        eig_vals, eig_vecs = torch.symeig(temp, eigenvectors=True)
-        eig_vals = eig_vals.detach()
-        eig_vecs = eig_vecs.detach()
+        out = (z[i] - z[j]).pow(2).sum(dim=1) - (z[i] - z[k]).pow(2).sum(dim=1)
+        return torch.clamp(out, min=0).mean()
 
-        thresh = eig_vals.min() + self.margin
-        eig_vals = eig_vals[(eig_vals <= thresh).nonzero()]
-        loss = eig_vals.mean()
-        return loss
+    def neg_embedding_loss(self, z, neg_edge_index):
+        """Computes the triplet loss between negative node pairs and sampled
+        non-node pairs.
 
+        Args:
+            z (Tensor): The node embeddings.
+            neg_edge_index (LongTensor): The negative edge indices.
+        """
+        i, j, k = structured_negative_sampling(neg_edge_index, z.size(0))
+
+        out = (z[i] - z[k]).pow(2).sum(dim=1) - (z[i] - z[j]).pow(2).sum(dim=1)
+        return torch.clamp(out, min=0).mean()
+
+    def forward(self, z, pos_edges, neg_edges):
+
+        loss_1 = self.pos_embedding_loss(z, pos_edges)
+        loss_2 = self.neg_embedding_loss(z, neg_edges)
+        return loss_1 + loss_2
+
+class TripletLoss(nn.Module):
+    def __init__(self):
+        super(TripletLoss, self).__init__()
+
+    def forward(self, z, pos_edges):
+        """Computes the triplet loss between positive node pairs and sampled
+        non-node pairs.
+
+        Args:
+            z (Tensor): The node embeddings.
+            pos_edge_index (LongTensor): The positive edge indices.
+        """
+        i, j, k = structured_negative_sampling(pos_edges, z.size(0))
+
+        out = (z[i] - z[j]).pow(2).sum(dim=1) - (z[i] - z[k]).pow(2).sum(dim=1)
+        return torch.clamp(out, min=0).mean()
+
+        loss_1 = self.pos_embedding_loss(z, pos_edges)
+        return loss_1
 
 if __name__ == "__main__":
     from ksptrack.models.my_augmenters import Normalize
@@ -234,7 +258,10 @@ if __name__ == "__main__":
     dl = Loader(pjoin('/home/ubelix/artorg/lejeune/data/medical-labeling',
                       'Dataset00'),
                 normalization=transf_normal)
-    dl_train = DataLoader(dl, collate_fn=dl.collate_fn, batch_size=2, shuffle=True)
+    dl_train = DataLoader(dl,
+                          collate_fn=dl.collate_fn,
+                          batch_size=2,
+                          shuffle=True)
     dl_prev = DataLoader(dl, collate_fn=dl.collate_fn)
 
     model = Siamese(10, 10, roi_size=1, roi_scale=1, alpha=1)

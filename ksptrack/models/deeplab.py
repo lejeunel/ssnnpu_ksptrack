@@ -33,7 +33,7 @@ class DeepLabv3Plus(nn.Module):
         self.aspp = build_aspp('drn',
                                output_stride=8,
                                BatchNorm=nn.BatchNorm2d)
-        self.aspp_out_dims = 256
+        self.feats_dims = [3, 16, 64, 256]
 
         if(self.do_skip):
             self.shortcut_conv = nn.Sequential(
@@ -84,7 +84,7 @@ class DeepLabv3Plus(nn.Module):
         return {
             'layers': layers,
             'output': x,
-            'aspp_feats': aspp_feats,
+            'feats': aspp_feats,
         }
 
 

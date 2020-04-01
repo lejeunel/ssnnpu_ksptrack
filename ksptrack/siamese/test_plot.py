@@ -1,20 +1,21 @@
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from siamese_sp.im_utils import make_grid_rag
-from siamese_sp.loader import Loader
+from ksptrack.utils.loc_prior_dataset import LocPriorDataset
 from skimage import io
 import numpy as np
 
 
-dl = Loader('/home/ubelix/lejeune/data/medical-labeling/Dataset30')
+# dl = Loader('/home/ubelix/lejeune/data/medical-labeling/Dataset10')
+dl = LocPriorDataset(root_path='/home/ubelix/lejeune/data/medical-labeling/Dataset00',
+                     normalization='std',
+                     resize_shape=512,
+                     csv_fname='video2.csv')
 
+plt.ion()
 sample = dl[40]
-probas = np.random.uniform(0, 1, size=len(sample['rag'].edges()))
-
-im = make_grid_rag(sample['image_unnormal'],
-                   sample['labels'][..., 0],
-                   sample['rag'],
-                   probas,
-                   sample['label/segmentation'][..., 0])
-
-io.imsave('test_plot.png', im)
+plt.subplot(121)
+plt.imshow(sample['image_unnormal'])
+plt.subplot(122)
+plt.imshow(np.squeeze(sample['labels']))
+plt.show()
+import pdb; pdb.set_trace() ## DEBUG ##

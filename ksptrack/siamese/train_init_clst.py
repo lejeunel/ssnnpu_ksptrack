@@ -104,7 +104,7 @@ def train_kmeans(model,
     # split predictions by frame
     predictions = np.split(predictions,
                            np.cumsum([len(f) for f in features]))[:-1]
-    return init_clusters, predictions, L
+    return init_clusters, predictions, L, cat_features, cat_pos_mask
 
 
 def train(cfg, model, device, dataloaders, run_path):
@@ -119,22 +119,25 @@ def train(cfg, model, device, dataloaders, run_path):
     # train initial clustering
     if (not os.path.exists(init_clusters_path)):
 
-        init_clusters, preds, L = train_kmeans(model,
-                                               dataloaders['buff'],
-                                               device,
-                                               cfg.n_clusters,
-                                               embedded_dims=cfg.embedded_dims,
-                                               reduc_method=cfg.reduc_method,
-                                               bag_t=cfg.bag_t,
-                                               bag_n_feats=cfg.bag_n_feats,
-                                               bag_max_depth=cfg.bag_max_depth,
-                                               up_thr=cfg.ml_up_thr,
-                                               down_thr=cfg.ml_down_thr)
-        np.savez(init_clusters_path, **{
+        init_clusters, preds, L, feats, labels = train_kmeans(
+            model,
+            dataloaders['buff'],
+            device,
+            cfg.n_clusters,
+            embedded_dims=cfg.embedded_dims,
+            reduc_method=cfg.reduc_method,
+            bag_t=cfg.bag_t,
+            bag_n_feats=cfg.bag_n_feats,
+            bag_max_depth=cfg.bag_max_depth,
+            up_thr=cfg.ml_up_thr,
+            down_thr=cfg.ml_down_thr)
+        data = {
             'clusters': init_clusters,
             'preds': preds,
             'L': L
-        })
+        }
+
+        np.savez(init_clusters_path, **data)
 
     preds = np.load(init_clusters_path, allow_pickle=True)['preds']
     init_clusters = np.load(init_clusters_path, allow_pickle=True)['clusters']
@@ -185,7 +188,8 @@ def main(cfg):
                     cluster_number=cfg.n_clusters,
                     roi_size=cfg.roi_output_size,
                     roi_scale=cfg.roi_spatial_scale,
-                    alpha=cfg.alpha)
+                    alpha=cfg.alpha,
+                    backbone=cfg.backbone)
     path_cp = pjoin(run_path, 'checkpoints', 'best_autoenc.pth.tar')
     if (os.path.exists(path_cp)):
         print('loading checkpoint {}'.format(path_cp))
@@ -197,10 +201,9 @@ def main(cfg):
             'checkpoint {} not found. Train autoencoder first'.format(path_cp))
         return
 
-    _, transf_normal = im_utils.make_data_aug(cfg)
-
     dl = LocPriorDataset(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
-                         normalization=transf_normal)
+                         resize_shape=cfg.in_shape,
+                         normalization='rescale')
 
     frames_tnsr_brd = np.linspace(0,
                                   len(dl) - 1,

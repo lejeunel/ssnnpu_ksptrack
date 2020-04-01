@@ -27,17 +27,17 @@ def main(cfg, out_path, logger=None):
 
     scores = (res['ksp_scores_mat'].astype('uint8'))*255
 
-    for i in range(scores.shape[-1]):
-        logger.info('{}/{}'.format(i+1,scores.shape[-1]))
+    for i in range(scores.shape[0]):
+        logger.info('{}/{}'.format(i+1,scores.shape[0]))
         io.imsave(os.path.join(frame_dir, 'im_{:04d}.png'.format(i)),
-                  scores[..., i])
+                  scores[i])
 
     if('pm_scores_mat' in res.keys()):
         scores_pm = (res['pm_scores_mat']*255.).astype('uint8')
-        for i in range(scores.shape[-1]):
-            logger.info('{}/{}'.format(i+1,scores.shape[-1]))
+        for i in range(scores.shape[0]):
+            logger.info('{}/{}'.format(i+1,scores.shape[0]))
             io.imsave(os.path.join(frame_dir, 'im_pb_{}.png'.format(i)),
-                    scores_pm[..., i])
+                      scores_pm[i])
 
 if __name__ == "__main__":
     p = params.get_params()
@@ -46,6 +46,3 @@ if __name__ == "__main__":
 
     cfg = p.parse_args()
     main(cfg)
-
-#dir_ = os.path.join(rd.root_dir,
-#                    'Dataset30/results/2017-11-07_14-49-56_exp')

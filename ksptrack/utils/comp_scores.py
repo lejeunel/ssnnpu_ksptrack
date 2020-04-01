@@ -11,20 +11,22 @@ from ksptrack.utils import my_utils as utls
 from ksptrack.cfgs import params
 from ksptrack.tr import Tracklet
 import pandas as pd
+from ksptrack.utils.base_dataset import BaseDataset
 
 
-def main(cfg, out_path, logger=None):
+def main(cfg):
 
     logger = logging.getLogger('comp_ksp')
 
+    out_path = pjoin(cfg.out_path, cfg.exp_name)
     logger.info('Writing scores to: ' + out_path)
 
     res = np.load(
         os.path.join(out_path, 'results.npz'))
 
-    truth_frame_names = utls.get_images(pjoin(cfg.in_path, cfg.truth_dir))
-    truths = np.array([utls.imread(f)[..., 0] > 0 for f in truth_frame_names])
-    truths = np.rollaxis(truths, 0, 3)
+    dset = BaseDataset(cfg.in_path, resize_shape=512)
+
+    truths = np.array([s['label/segmentation'] for s in dset])
 
     fpr, tpr, _ = roc_curve(truths.ravel(), res['ksp_scores_mat'].ravel())
     precision, recall, _ = precision_recall_curve(truths.ravel(),
@@ -37,7 +39,6 @@ def main(cfg, out_path, logger=None):
             'pr_ksp': precision[1],
             'rc_ksp': recall[1]}
 
-    
     precision, recall, _ = precision_recall_curve(truths.ravel(),
                                                   res['pm_scores_mat'].ravel())
     f1 = (2 * (precision * recall) / (precision + recall)).max()

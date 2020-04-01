@@ -103,8 +103,7 @@ class DEC(nn.Module):
         # self.roi_pool = PrRoIPool2D(roi_size, roi_size, roi_scale)
         self.roi_pool = SupPixPool()
 
-        dim = 256
-        self.transform = nn.Linear(dim,
+        self.transform = nn.Linear(self.autoencoder.last_feats_dims,
                                    embedding_dims, bias=False)
         self.assignment = ClusterAssignment(cluster_number,
                                             embedding_dims,

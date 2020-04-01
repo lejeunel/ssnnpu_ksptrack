@@ -1,4 +1,5 @@
 from sklearn.tree import DecisionTreeClassifier
+from sklearn.linear_model import LogisticRegression
 import pandas as pd
 import numpy as np
 from functools import partial
@@ -6,6 +7,7 @@ import matplotlib.pyplot as plt
 import progressbar
 import time
 from multiprocessing import Pool, Array
+from ksptrack.utils.puAdapter import PUAdapter
 
 def fit_trees(args):
     #T, train_label, data_U, data_P, bag_max_depth, bag_n_feats, bag_max_samples = args
@@ -48,6 +50,16 @@ def fit_trees(args):
 
     return predict_proba
 
+def calc_logistic(feats,
+                  class_labels):
+
+    estimator = LogisticRegression()
+    # pu_estimator = PUAdapter(estimator, hold_out_ratio=0.)
+    print('fitting PU logistic regression on {} samples'.format(feats.shape[0]))
+    print('with {} positive samples'.format(class_labels.sum()))
+    estimator.fit(feats, class_labels)
+    probas = estimator.predict_proba(feats)
+    return probas[:, 1], estimator.coef_
 
 def calc_bagging(feats,
                  class_labels,
