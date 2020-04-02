@@ -26,8 +26,6 @@ class Siamese(nn.Module):
     def __init__(self,
                  embedded_dims=None,
                  cluster_number: int = 30,
-                 roi_size=1,
-                 roi_scale=1.0,
                  alpha: float = 1.0,
                  backbone='drn'):
         """
@@ -37,19 +35,16 @@ class Siamese(nn.Module):
         """
         super(Siamese, self).__init__()
 
-        self.dec = DEC(embedded_dims, cluster_number, roi_size, roi_scale,
-                       alpha)
+        self.dec = DEC(embedded_dims, cluster_number,
+                       alpha, backbone)
 
         self.clf = nn.Linear(self.dec.autoencoder.last_feats_dims, 1)
-        self.pw_clf = nn.Linear(2 * embedded_dims, 1)
         self.sigmoid = nn.Sigmoid()
-
-        self.roi_pool = RoIPooling((roi_size, roi_size), roi_scale)
 
         if(backbone == 'drn'):
             self.in_dims = [3, 32, 64, 128, 256]
         else:
-            self.in_dims = self.dec.autoencoder.filts_dims
+            self.in_dims = [3] + self.dec.autoencoder.filts_dims
 
         self.gcns = []
         for i in range(len(self.in_dims) - 1):
@@ -106,10 +101,11 @@ class Siamese(nn.Module):
             edges_nn_sim, _ = gutls.add_self_loops(edges_nn_sim)
 
             Z = self.sp_pool(data['image'], data['labels'])
+            Z = F.relu(self.gcns[0](Z, edges_nn_sim))
 
             H = [r for r in res['layers']][:-1]
             H.append(res['feats'])
-            for i, gcn in enumerate(self.gcns):
+            for i, gcn in enumerate(self.gcns[1:]):
                 # do GCNConv and average result with encoder features
                 H_pool = self.sp_pool(H[i], data['labels'])
                 Z = torch.stack((Z, H_pool),
@@ -133,8 +129,5 @@ class Siamese(nn.Module):
             res.update({'Z': Z})
             # res.update({'edges_neg': edges_nn_disim})
             res.update({'edges_pos': edges_nn_sim})
-
-            pw_pred = self.pw_clf(Z)
-            res.update({'pw_pred': pw_pred})
 
         return res

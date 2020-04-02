@@ -68,7 +68,7 @@ def get_params(path='.'):
 
     p.add('--sp-pooling-max', default=False, action='store_true')
 
-    p.add('--exp-name', default='')
+    p.add('--exp-name', type=str)
     p.add('--n-edges-ratio', type=float)
     p.add('--nn-radius', type=float)
     p.add('--n-clusters', type=int)
@@ -91,6 +91,7 @@ def get_params(path='.'):
     p.add('--backbone', type=str)
 
     p.add('--beta', type=float)
+    p.add('--delta', type=float)
     p.add('--gamma', type=float)
     p.add('--alpha', type=float)
     p.add('--lambda-', type=float)
@@ -98,7 +99,7 @@ def get_params(path='.'):
     p.add('--thr-assign', type=float)
     p.add('--skip-train-dec', default=False, action='store_true')
     p.add('--triplet', default=False, action='store_true', help='optimize GCN')
-    p.add('--dec', default=False, action='store_true', help='do DEC')
     p.add('--clf', default=False, action='store_true', help='optimize classifier')
-    p.add('--pw-clf', default=False, action='store_true', help='optimize classifier')
+    p.add('--clf-reg', default=False, action='store_true', help='optimize classifier')
+    p.add('--pw', default=False, action='store_true', help='optimize classifier')
     return p

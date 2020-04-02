@@ -25,10 +25,6 @@ if __name__ == "__main__":
         cfg.run_dir = run_dir
         cfg.train_dir = train_dir
 
-        cfg.dec = False
-        cfg.pw = False
-        cfg.clf = False
-
         train_autoencoder.main(cfg)
 
         cfg_ksp.out_path = pjoin(
@@ -40,34 +36,36 @@ if __name__ == "__main__":
         train_init_clst.main(cfg)
         cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
                                   'init_dec.pth.tar')
-        cfg_ksp.exp_name = 'exp_gmm'
+        cfg_ksp.exp_name = 'gmm'
         iterative_ksp.main(cfg_ksp)
 
         # run with DEC (bagging foreground)
+        cfg.exp_name = 'dec'
         train_siam.main(cfg)
-        cfg.dec = True
         cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
-                                  'checkpoint_siam_dec.pth.tar')
-        cfg_ksp.exp_name = 'exp_dec'
+                                  'cp_{}.pth.tar'.format(cfg.exp_name))
+        cfg_ksp.exp_name = cfg.exp_name
         iterative_ksp.main(cfg_ksp)
 
         # run with DEC (DL foreground)
         cfg.clf = True
+        cfg.exp_name = 'dec_pred'
         train_siam.main(cfg)
         cfg_ksp.use_siam_pred = True
         cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
-                                  'checkpoint_siam_dec_clf.pth.tar')
-        cfg_ksp.exp_name = 'exp_dec_clf'
+                                  'cp_{}.pth.tar'.format(cfg.exp_name))
+        cfg_ksp.exp_name = cfg.exp_name
         cfg_ksp.use_siam_pred = True
         iterative_ksp.main(cfg_ksp)
 
-        # train DML + PW constraints
-        # cfg.pw = True
-        # train_siam.main(cfg)
-
-        # cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir,
-        #                           'checkpoints',
-        #                           'checkpoint_siam_pw_clf.pth.tar')
-        # cfg_ksp.use_siam_pred = True
-        # cfg_ksp.exp_name = 'exp_dec_pw_clf'
-        # iterative_ksp.main(cfg_ksp)
+        # run with DEC (DL foreground + reg)
+        cfg.clf = True
+        cfg.clf_reg = True
+        cfg.exp_name = 'dec_pred_reg'
+        train_siam.main(cfg)
+        cfg_ksp.use_siam_pred = True
+        cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
+                                  'cp_{}.pth.tar'.format(cfg.exp_name))
+        cfg_ksp.exp_name = cfg.exp_name
+        cfg_ksp.use_siam_pred = True
+        iterative_ksp.main(cfg_ksp)

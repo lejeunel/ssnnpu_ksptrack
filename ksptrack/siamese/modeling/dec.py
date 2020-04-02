@@ -79,9 +79,8 @@ class DEC(nn.Module):
     def __init__(self,
                  embedding_dims,
                  cluster_number: int = 30,
-                 roi_size=1,
-                 roi_scale=1.0,
-                 alpha: float = 1.0):
+                 alpha: float = 1.0,
+                 backbone='drn'):
         """
         Module which holds all the moving parts of the DEC algorithm, as described in
         Xie/Girshick/Farhadi; this includes the AutoEncoder stage and the ClusterAssignment stage.
@@ -94,7 +93,11 @@ class DEC(nn.Module):
         """
 
         super(DEC, self).__init__()
-        self.autoencoder = UNet(depth=4, skip_mode='none')
+        if(backbone == 'unet'):
+            self.autoencoder = UNet(depth=4, skip_mode='none')
+        else:
+            self.autoencoder = DeepLabv3Plus()
+
         self.cluster_number = cluster_number
         self.alpha = alpha
         self.embedding_dims = embedding_dims
@@ -145,8 +148,8 @@ class DEC(nn.Module):
         feats = res['feats']
 
         pooled_feats = [self.roi_pool(feats[b].unsqueeze(0),
-                                           data['labels'][b].unsqueeze(0)).squeeze().T
-                             for b in range(data['labels'].shape[0])]
+                                      data['labels'][b].unsqueeze(0)).squeeze().T
+                        for b in range(data['labels'].shape[0])]
         pooled_feats = torch.cat(pooled_feats)
         res.update({'pooled_feats': pooled_feats})
 

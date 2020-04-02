@@ -49,18 +49,13 @@ def train_one_epoch(model, dataloaders, optimizers, device,
     running_recons = 0.0
     running_gcn = 0.0
     running_obj_pred = 0.0
+    running_prob_dens = 0.0
 
-    criterion_recons = torch.nn.MSELoss()
     criterion_clst = torch.nn.KLDivLoss(reduction='mean')
     criterion_embd = TripletLoss()
 
-    if(probas is not None):
-        pos = (torch.cat(probas) > 0.3)
-        pos_weight = (pos == 0).sum() / (pos == 1).sum()
-        criterion_obj_pred = torch.nn.BCEWithLogitsLoss(pos_weight)
-        del pos
-    else:
-        criterion_obj_pred = torch.nn.BCEWithLogitsLoss()
+    criterion_obj_pred = torch.nn.MSELoss()
+    criterion_recons = torch.nn.MSELoss()
 
     pbar = tqdm(total=len(dataloaders['train']))
     for i, data in enumerate(dataloaders['train']):
@@ -83,20 +78,22 @@ def train_one_epoch(model, dataloaders, optimizers, device,
 
             loss = 0
 
+            loss_clst = criterion_clst(res['clusters'],
+                                       targets.to(res['clusters']))
+            loss += loss_clst
+
             if(cfg.clf):
-                loss_obj_pred = criterion_obj_pred(res['obj_pred'].squeeze(),
-                                                   (probas_ > 0.5).float())
+                loss_obj_pred = criterion_obj_pred(sigmoid(res['obj_pred'].squeeze()),
+                                                    probas_.float())
                 loss += cfg.lambda_ * loss_obj_pred
 
-            if(cfg.dec):
-
+                if(cfg.clf_reg):
+                    loss_proba_density = (probas_[..., None] * res['clusters']).var(dim=0).mean()
+                    loss += cfg.delta * loss_proba_density
+            else:
                 loss_recons = criterion_recons(sigmoid(res['output']),
                                                data['image'])
                 loss += cfg.gamma * loss_recons
-                loss_clst = criterion_clst(res['clusters'],
-                                        targets.to(res['clusters']))
-
-                loss += loss_clst
 
             if(cfg.pw):
                 loss_gcn = criterion_embd(res['Z'],
@@ -112,7 +109,6 @@ def train_one_epoch(model, dataloaders, optimizers, device,
                 lr_sch[k].step()
 
         running_loss += loss.cpu().detach().numpy()
-        running_recons += loss_recons.cpu().detach().numpy()
         running_clst += loss_clst.cpu().detach().numpy()
         if(cfg.clf):
             running_obj_pred += loss_obj_pred.cpu().detach().numpy()
@@ -128,11 +124,13 @@ def train_one_epoch(model, dataloaders, optimizers, device,
     loss_gcn = running_gcn / (cfg.batch_size * len(dataloaders['train']))
     loss_clst = running_clst / (cfg.batch_size * len(dataloaders['train']))
     loss_obj_pred = running_obj_pred / (cfg.batch_size * len(dataloaders['train']))
+    loss_prob_dens = running_prob_dens / (cfg.batch_size * len(dataloaders['train']))
 
     out = {'loss': loss_,
            'loss_gcn': loss_gcn,
            'loss_clst': loss_clst,
            'loss_obj_pred': loss_obj_pred,
+           'loss_prob_dens': loss_obj_pred,
            'loss_recons': loss_recons}
 
     return out
@@ -140,17 +138,9 @@ def train_one_epoch(model, dataloaders, optimizers, device,
 
 def train(cfg, model, device, dataloaders, run_path):
 
-    suffix = ''
-    if(cfg.dec):
-        suffix += '_dec'
-    if(cfg.pw):
-        suffix += '_pw'
-    if(cfg.clf):
-        suffix += '_clf'
-
-    cp_fname = 'checkpoint_siam{}.pth.tar'.format(suffix)
-    best_cp_fname = 'best_siam{}.pth.tar'.format(suffix)
-    rags_prevs_path = pjoin(run_path, 'prevs{}'.format(suffix))
+    cp_fname = 'cp_{}.pth.tar'.format(cfg.exp_name)
+    best_cp_fname = 'best_{}.pth.tar'.format(cfg.exp_name)
+    rags_prevs_path = pjoin(run_path, 'prevs_{}'.format(cfg.exp_name))
 
     path_ = pjoin(run_path, 'checkpoints', 'init_dec.pth.tar')
     print('loading checkpoint {}'.format(path_))
@@ -345,16 +335,17 @@ def train(cfg, model, device, dataloaders, run_path):
 
 def main(cfg):
 
+    if(cfg.clf_reg and not cfg.clf):
+        raise ValueError('when clf_reg is true, clf must be true as well')
+
     run_path = pjoin(cfg.out_root, cfg.run_dir)
 
     if (not os.path.exists(run_path)):
         os.makedirs(run_path)
 
     device = torch.device('cuda' if cfg.cuda else 'cpu')
-    model = Siamese(cfg.embedded_dims,
-                    cfg.n_clusters,
-                    roi_size=1,
-                    roi_scale=cfg.roi_spatial_scale,
+    model = Siamese(embedded_dims=cfg.embedded_dims,
+                    cluster_number=cfg.n_clusters,
                     alpha=cfg.alpha,
                     backbone=cfg.backbone).to(device)
 

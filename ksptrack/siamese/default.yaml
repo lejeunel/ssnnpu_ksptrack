@@ -16,12 +16,13 @@ lr-dist: 1e-3
 lr-autoenc: 1e-3
 lr-assign: 1e-3
 decay : 2e-4
-lr-power : 0.98
+lr-power : 0.99
 momentum: 0.9
-lambda-: 1e-1
-gamma: 10
+lambda-: 1e-2
+gamma: 100
 beta: 1e-7
 alpha: 1
+delta: 10
 
 # batch
 batch-size: 2
@@ -69,7 +70,7 @@ reduc-method: 'pca'
 ml-up-thr: 0.5
 ml-down-thr: 0.5
 bag-t: 300
-bag-n-feats : 0.02
+bag-n-feats : 0.1
 bag-max-depth : 64
 
 linkage: 'ward'

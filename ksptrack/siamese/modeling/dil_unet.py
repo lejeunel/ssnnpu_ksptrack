@@ -4,6 +4,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from ksptrack.siamese.modeling.coordconv import CoordConv2d
 
+@torch.no_grad()
+def init_weights(m):
+    if type(m) == nn.Linear:
+        m.weight.fill_(1.0)
+    if type(m) == nn.Conv2d:
+        nn.init.xavier_uniform_(m.weight)
 
 class ResidualBlock(nn.Module):
     """
@@ -22,20 +28,20 @@ class ResidualBlock(nn.Module):
         num_hidden_filters = num_filters
 
         self.conv1 = convObject(num_filters,
-                            num_hidden_filters,
-                            kernel_size=kernel_size,
-                            stride=1,
-                            padding=padding,
-                            dilation=dilation)
+                                num_hidden_filters,
+                                kernel_size=kernel_size,
+                                stride=1,
+                                padding=padding,
+                                dilation=dilation)
         self.dropout = nn.Dropout2d(dropout)
         self.nonlinearity = nonlinearity(inplace=False)
         self.batch_norm1 = batchNormObject(num_hidden_filters)
         self.conv2 = convObject(num_hidden_filters,
-                            num_hidden_filters,
-                            kernel_size=kernel_size,
-                            stride=1,
-                            padding=padding,
-                            dilation=dilation)
+                                num_hidden_filters,
+                                kernel_size=kernel_size,
+                                stride=1,
+                                padding=padding,
+                                dilation=dilation)
         self.batch_norm2 = batchNormObject(num_filters)
 
     def forward(self, og_x):
@@ -356,6 +362,8 @@ class UNet(nn.Module):
                                             blockObject=ResidualBlock,
                                             convObject=convObject,
                                             batchNormObject=batchNormObject)
+
+        self.apply(init_weights)
 
     def forward(self, x):
         in_shape = x.shape

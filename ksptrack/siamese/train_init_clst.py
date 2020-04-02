@@ -186,11 +186,9 @@ def main(cfg):
 
     model = Siamese(embedded_dims=cfg.embedded_dims,
                     cluster_number=cfg.n_clusters,
-                    roi_size=cfg.roi_output_size,
-                    roi_scale=cfg.roi_spatial_scale,
                     alpha=cfg.alpha,
                     backbone=cfg.backbone)
-    path_cp = pjoin(run_path, 'checkpoints', 'best_autoenc.pth.tar')
+    path_cp = pjoin(run_path, 'checkpoints', 'checkpoint_autoenc.pth.tar')
     if (os.path.exists(path_cp)):
         print('loading checkpoint {}'.format(path_cp))
         state_dict = torch.load(path_cp,

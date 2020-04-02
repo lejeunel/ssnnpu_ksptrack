@@ -130,17 +130,14 @@ def get_features(model, dataloader, device,
         if(return_obj_preds):
             obj_preds.append(sigmoid(res['obj_pred']).cpu().numpy())
 
-        clicked_labels = []
-        if (len(data['labels_clicked']) > 0):
-            clicked_labels = [
-                item for sublist in data['labels_clicked']
-                for item in sublist
-            ]
+        clicked_labels = [
+            item for sublist in data['labels_clicked']
+            for item in sublist
+        ]
 
-        labels_pos_mask.append([
-            True if l in clicked_labels else False
-            for l in np.unique(data['labels'].cpu().numpy())
-        ])
+        to_add = np.zeros(np.unique(data['labels'].cpu().numpy()).shape[0]).astype(bool)
+        to_add[clicked_labels] = True
+        labels_pos_mask.append(to_add)
 
         features.append(res[feat_field].detach().cpu().numpy().squeeze())
         pbar.update(1)

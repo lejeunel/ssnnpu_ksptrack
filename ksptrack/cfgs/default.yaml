@@ -37,7 +37,7 @@ monitor-score : False
 # Bagging---------------
 bag-t : 500
 bag-n-bins : 100
-bag-n-feats : 0.02
+bag-n-feats : 0.1
 bag-max-samples : 1000
 bag-max-depth : 64
 bag-jobs : 1
@@ -59,8 +59,8 @@ ml-embedding : 'orthonormalized'
 pca : False  #Overrides LFDA and computes PCA with n-components:lfda-dims
 
 # Graph parameters
-norm-neighbor : 0.04
+norm-neighbor : 0.02
 norm-neighbor-in : 0.08
 thr-entrance : 0.8
 
-pm-thr : 0.3  #Threshold on KSP+SS PM for positives selection
+pm-thr : 0.5  #Threshold on KSP+SS PM for positives selection

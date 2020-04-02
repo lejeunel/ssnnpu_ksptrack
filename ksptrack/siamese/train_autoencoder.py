@@ -188,24 +188,23 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
             if (phase == 'train'):
                 writer.add_scalar('loss_autoenc', loss_, epoch)
 
-                if ((epoch + 1) % cfg.cp_period == 0):
-                    # save checkpoint
-                    is_best = False
-                    if (loss_ < best_loss):
-                        is_best = True
-                        best_loss = loss_
-                    path = pjoin(run_path, 'checkpoints')
-                    utls.save_checkpoint(
-                        {
-                            'epoch': epoch + 1,
-                            'model': model,
-                            'best_loss': best_loss,
-                            'optimizer': optimizer.state_dict()
-                        },
-                        is_best,
-                        fname_cp='checkpoint_autoenc.pth.tar',
-                        fname_bm='best_autoenc.pth.tar',
-                        path=path)
+                # save checkpoint
+                is_best = False
+                if (loss_ < best_loss):
+                    is_best = True
+                    best_loss = loss_
+                path = pjoin(run_path, 'checkpoints')
+                utls.save_checkpoint(
+                    {
+                        'epoch': epoch + 1,
+                        'model': model,
+                        'best_loss': best_loss,
+                        'optimizer': optimizer.state_dict()
+                    },
+                    is_best,
+                    fname_cp='checkpoint_autoenc.pth.tar',
+                    fname_bm='best_autoenc.pth.tar',
+                    path=path)
 
             pbar.close()
             lr_sch.step()
@@ -263,7 +262,7 @@ def main(cfg):
 
     dl_all_prev = LocPriorDataset(pjoin(cfg.in_root,
                                         'Dataset' + cfg.train_dir),
-                                  normalization='std',
+                                  normalization='rescale',
                                   resize_shape=cfg.in_shape)
 
     dataloader_all_prev = DataLoader(dl_all_prev, collate_fn=dl.collate_fn)

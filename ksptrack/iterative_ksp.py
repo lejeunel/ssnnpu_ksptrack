@@ -47,8 +47,8 @@ def make_link_agent(cfg):
         with open(cfg_path) as f:
             cfg_siam = Bunch(yaml.load(f, Loader=yaml.FullLoader))
         model = Siamese(cfg_siam.embedded_dims, cfg_siam.n_clusters,
-                        cfg_siam.roi_output_size, cfg_siam.roi_spatial_scale,
-                        cfg_siam.alpha)
+                        cfg_siam.alpha,
+                        cfg_siam.backbone)
         print('loading checkpoint {}'.format(cfg.siam_path))
         state_dict = torch.load(cfg.siam_path,
                                 map_location=lambda storage, loc: storage)
