@@ -130,7 +130,8 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
     if (not os.path.exists(pm_im_dir)):
         os.makedirs(pm_im_dir)
 
-    criterion = torch.nn.MSELoss()
+    # criterion = torch.nn.MSELoss()
+    criterion = PriorMSELoss()
     writer = SummaryWriter(run_path)
     lr_sch = torch.optim.lr_scheduler.ExponentialLR(optimizer, cfg.lr_power)
     best_loss = float('inf')
@@ -157,8 +158,11 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
                     # zero the parameter gradients
                     optimizer.zero_grad()
 
+                    # loss = criterion(sigmoid(res['output']),
+                    #                  data['image'])
                     loss = criterion(sigmoid(res['output']),
-                                     data['image'])
+                                     data['image'],
+                                     data['prior'])
 
                     loss.backward()
                     optimizer.step()
@@ -179,7 +183,7 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
                     })
 
                 pbar.set_description(
-                    '[{}] epch {}/{} lss: {:.6f} lr: {:.5f}'.format(
+                    '[{}] epch {}/{} lss: {:.6e} lr: {:.3e}'.format(
                         phase, epoch + 1, cfg.epochs_autoenc,
                         loss_ if phase == 'train' else 0,
                         lr_sch.get_lr()[0] if phase == 'train' else 0))
@@ -202,7 +206,7 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
                         'optimizer': optimizer.state_dict()
                     },
                     is_best,
-                    fname_cp='checkpoint_autoenc.pth.tar',
+                    fname_cp='cp_autoenc.pth.tar',
                     fname_bm='best_autoenc.pth.tar',
                     path=path)
 

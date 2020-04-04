@@ -37,9 +37,9 @@ monitor-score : False
 # Bagging---------------
 bag-t : 500
 bag-n-bins : 100
-bag-n-feats : 0.1
+bag-n-feats : 0.05
 bag-max-samples : 1000
-bag-max-depth : 64
+bag-max-depth : 5
 bag-jobs : 1
 #-----------------------
 

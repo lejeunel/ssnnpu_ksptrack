@@ -7,11 +7,11 @@ import logging
 import pickle as pk
 from boostksp import libksp
 
+
 class GraphTracking:
     """
     Connects, merges and add edges to graph. Also has KSP algorithm.
     """
-
     def __init__(self,
                  link_agent,
                  sps_man=None,
@@ -56,8 +56,9 @@ class GraphTracking:
             for df_ix in tl.df_ix:
                 this_tracklet_probas.append(sp_pm['proba'][df_ix])
             this_tracklet_probas = np.asarray(this_tracklet_probas)
-            this_tracklet_probas = np.clip(
-                this_tracklet_probas, a_min=self.thr, a_max=1 - self.thr)
+            this_tracklet_probas = np.clip(this_tracklet_probas,
+                                           a_min=self.thr,
+                                           a_max=1 - self.thr)
             w = np.sum(-np.log(
                 np.asarray(this_tracklet_probas) /
                 (1 - np.asarray(this_tracklet_probas))))
@@ -66,10 +67,7 @@ class GraphTracking:
             bar.update(1)
         bar.close()
 
-    def make_init_tracklets(self,
-                            sp_pm,
-                            thresh,
-                            direction):
+    def make_init_tracklets(self, sp_pm, thresh, direction):
         #thresh: Block edges below this proba
         #This also populates the tracklet list
 
@@ -93,22 +91,24 @@ class GraphTracking:
                 blocked = True
 
             w = -np.log(proba / (1 - proba))
-            tl = tr.Tracklet(
-                tracklet_id,
-                node_id,
-                node_id + 1, [[(sp_pm['frame'][i], sp_pm['label'][i])]],
-                [i],
-                direction,
-                length=1,
-                blocked=blocked,
-                marked=False)
+            tl = tr.Tracklet(tracklet_id,
+                             node_id,
+                             node_id + 1,
+                             [[(sp_pm['frame'][i], sp_pm['label'][i])]], [i],
+                             direction,
+                             length=1,
+                             blocked=blocked,
+                             marked=False)
 
             this_e = (tl.in_id, tl.out_id)
 
             self.tracklets.append(tl)
             if (not blocked):
-                self.g.add_edge(
-                    this_e[0], this_e[1], weight=w, id_=tl.id_, sps=tl.sps)
+                self.g.add_edge(this_e[0],
+                                this_e[1],
+                                weight=w,
+                                id_=tl.id_,
+                                sps=tl.sps)
             tracklet_id += 1
             node_id += 2
 
@@ -177,15 +177,14 @@ class GraphTracking:
                 blocked = True
 
             new_tracklets.append(
-                tr.Tracklet(
-                    new_id_tls,
-                    tl_set[0].in_id,
-                    tl_set[-1].out_id,
-                    this_new_sps,
-                    this_new_df_ix,
-                    length=len(this_new_df_ix),
-                    blocked=blocked,
-                    direction=self.direction))
+                tr.Tracklet(new_id_tls,
+                            tl_set[0].in_id,
+                            tl_set[-1].out_id,
+                            this_new_sps,
+                            this_new_df_ix,
+                            length=len(this_new_df_ix),
+                            blocked=blocked,
+                            direction=self.direction))
 
             new_id_tls += 1
 
@@ -222,28 +221,21 @@ class GraphTracking:
         self.direction = direction
 
         #Auxiliary edges (appearance) creates tracklets, input/output nodes and weight
-        self.logger.info('Making/connecting tracklets (thr: {})'.format(thresh_aux))
+        self.logger.info(
+            'Making/connecting tracklets (thr: {})'.format(thresh_aux))
         if (self.tracklets is None):
-            self.make_init_tracklets(sp_pom, thresh_aux,
-                                     direction)
+            self.make_init_tracklets(sp_pom, thresh_aux, direction)
         else:
             self.make_tracklets(sp_pom)
 
         tls = [t for t in self.tracklets if (t.blocked == False)]
 
-        self.make_edges_from_tracklets(tls, sp_desc, 
-                                       hoof_tau_u,
-                                       rel_radius,
+        self.make_edges_from_tracklets(tls, sp_desc, hoof_tau_u, rel_radius,
                                        labels)
 
         self.orig_weights = nx.get_edge_attributes(self.g, 'weight')
 
-
-    def make_edges_from_tracklets(self,
-                                  tls,
-                                  sp_desc,
-                                  hoof_tau_u,
-                                  rel_radius,
+    def make_edges_from_tracklets(self, tls, sp_desc, hoof_tau_u, rel_radius,
                                   labels):
 
         #Exit edges (time lapse)
@@ -265,16 +257,16 @@ class GraphTracking:
 
                 this_e = (int(self.source), int(tl.in_id))
 
-                proba = self.link_agent.get_proba_entrance(tl_loc,
-                                                           sp_desc)
-                    
+                proba = self.link_agent.get_proba_entrance(tl_loc, sp_desc)
+
                 w = -np.log(proba / (1 - proba))
                 self.g.add_edge(*this_e, weight=w, id_=-1)
                 added += 1
         self.logger.info('Added {} entrance edges'.format(added))
 
         # Transition edges
-        self.logger.info('Connecting transition edges. hoof_tau: {}'.format(hoof_tau_u))
+        self.logger.info(
+            'Connecting transition edges. hoof_tau: {}'.format(hoof_tau_u))
 
         bar = tqdm.tqdm(total=len(tls))
         added = 0
@@ -288,12 +280,10 @@ class GraphTracking:
 
             for linkable_tl in linkable_tracklets:
 
-                proba = self.link_agent.get_proba_inter_frame(tl,
-                                                              linkable_tl,
-                                                              sp_desc)
+                proba = self.link_agent.get_proba_inter_frame(
+                    tl, linkable_tl, sp_desc)
                 w = -np.log(proba / (1 - proba))
-                this_e = (tl.out_id,
-                          linkable_tl.in_id)
+                this_e = (tl.out_id, linkable_tl.in_id)
                 self.g.add_edge(*this_e, weight=w, id_=-1)
                 added += 1
             bar.update(1)
@@ -301,8 +291,8 @@ class GraphTracking:
         self.logger.info('Added {} transition edges'.format(added))
 
     def run(self):
-        from_source = [e for e in self.g.edges() if(e[0] == self.source)]
-        if(len(from_source) == 0):
+        from_source = [e for e in self.g.edges() if (e[0] == self.source)]
+        if (len(from_source) == 0):
             self.logger.info('Found 0 entrance edges. Skipping.')
         else:
             self.copy_cxx()
@@ -316,16 +306,15 @@ class GraphTracking:
     def copy_cxx(self):
         # This holds the c++ graph
         self.g_cxx = libksp.ksp()
-        self.g_cxx.config(
-            self.source,
-            self.sink,
-            loglevel=self.cxx_loglevel,
-            min_cost=True,
-            tol=self.tol,
-            return_edges=self.cxx_return_edges)
+        self.g_cxx.config(self.source,
+                          self.sink,
+                          loglevel=self.cxx_loglevel,
+                          min_cost=True,
+                          tol=self.tol,
+                          return_edges=self.cxx_return_edges)
 
-        self.logger.info('Copying graph with {} edges...'.
-                         format(len(self.g.edges())))
+        self.logger.info('Copying graph with {} edges...'.format(
+            len(self.g.edges())))
         # weights = [e['weight'] for e in self.g.edges]
         # self.logger.info('num. nan: {}'.format(np.isnan(weights).sum()))
         # self.logger.info('num. inf: {}'.format(np.isinf(weights).sum()))
@@ -333,9 +322,9 @@ class GraphTracking:
         # self.logger.info('min weight: {}'.format(np.min(weights)))
 
         for e in self.g.edges():
-            self.g_cxx.add_edge(
-                int(e[0]), int(e[1]), self.g[e[0]][e[1]]['weight'],
-                int(self.g[e[0]][e[1]]['id_']))
+            self.g_cxx.add_edge(int(e[0]), int(e[1]),
+                                self.g[e[0]][e[1]]['weight'],
+                                int(self.g[e[0]][e[1]]['id_']))
         self.logger.info('done.')
 
     def save_graph(self, path):

@@ -1,22 +1,20 @@
-import os
 from os.path import join as pjoin
 import yaml
 import numpy as np
 import ksptrack.graph_tracking as gtrack
 from ksptrack.utils import my_utils as utls
 from ksptrack.utils.data_manager import DataManager
-from ksptrack.utils.link_agent_radius import LinkAgentRadius
 from ksptrack.utils.link_agent_model import LinkAgentModel
 import logging
 import ksptrack.sp_manager as spm
 from ksptrack.siamese.modeling.siamese import Siamese
-from ksptrack.siamese.modeling.dec import DEC
 from ksptrack.utils import write_frames_results
 from ksptrack.utils import comp_scores
 import datetime
 from ksptrack.cfgs import params
 import torch
 import pandas as pd
+import os
 
 
 class Bunch(object):
@@ -33,7 +31,8 @@ def merge_positives(sp_desc_df, pos_for, pos_back):
                           to_add,
                           how='left',
                           on=['frame', 'label']).fillna(False)
-    sp_desc_df['positive'] = (sp_desc_df['positive_x'] | sp_desc_df['positive_y'])
+    sp_desc_df['positive'] = (sp_desc_df['positive_x']
+                              | sp_desc_df['positive_y'])
     sp_desc_df = sp_desc_df.drop(columns=['positive_x', 'positive_y'])
     return sp_desc_df
 
@@ -47,8 +46,9 @@ def make_link_agent(cfg):
         with open(cfg_path) as f:
             cfg_siam = Bunch(yaml.load(f, Loader=yaml.FullLoader))
         model = Siamese(cfg_siam.embedded_dims, cfg_siam.n_clusters,
-                        cfg_siam.alpha,
-                        cfg_siam.backbone)
+                        cfg_siam.alpha, cfg_siam.backbone)
+        if (cfg.use_siam_pred):
+            model.dec.autoencoder.to_predictor()
         print('loading checkpoint {}'.format(cfg.siam_path))
         state_dict = torch.load(cfg.siam_path,
                                 map_location=lambda storage, loc: storage)
@@ -58,7 +58,8 @@ def make_link_agent(cfg):
                                     data_path=cfg.in_path,
                                     model=model,
                                     entrance_radius=cfg.norm_neighbor_in,
-                                    cuda=cfg.cuda)
+                                    cuda=cfg.cuda,
+                                    siam_pw=cfg.use_siam_trans)
         # compute features
         path_feats = pjoin(cfg.in_path, cfg.precomp_dir, 'sp_desc_siam.p')
         path_centroids = pjoin(cfg.in_path, cfg.precomp_dir,
@@ -118,16 +119,15 @@ def main(cfg):
                                     init_radius=cfg.sp_trans_init_radius,
                                     hoof_n_bins=cfg.hoof_n_bins)
 
-
     locs2d_sps = link_agent.get_all_entrance_sps(desc_df)
     desc_df['positive'] = locs2d_sps
 
-    if(cfg.use_siam_pred):
+    if (cfg.use_siam_pred):
         pm = utls.probas_to_df(link_agent.labels, link_agent.obj_preds)
     else:
-        pm = utls.calc_pm(desc_df,
-                          desc_df['positive'], cfg.bag_n_feats, cfg.bag_t,
-                          cfg.bag_max_depth, cfg.bag_max_samples, cfg.bag_jobs)
+        pm = utls.calc_pm(desc_df, desc_df['positive'], cfg.bag_n_feats,
+                          cfg.bag_t, cfg.bag_max_depth, cfg.bag_max_samples,
+                          cfg.bag_jobs)
 
     ksp_scores_mat = []
 
@@ -151,12 +151,12 @@ def main(cfg):
         logger.info("i: " + str(i + 1))
 
         if ((i > 0) & find_new_forward):
-            g_for.merge_tracklets_temporally(pos_tls_for, pm,
-                                             desc_df, cfg.pm_thr)
+            g_for.merge_tracklets_temporally(pos_tls_for, pm, desc_df,
+                                             cfg.pm_thr)
 
         if ((i > 0) & find_new_backward):
-            g_back.merge_tracklets_temporally(pos_tls_back, pm,
-                                              desc_df, cfg.pm_thr)
+            g_back.merge_tracklets_temporally(pos_tls_back, pm, desc_df,
+                                              cfg.pm_thr)
         # Make backward graph
         if (find_new_backward):
 
@@ -240,14 +240,11 @@ def main(cfg):
 
             # Recompute PM values
             if (i + 1 < cfg.n_iters_ksp):
-                desc_df = merge_positives(desc_df,
-                                          marked_for,
-                                          marked_back)
-                pm = utls.calc_pm(
-                    desc_df,
-                    desc_df['positive'],
-                    cfg.bag_n_feats, cfg.bag_t, cfg.bag_max_depth,
-                    cfg.bag_max_samples, cfg.bag_jobs)
+                desc_df = merge_positives(desc_df, marked_for, marked_back)
+                pm = utls.calc_pm(desc_df, desc_df['positive'],
+                                  cfg.bag_n_feats, cfg.bag_t,
+                                  cfg.bag_max_depth, cfg.bag_max_samples,
+                                  cfg.bag_jobs)
 
             i += 1
 

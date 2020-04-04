@@ -2,7 +2,6 @@ from torch import nn
 import numpy as np
 import torch
 from torch.nn import functional as F
-from torch_geometric.utils import structured_negative_sampling
 
 
 def get_edges_probas(probas, edges_nn, thrs=[0.6, 0.8], clusters=None):
@@ -221,9 +220,46 @@ class EmbeddingLoss(nn.Module):
         loss_2 = self.neg_embedding_loss(z, neg_edges)
         return loss_1 + loss_2
 
+def maybe_num_nodes(index, num_nodes=None):
+    return index.max().item() + 1 if num_nodes is None else num_nodes
+
+def structured_negative_sampling(edge_index, num_nodes=None):
+    r"""Samples a negative edge :obj:`(i,k)` for every positive edge
+    :obj:`(i,j)` in the graph given by :attr:`edge_index`, and returns it as a
+    tuple of the form :obj:`(i,j,k)`.
+
+    Args:
+        edge_index (LongTensor): The edge indices.
+        num_nodes (int, optional): The number of nodes, *i.e.*
+            :obj:`max_val + 1` of :attr:`edge_index`. (default: :obj:`None`)
+
+    :rtype: (LongTensor, LongTensor, LongTensor)
+    """
+    num_nodes = maybe_num_nodes(edge_index, num_nodes)
+
+    i, j = edge_index.to('cpu')
+    idx_1 = i * num_nodes + j
+
+    k = torch.randint(num_nodes, (i.size(0), ), dtype=torch.long)
+    idx_2 = i * num_nodes + k
+
+    mask = torch.from_numpy(np.isin(idx_2, idx_1)).to(torch.bool)
+    rest = mask.nonzero().view(-1)
+    while rest.numel() > 0:  # pragma: no cover
+        tmp = torch.randint(num_nodes, (rest.numel(), ), dtype=torch.long)
+        idx_2 = i[rest] * num_nodes + tmp
+        mask = torch.from_numpy(np.isin(idx_2, idx_1)).to(torch.bool)
+        k[rest] = tmp
+        rest = rest[mask.nonzero().view(-1)]
+
+    return edge_index[0], edge_index[1], k.to(edge_index.device)
+
+
 class TripletLoss(nn.Module):
-    def __init__(self):
+    def __init__(self, margin=0.2):
         super(TripletLoss, self).__init__()
+        self.cosine_sim = nn.CosineSimilarity()
+        self.margin = margin
 
     def forward(self, z, pos_edges):
         """Computes the triplet loss between positive node pairs and sampled
@@ -235,8 +271,11 @@ class TripletLoss(nn.Module):
         """
         i, j, k = structured_negative_sampling(pos_edges, z.size(0))
 
-        out = (z[i] - z[j]).pow(2).sum(dim=1) - (z[i] - z[k]).pow(2).sum(dim=1)
-        return torch.clamp(out, min=0).mean()
+        sim = self.cosine_sim(z[i], z[j])
+        disim = self.cosine_sim(z[i], z[k])
+        out = (sim - disim).sum(dim=1)
+        # out = (z[i] - z[j]).pow(2).sum(dim=1) - (z[i] - z[k]).pow(2).sum(dim=1)
+        return torch.clamp(out + self.margin, min=0).mean()
 
         loss_1 = self.pos_embedding_loss(z, pos_edges)
         return loss_1

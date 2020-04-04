@@ -25,6 +25,9 @@ from ksptrack.utils import bagging as bag
 
 def probas_to_df(labels, probas):
     probas = np.concatenate(probas)
+    if(probas.ndim == 1):
+        probas = probas[..., None]
+
     frame_labels_list = [[(f, l) for f in range(labels.shape[0])
                           for l in np.unique(labels[f])]]
     frame_labels = np.squeeze(np.array(frame_labels_list))

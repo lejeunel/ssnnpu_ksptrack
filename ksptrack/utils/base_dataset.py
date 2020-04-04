@@ -89,7 +89,10 @@ class BaseDataset(data.Dataset):
                 self.normalization = iaa.Sequential([rescale_augmenter,
                                                     Normalize(mean=mean, std=std)])
             else:
-                self.normalization = iaa.Sequential([rescale_augmenter])
+                im_flat = np.array(self.imgs).reshape((-1, 3)) / 255
+                min_ = im_flat.min(axis=0)
+                max_ = im_flat.max(axis=0)
+                self.normalization = iaa.Sequential([Rescale(min_, max_)])
 
         self.reshaper_img = iaa.Noop()
         self.reshaper_seg = iaa.Noop()

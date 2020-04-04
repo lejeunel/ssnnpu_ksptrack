@@ -188,7 +188,7 @@ def main(cfg):
                     cluster_number=cfg.n_clusters,
                     alpha=cfg.alpha,
                     backbone=cfg.backbone)
-    path_cp = pjoin(run_path, 'checkpoints', 'checkpoint_autoenc.pth.tar')
+    path_cp = pjoin(run_path, 'checkpoints', 'cp_autoenc.pth.tar')
     if (os.path.exists(path_cp)):
         print('loading checkpoint {}'.format(path_cp))
         state_dict = torch.load(path_cp,

@@ -387,3 +387,14 @@ class UNet(nn.Module):
         return {'output': x,
                 'feats': feats,
                 'layers': skips}
+
+    def to_predictor(self):
+        
+        in_dim = self.decoder.output_convolution[0].in_channels
+        kernel_size = self.decoder.output_convolution[0].kernel_size
+        padding = self.decoder.output_convolution[0].padding
+        stride = self.decoder.output_convolution[0].stride
+        new_out = torch.nn.Conv2d(
+            in_dim, 1, kernel_size, stride, padding)
+        self.decoder.output_convolution = torch.nn.Sequential(new_out)
+

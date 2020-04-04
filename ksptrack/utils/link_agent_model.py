@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 import tqdm
 from sklearn.mixture import GaussianMixture
 import matplotlib.pyplot as plt
+from ksptrack.utils.loc_prior_dataset import LocPriorDataset
 
 
 class LinkAgentModel(LinkAgentRadius):
@@ -16,12 +17,14 @@ class LinkAgentModel(LinkAgentRadius):
                  data_path,
                  model,
                  entrance_radius=0.1,
+                 siam_pw=False,
                  cuda=False):
 
         super().__init__(csv_path, data_path, entrance_radius=entrance_radius)
 
         self.device = torch.device('cuda' if cuda else 'cpu')
         self.data_path = data_path
+        self.siam_pw = siam_pw
 
         self.model = model
         self.model.to(self.device)
@@ -32,10 +35,22 @@ class LinkAgentModel(LinkAgentRadius):
             for k, v in batch.items()
         }
 
+        if(not self.siam_pw):
+            self.dset = LocPriorDataset(data_path,
+                                        normalization='rescale',
+                                        resize_shape=512)
+        else:
+            self.dset = LocPriorDataset(data_path,
+                                        normalization='rescale',
+                                        resize_shape=512)
+            
+
         self.dl = DataLoader(self.dset, collate_fn=self.dset.collate_fn)
 
         self.prepare_feats()
-        self.fit_gmm()
+
+        if(not self.siam_pw):
+            self.fit_gmm()
 
     def prepare_feats(self, all_edges_nn=None, feat_field='pooled_feats'):
         print('preparing features for linkAgentModel')
@@ -131,29 +146,6 @@ class LinkAgentModel(LinkAgentRadius):
         proba1 = self.probas[f1][l1]
 
         proba = np.sqrt(proba0 * proba1).sum()
-
-        proba = np.clip(proba, a_min=self.thr_clip, a_max=1 - self.thr_clip)
-        return proba
-
-    def get_proba__(self, f0, l0, f1, l1, *args):
-
-        feat0 = self.feats[f0][l0]
-        feat1 = self.feats[f1][l1]
-
-        norm = np.linalg.norm(feat0 - feat1, ord=2)**2
-        proba = np.exp(-norm)
-
-        proba = np.clip(proba, a_min=self.thr_clip, a_max=1 - self.thr_clip)
-        return proba
-
-    def get_proba_(self, f0, l0, f1, l1, *args):
-
-        feat0 = self.feats[f0][l0]
-        feat1 = self.feats[f1][l1]
-
-        X = torch.stack((feat0, feat1)).unsqueeze(1)
-
-        proba = self.model.get_probas(X).detach().cpu().numpy()
 
         proba = np.clip(proba, a_min=self.thr_clip, a_max=1 - self.thr_clip)
         return proba

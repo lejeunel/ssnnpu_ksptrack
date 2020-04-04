@@ -134,6 +134,7 @@ if __name__ == "__main__":
     p.add('--in-path', required=True)
     p.add('--siam-path', default='')
     p.add('--use-siam-pred', default=False, action='store_true')
+    p.add('--use-siam-trans', default=False, action='store_true')
     p.add('--fin', nargs='+', type=int, default=[0])
     p.add('--save-path', default='')
     p.add('--do-all', default=False, action='store_true')

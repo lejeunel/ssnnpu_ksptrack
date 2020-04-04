@@ -35,9 +35,7 @@ def fit_trees(args):
 
         model = DecisionTreeClassifier(
             max_depth=bag_max_depth,
-            criterion='gini',
-            max_features=bag_n_feats,
-            class_weight='balanced')
+            max_features=bag_n_feats)
 
         model.fit(data_bootstrap, train_label)
         idx_oob = sorted(

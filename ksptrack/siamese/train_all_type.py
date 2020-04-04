@@ -24,6 +24,7 @@ if __name__ == "__main__":
     for run_dir, train_dir in zip(cfg.run_dirs, cfg.train_dirs):
         cfg.run_dir = run_dir
         cfg.train_dir = train_dir
+        cfg.fix_clst = False
 
         train_autoencoder.main(cfg)
 
@@ -69,3 +70,17 @@ if __name__ == "__main__":
         cfg_ksp.exp_name = cfg.exp_name
         cfg_ksp.use_siam_pred = True
         iterative_ksp.main(cfg_ksp)
+
+        # run with gcn (DL foreground + reg)
+        # cfg.clf = True
+        # cfg.clf_reg = True
+        # cfg.fix_clst = True
+        # cfg.pw = True
+        # cfg.exp_name = 'pw_pred_reg'
+        # train_siam.main(cfg)
+        # cfg_ksp.use_siam_pred = True
+        # cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
+        #                           'cp_{}.pth.tar'.format(cfg.exp_name))
+        # cfg_ksp.exp_name = cfg.exp_name
+        # cfg_ksp.use_siam_pw = True
+        # iterative_ksp.main(cfg_ksp)

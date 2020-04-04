@@ -102,4 +102,6 @@ def get_params(path='.'):
     p.add('--clf', default=False, action='store_true', help='optimize classifier')
     p.add('--clf-reg', default=False, action='store_true', help='optimize classifier')
     p.add('--pw', default=False, action='store_true', help='optimize classifier')
+    p.add('--fix-clst', default=False, action='store_true', help='not optimize centroids')
+
     return p

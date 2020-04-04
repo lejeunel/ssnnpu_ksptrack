@@ -1,4 +1,3 @@
-from ksptrack.utils.loc_prior_dataset import LocPriorDataset
 from ksptrack.siamese.loader import Loader
 from torch.utils.data import DataLoader
 import torch.optim as optim
@@ -11,18 +10,15 @@ from tensorboardX import SummaryWriter
 from tqdm import tqdm
 from ksptrack.siamese.modeling.siamese import Siamese
 from ksptrack.siamese import utils as utls
-from ksptrack.siamese import im_utils
-from ksptrack.siamese.losses import EmbeddingLoss, TripletLoss
+from ksptrack.siamese.losses import TripletLoss
 import numpy as np
 from skimage import io
 import clustering as clst
 from ksptrack.utils.bagging import calc_bagging
-import networkx as nx
-from ksptrack.models.losses import PriorMSE
 from ksptrack import prev_trans_costs
 from ksptrack.cfgs import params as params_ksp
 from ksptrack.siamese.distrib_buffer import DistribBuffer
-from torch.nn.functional import sigmoid, tanh
+from torch.nn.functional import sigmoid
 
 
 def get_keypoints_on_batch(data):
@@ -53,8 +49,7 @@ def train_one_epoch(model, dataloaders, optimizers, device,
 
     criterion_clst = torch.nn.KLDivLoss(reduction='mean')
     criterion_embd = TripletLoss()
-
-    criterion_obj_pred = torch.nn.MSELoss()
+    criterion_obj_pred = torch.nn.BCEWithLogitsLoss()
     criterion_recons = torch.nn.MSELoss()
 
     pbar = tqdm(total=len(dataloaders['train']))
@@ -78,13 +73,14 @@ def train_one_epoch(model, dataloaders, optimizers, device,
 
             loss = 0
 
-            loss_clst = criterion_clst(res['clusters'],
-                                       targets.to(res['clusters']))
-            loss += loss_clst
+            if(not cfg.fix_clst):
+                loss_clst = criterion_clst(res['clusters'],
+                                        targets.to(res['clusters']))
+                loss += loss_clst
 
             if(cfg.clf):
                 loss_obj_pred = criterion_obj_pred(sigmoid(res['obj_pred'].squeeze()),
-                                                    probas_.float())
+                                                   probas_.float() > 0.5)
                 loss += cfg.lambda_ * loss_obj_pred
 
                 if(cfg.clf_reg):
@@ -115,7 +111,7 @@ def train_one_epoch(model, dataloaders, optimizers, device,
         if(cfg.pw):
             running_gcn += loss_gcn.cpu().detach().numpy()
         loss_ = running_loss / ((i + 1) * cfg.batch_size)
-        pbar.set_description('lss {:.6f}'.format(loss_))
+        pbar.set_description('lss {:.6e}'.format(loss_))
         pbar.update(1)
 
     pbar.close()
@@ -147,6 +143,12 @@ def train(cfg, model, device, dataloaders, run_path):
     state_dict = torch.load(path_,
                             map_location=lambda storage, loc: storage)
     model.load_state_dict(state_dict)
+
+    if(cfg.clf):
+        print('changing output of decoder to 1 channel')
+        model.dec.autoencoder.to_predictor()
+        # print('resetting parameters of decoder')
+        # model.dec.autoencoder.decoder.apply(init_weights)
 
     check_cp_exist = pjoin(run_path, 'checkpoints', best_cp_fname)
     if (os.path.exists(check_cp_exist)):
@@ -244,6 +246,8 @@ def train(cfg, model, device, dataloaders, run_path):
                                                                0.99)}
     distrib_buff = DistribBuffer(cfg.tgt_update_period,
                                  thr_assign=cfg.thr_assign)
+    distrib_buff.maybe_update(model, dataloaders['all_prev'],
+                                device)
 
     all_edges_nn = [
         utls.make_single_graph_nn_edges(s['graph'], device, cfg.nn_radius)
@@ -258,8 +262,6 @@ def train(cfg, model, device, dataloaders, run_path):
         print('epoch {}/{}'.format(epoch, cfg.epochs_dist))
         for phase in ['train', 'prev']:
             if phase == 'train':
-                distrib_buff.maybe_update(model, dataloaders['all_prev'],
-                                          device)
 
                 res = train_one_epoch(model, dataloaders,
                                       optimizers, device,
@@ -267,6 +269,10 @@ def train(cfg, model, device, dataloaders, run_path):
                                       lr_sch, cfg,
                                       probas=probas,
                                       all_edges_nn=all_edges_nn)
+
+                if(not cfg.fix_clst):
+                    distrib_buff.maybe_update(model, dataloaders['all_prev'],
+                                              device)
 
                 if(epoch < cfg.epochs_dist):
                     distrib_buff.inc_epoch()

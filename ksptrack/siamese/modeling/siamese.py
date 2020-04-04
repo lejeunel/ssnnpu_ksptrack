@@ -80,7 +80,8 @@ class Siamese(nn.Module):
 
         res = self.dec(data)
 
-        obj_pred = self.clf(res['pooled_feats'])
+        # obj_pred = self.clf(res['pooled_feats'])
+        obj_pred = self.sp_pool(res['output'], data['labels'])
         res.update({'obj_pred': obj_pred})
 
         if(edges_nn is not None):

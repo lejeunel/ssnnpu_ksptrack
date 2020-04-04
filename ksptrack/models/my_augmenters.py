@@ -39,6 +39,7 @@ class Normalize(Augmenter):
     def get_parameters(self):
         return [self.mean, self.std]
 
+
 class Rescale(Augmenter):
     def __init__(self,
                  min_,
@@ -57,6 +58,9 @@ class Rescale(Augmenter):
         for i in range(nb_images):
             if (images[i].dtype == np.uint8):
                 images[i] = images[i] / 255
+
+            images[i] = [(images[i][..., c] - self.min_[c]) /
+                         (self.max_[c] - self.min_[c]) for c in range(self.n_chans)]
                 
             images[i] = np.moveaxis(np.array(images[i]), 0, -1)
             images[i] = images[i].astype(float)

@@ -10,8 +10,8 @@ import numpy as np
 
 types = ['Tweezer', 'Cochlea', 'Slitlamp', 'Brain']
 root_path = pjoin('/home/ubelix/lejeune/runs/ksptrack')
-out_path = '/home/laurent/Documents/papers/lejeune_miccai20/table.tex'
-exp_filter = 'exp_'
+out_path = '/home/laurent/Documents/reports/rs_meetings/tables/results.tex'
+exp_names = ['gmm', 'dec', 'dec_pred', 'dec_pred_reg']
 
 path_18 = pjoin(root_path, 'plots_results', 'all_self.csv')
 df_18 = pd.read_csv(path_18)
@@ -32,7 +32,7 @@ for i, t in enumerate(types):
     dset_paths = sorted(glob.glob(pjoin(root_path, 'Dataset' + str(i) + '*')))
     for dset_path in dset_paths[:max_seqs]:
         dset_dir = os.path.split(dset_path)[-1]
-        exp_paths = sorted(glob.glob(pjoin(dset_path, exp_filter + '*')))
+        exp_paths = [pjoin(dset_path, x) for x in exp_names]
         for exp_path in exp_paths:
             score_path = pjoin(exp_path, 'scores.csv')
             if (os.path.exists(score_path)):
@@ -44,7 +44,7 @@ for i, t in enumerate(types):
                     cfg = yaml.load(f, Loader=yaml.FullLoader)
 
                 records.append([
-                    t, dset_dir, os.path.split(exp_path)[-1][4:],
+                    t, dset_dir, os.path.split(exp_path)[-1],
                     df['f1_ksp'], df['pr_ksp'], df['rc_ksp']
                 ])
 
@@ -63,8 +63,10 @@ df_all = pd.concat((df, df_18), axis=0, levels=1).sort_index(0)
 df_all = df_all.round(decimals=2)
 
 # rename some methods
-df_all = df_all.rename(index={'dml_pw': 'KSPTrack/DEC w. PW'})
-df_all = df_all.rename(index={'dml': 'KSPTrack/DEC'})
+df_all = df_all.rename(index={'dec_pred_reg': 'KSPTrack/DEC/fg/var'})
+df_all = df_all.rename(index={'dec_pred': 'KSPTrack/DEC/fg'})
+df_all = df_all.rename(index={'dec': 'KSPTrack/DEC'})
+df_all = df_all.rename(index={'gmm': 'KSPTrack/GMM'})
 df_all = df_all.rename(index={'mic17': 'EEL'})
 df_all = df_all.rename(index={'gaze2': 'Gaze2Segment'})
 df_all = df_all.rename(index={'wtp': 'DL-prior'})
@@ -109,8 +111,9 @@ df_all = df_all.reset_index().pivot('Methods', 'Types')
 df_all = df_all[['F1']]
 
 # sort by methods
-order = ['KSPTrack/DEC',
-         # 'KSPTrack/DEC w. PW',
+order = ['KSPTrack/DEC/fg/var',
+         'KSPTrack/DEC/fg',
+         'KSPTrack/DEC',
          'KSPTrack/GMM',
          'KSPTrack',
          'EEL',
