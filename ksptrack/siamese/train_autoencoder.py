@@ -118,7 +118,7 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
     }
 
     check_cp_exist = pjoin(run_path, 'checkpoints',
-                           'checkpoint_autoenc.pth.tar')
+                           'cp_autoenc.pth.tar')
     if (os.path.exists(check_cp_exist)):
         print('found checkpoint at {}. Skipping.'.format(check_cp_exist))
         return
@@ -191,7 +191,6 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
                 pbar.update(1)
             if (phase == 'train'):
                 writer.add_scalar('loss_autoenc', loss_, epoch)
-
                 # save checkpoint
                 is_best = False
                 if (loss_ < best_loss):

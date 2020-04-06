@@ -115,7 +115,6 @@ def get_features(model, dataloader, device,
     obj_preds = []
 
     sigmoid = torch.nn.Sigmoid()
-    import pdb; pdb.set_trace() ## DEBUG ##
     model.eval()
     model.to(device)
     print('getting features')

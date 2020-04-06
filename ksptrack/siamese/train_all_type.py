@@ -19,6 +19,7 @@ if __name__ == "__main__":
     p_ksp.add('--in-path')
     p_ksp.add('--siam-path', default='')
     p_ksp.add('--use-siam-pred', default=False, action='store_true')
+    p_ksp.add('--use-siam-trans', default=False, action='store_true')
     cfg_ksp = p_ksp.parse_known_args(env_vars=None)[0]
 
     for run_dir, train_dir in zip(cfg.run_dirs, cfg.train_dirs):
@@ -82,5 +83,5 @@ if __name__ == "__main__":
         # cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
         #                           'cp_{}.pth.tar'.format(cfg.exp_name))
         # cfg_ksp.exp_name = cfg.exp_name
-        # cfg_ksp.use_siam_pw = True
+        # cfg_ksp.use_siam_trans = True
         # iterative_ksp.main(cfg_ksp)

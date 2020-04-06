@@ -16,7 +16,7 @@ lr-dist: 1e-4
 lr-autoenc: 1e-4
 lr-assign: 1e-3
 decay : 2e-4
-lr-power : 0.95
+lr-power : 0.97
 momentum: 0.9
 lambda-: 1e-1
 gamma: 100

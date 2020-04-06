@@ -277,6 +277,7 @@ if __name__ == "__main__":
     p.add('--in-path', required=True)
     p.add('--siam-path', default='')
     p.add('--use-siam-pred', default=False, action='store_true')
+    p.add('--use-siam-trans', default=False, action='store_true')
 
     cfg = p.parse_args()
 

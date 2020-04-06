@@ -142,7 +142,7 @@ def train(cfg, model, device, dataloaders, run_path):
     print('loading checkpoint {}'.format(path_))
     state_dict = torch.load(path_,
                             map_location=lambda storage, loc: storage)
-    model.load_state_dict(state_dict)
+    model.load_state_dict(state_dict, strict=False)
 
     if(cfg.clf):
         print('changing output of decoder to 1 channel')
@@ -187,6 +187,7 @@ def train(cfg, model, device, dataloaders, run_path):
     cfg_ksp.bag_max_depth = cfg.bag_max_depth
     cfg_ksp.siam_path = pjoin(run_path, 'checkpoints', 'init_dec.pth.tar')
     cfg_ksp.use_siam_pred = False
+    cfg_ksp.use_siam_trans = False
     cfg_ksp.in_path = pjoin(cfg.in_root, 'Dataset' + cfg.train_dir)
     cfg_ksp.precomp_desc_path = pjoin(cfg_ksp.in_path, 'precomp_desc')
     cfg_ksp.fin = [s['frame_idx'] for s in dataloaders['prev'].dataset]
@@ -235,15 +236,15 @@ def train(cfg, model, device, dataloaders, run_path):
     }
 
     lr_sch = {'feats': torch.optim.lr_scheduler.ExponentialLR(optimizers['feats'],
-                                                              0.99),
+                                                              cfg.lr_power),
               'L': torch.optim.lr_scheduler.ExponentialLR(optimizers['L'],
-                                                          0.99),
+                                                          cfg.lr_power),
               'gcn': torch.optim.lr_scheduler.ExponentialLR(optimizers['gcn'],
-                                                          0.99),
+                                                            cfg.lr_power),
               'clf': torch.optim.lr_scheduler.ExponentialLR(optimizers['clf'],
-                                                          0.99),
+                                                            cfg.lr_power),
               'assign': torch.optim.lr_scheduler.ExponentialLR(optimizers['assign'],
-                                                               0.99)}
+                                                               cfg.lr_power)}
     distrib_buff = DistribBuffer(cfg.tgt_update_period,
                                  thr_assign=cfg.thr_assign)
     distrib_buff.maybe_update(model, dataloaders['all_prev'],
@@ -328,6 +329,7 @@ def train(cfg, model, device, dataloaders, run_path):
 
                     cfg_ksp.siam_path = pjoin(run_path, 'checkpoints', cp_fname)
                     cfg_ksp.use_siam_pred = cfg.clf
+                    cfg_ksp.use_siam_trans = cfg.clf
                     prev_ims = prev_trans_costs.main(cfg_ksp)
                     io.imsave(pjoin(out_path, 'ep_{:04d}.png'.format(epoch)), prev_ims)
 
