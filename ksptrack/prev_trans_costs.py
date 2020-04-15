@@ -6,11 +6,12 @@ from ksptrack.utils.data_manager import DataManager
 from ksptrack.cfgs import params
 import numpy as np
 from skimage import (color, io, segmentation, draw)
-from ksptrack.utils.link_agent_model import LinkAgentModel
+from ksptrack.utils.link_agent_gmm import LinkAgentGMM
 from ksptrack.utils.loc_prior_dataset import LocPriorDataset
 import matplotlib.pyplot as plt
 import tqdm
 from os.path import join as pjoin
+
 
 def colorize(map_):
     cmap = plt.get_cmap('viridis')
@@ -29,7 +30,7 @@ def main(cfg):
 
     link_agent, desc_df = make_link_agent(cfg)
 
-    if(cfg.use_siam_pred):
+    if (cfg.use_siam_pred):
         print('will use DEC/siam objectness probabilities')
         probas = link_agent.obj_preds
         pm_scores_fg = utls.get_pm_array(link_agent.labels, probas)
@@ -47,7 +48,7 @@ def main(cfg):
 
     cluster_maps = link_agent.make_cluster_maps()
 
-    if(cfg.do_all):
+    if (cfg.do_all):
         cfg.fin = np.arange(len(dl))
 
     ims = []
@@ -55,7 +56,7 @@ def main(cfg):
     for fin in cfg.fin:
 
         loc = locs2d[locs2d['frame'] == fin]
-        if(loc.shape[0] > 0):
+        if (loc.shape[0] > 0):
             i_in, j_in = link_agent.get_i_j(loc.iloc[0])
 
             entrance_probas = np.zeros(link_agent.labels.shape[1:])
@@ -69,7 +70,8 @@ def main(cfg):
             im1 = dl[fin]['image_unnormal']
             rr, cc = draw.circle_perimeter(i_in,
                                            j_in,
-                                           int(cfg.norm_neighbor_in * im1.shape[1]),
+                                           int(cfg.norm_neighbor_in *
+                                               im1.shape[1]),
                                            shape=im1.shape)
 
             im1[truth_ct, ...] = (255, 0, 0)
@@ -103,9 +105,9 @@ def main(cfg):
         pbar.update(1)
     pbar.close()
 
-    if(cfg.do_all):
+    if (cfg.do_all):
         print('will save all to {}'.format(cfg.save_path))
-        if(not os.path.exists(cfg.save_path)):
+        if (not os.path.exists(cfg.save_path)):
             os.makedirs(cfg.save_path)
         pbar = tqdm.tqdm(total=len(ims))
         for i, im in enumerate(ims):
@@ -113,20 +115,21 @@ def main(cfg):
                       np.concatenate(im, axis=1))
             pbar.update(1)
         pbar.close()
-            
-    if(cfg.return_dict):
+
+    if (cfg.return_dict):
         ims_dicts = []
         for ims_ in ims:
-            dict_ = {'image': ims_[0],
-                     'pm': ims_[1],
-                     'pm_thr': ims_[2],
-                     'clusters': ims_[3],
-                     'entrance': ims_[4]}
+            dict_ = {
+                'image': ims_[0],
+                'pm': ims_[1],
+                'pm_thr': ims_[2],
+                'clusters': ims_[3],
+                'entrance': ims_[4]
+            }
             ims_dicts.append(dict_)
         return ims_dicts
 
-    return np.concatenate([np.concatenate(im, axis=1) for im in ims],
-                          axis=0)
+    return np.concatenate([np.concatenate(im, axis=1) for im in ims], axis=0)
 
 
 if __name__ == "__main__":
@@ -149,7 +152,6 @@ if __name__ == "__main__":
 
     ims = main(cfg)
 
-    if(not cfg.do_all):
+    if (not cfg.do_all):
         print('saving image to {}'.format(cfg.save_path))
         io.imsave(cfg.save_path, ims)
-

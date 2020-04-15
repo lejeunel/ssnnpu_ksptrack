@@ -1,20 +1,23 @@
-from os.path import join as pjoin
-import yaml
-import numpy as np
-import ksptrack.graph_tracking as gtrack
-from ksptrack.utils import my_utils as utls
-from ksptrack.utils.data_manager import DataManager
-from ksptrack.utils.link_agent_model import LinkAgentModel
-import logging
-import ksptrack.sp_manager as spm
-from ksptrack.siamese.modeling.siamese import Siamese
-from ksptrack.utils import write_frames_results
-from ksptrack.utils import comp_scores
 import datetime
-from ksptrack.cfgs import params
-import torch
-import pandas as pd
+import logging
 import os
+from os.path import join as pjoin
+
+import numpy as np
+import pandas as pd
+import torch
+import yaml
+
+import ksptrack.graph_tracking as gtrack
+import ksptrack.sp_manager as spm
+from ksptrack.cfgs import params
+from ksptrack.siamese.modeling.siamese import Siamese
+from ksptrack.utils import comp_scores
+from ksptrack.utils import my_utils as utls
+from ksptrack.utils import write_frames_results
+from ksptrack.utils.data_manager import DataManager
+from ksptrack.utils.link_agent_gmm import LinkAgentGMM
+from ksptrack.utils.link_agent_siam import LinkAgentSiam
 
 
 class Bunch(object):
@@ -52,14 +55,23 @@ def make_link_agent(cfg):
         print('loading checkpoint {}'.format(cfg.siam_path))
         state_dict = torch.load(cfg.siam_path,
                                 map_location=lambda storage, loc: storage)
-        model.load_state_dict(state_dict, strict=True)
-        link_agent = LinkAgentModel(csv_path=pjoin(cfg.in_path, cfg.locs_dir,
-                                                   cfg.csv_fname),
-                                    data_path=cfg.in_path,
-                                    model=model,
-                                    entrance_radius=cfg.norm_neighbor_in,
-                                    cuda=cfg.cuda,
-                                    siam_pw=cfg.use_siam_trans)
+        model.load_state_dict(state_dict, strict=False)
+
+        if (cfg.use_siam_trans):
+            link_agent = LinkAgentSiam(csv_path=pjoin(cfg.in_path,
+                                                      cfg.locs_dir,
+                                                      cfg.csv_fname),
+                                       data_path=cfg.in_path,
+                                       model=model,
+                                       entrance_radius=cfg.norm_neighbor_in,
+                                       cuda=cfg.cuda)
+        else:
+            link_agent = LinkAgentGMM(csv_path=pjoin(cfg.in_path, cfg.locs_dir,
+                                                     cfg.csv_fname),
+                                      data_path=cfg.in_path,
+                                      model=model,
+                                      entrance_radius=cfg.norm_neighbor_in,
+                                      cuda=cfg.cuda)
         # compute features
         path_feats = pjoin(cfg.in_path, cfg.precomp_dir, 'sp_desc_siam.p')
         path_centroids = pjoin(cfg.in_path, cfg.precomp_dir,

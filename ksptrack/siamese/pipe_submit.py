@@ -11,10 +11,10 @@ def split_list(alist, wanted_parts=1):
 
 seq_type = list(range(4))
 # seq_type = list(range(2))
-seqs_per_type = [[],
+seqs_per_type = [[0, 1, 2, 3],
                  [0, 1, 2, 3],
-                 [],
-                 []]
+                 [0, 1, 2, 3],
+                 [0, 1, 2, 3]]
 
 run_dirs = [['Dataset' + str(t) + str(n)
              for n in seqs_per_type[t]]

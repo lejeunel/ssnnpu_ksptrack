@@ -107,11 +107,12 @@ def train_kmeans(model,
     return init_clusters, predictions, L, cat_features, cat_pos_mask
 
 
-def train(cfg, model, device, dataloaders, run_path):
+def train(cfg, model, device, dataloaders, run_path=None):
 
-    clusters_prevs_path = pjoin(run_path, 'clusters_prevs')
-    if (not os.path.exists(clusters_prevs_path)):
-        os.makedirs(clusters_prevs_path)
+    if(run_path is not None):
+        clusters_prevs_path = pjoin(run_path, 'clusters_prevs')
+        if (not os.path.exists(clusters_prevs_path)):
+            os.makedirs(clusters_prevs_path)
 
     init_clusters_path = pjoin(run_path, 'init_clusters.npz')
     init_clusters_prev_path = pjoin(clusters_prevs_path, 'init')
@@ -173,6 +174,8 @@ def train(cfg, model, device, dataloaders, run_path):
         False,
         fname_cp='init_dec.pth.tar',
         path=path)
+
+    return model
 
 
 def main(cfg):

@@ -6,9 +6,7 @@ from ksptrack.siamese import utils as utls
 from skimage import segmentation
 
 
-def do_prev_clusters_init(dataloader,
-                          predictions,
-                          probas=None):
+def do_prev_clusters_init(dataloader, predictions, probas=None):
     # form initial cluster centres
 
     prev_ims = {}
@@ -44,8 +42,10 @@ def do_prev_rags(model, device, dataloader, couple_graphs):
         data = utls.batch_to_device(data, device)
 
         # keep only adjacent edges
-        edges_rag = [e for e in data['graph'][0].edges()
-                     if(data['graph'][0].edges[e]['adjacent'])]
+        edges_rag = [
+            e for e in data['graph'][0].edges()
+            if (data['graph'][0].edges[e]['adjacent'])
+        ]
         rag = data['graph'][0].edge_subgraph(edges_rag).copy()
 
         # forward
@@ -58,7 +58,8 @@ def do_prev_rags(model, device, dataloader, couple_graphs):
         truth = data['label/segmentation'].cpu().squeeze().numpy()
         labels = data['labels'].cpu().squeeze().numpy()
 
-        predictions = couple_graphs.nodes[data['frame_idx'][0]]['clst'].cpu().numpy()
+        predictions = couple_graphs.nodes[data['frame_idx']
+                                          [0]]['clst'].cpu().numpy()
         predictions = utls.to_onehot(predictions, res['clusters'].shape[1])
         clusters_colorized = im_utils.make_clusters(labels, predictions)
         truth = data['label/segmentation'].cpu().squeeze().numpy()
@@ -104,7 +105,9 @@ def do_prev_clusters(model, device, dataloader, *args):
     return prevs
 
 
-def get_features(model, dataloader, device,
+def get_features(model,
+                 dataloader,
+                 device,
                  return_assign=False,
                  return_obj_preds=False,
                  feat_field='pooled_feats'):
@@ -124,18 +127,18 @@ def get_features(model, dataloader, device,
         with torch.no_grad():
             res = model(data)
 
-        if(return_assign):
+        if (return_assign):
             assignments.append(res['clusters'].argmax(dim=1).cpu().numpy())
 
-        if(return_obj_preds):
+        if (return_obj_preds):
             obj_preds.append(sigmoid(res['obj_pred']).cpu().numpy())
 
         clicked_labels = [
-            item for sublist in data['labels_clicked']
-            for item in sublist
+            item for sublist in data['labels_clicked'] for item in sublist
         ]
 
-        to_add = np.zeros(np.unique(data['labels'].cpu().numpy()).shape[0]).astype(bool)
+        to_add = np.zeros(np.unique(
+            data['labels'].cpu().numpy()).shape[0]).astype(bool)
         to_add[clicked_labels] = True
         labels_pos_mask.append(to_add)
 
@@ -145,10 +148,10 @@ def get_features(model, dataloader, device,
 
     res = [features, labels_pos_mask]
 
-    if(return_assign):
+    if (return_assign):
         res.append(np.concatenate(assignments))
 
-    if(return_obj_preds):
+    if (return_obj_preds):
         res.append(obj_preds)
 
     return res

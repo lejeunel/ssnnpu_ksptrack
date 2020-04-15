@@ -1,7 +1,9 @@
 from torch import nn
 import numpy as np
 import torch
-from torch.nn import functional as F
+from ksptrack.siamese import utils as utls
+import networkx as nx
+import itertools
 
 
 def get_edges_probas(probas, edges_nn, thrs=[0.6, 0.8], clusters=None):
@@ -220,11 +222,9 @@ class EmbeddingLoss(nn.Module):
         loss_2 = self.neg_embedding_loss(z, neg_edges)
         return loss_1 + loss_2
 
-def maybe_num_nodes(index, num_nodes=None):
-    return index.max().item() + 1 if num_nodes is None else num_nodes
 
-def structured_negative_sampling(edge_index, num_nodes=None):
-    r"""Samples a negative edge :obj:`(i,k)` for every positive edge
+def structured_negative_sampling(edge_index):
+    r"""Samples a negative sample :obj:`(k)` for every positive edge
     :obj:`(i,j)` in the graph given by :attr:`edge_index`, and returns it as a
     tuple of the form :obj:`(i,j,k)`.
 
@@ -235,7 +235,7 @@ def structured_negative_sampling(edge_index, num_nodes=None):
 
     :rtype: (LongTensor, LongTensor, LongTensor)
     """
-    num_nodes = maybe_num_nodes(edge_index, num_nodes)
+    num_nodes = edge_index.max().item() + 1
 
     i, j = edge_index.to('cpu')
     idx_1 = i * num_nodes + j
@@ -255,13 +255,24 @@ def structured_negative_sampling(edge_index, num_nodes=None):
     return edge_index[0], edge_index[1], k.to(edge_index.device)
 
 
+def complete_graph_from_list(L, create_using=None):
+    G = nx.empty_graph(len(L), create_using)
+    if len(L) > 1:
+        if G.is_directed():
+            edges = itertools.permutations(L, 2)
+        else:
+            edges = itertools.combinations(L, 2)
+        G.add_edges_from(edges)
+    return G
+
+
 class TripletLoss(nn.Module):
     def __init__(self, margin=0.2):
         super(TripletLoss, self).__init__()
         self.cosine_sim = nn.CosineSimilarity()
         self.margin = margin
 
-    def forward(self, z, pos_edges):
+    def forward(self, z, edges_list):
         """Computes the triplet loss between positive node pairs and sampled
         non-node pairs.
 
@@ -269,69 +280,65 @@ class TripletLoss(nn.Module):
             z (Tensor): The node embeddings.
             pos_edge_index (LongTensor): The positive edge indices.
         """
-        i, j, k = structured_negative_sampling(pos_edges, z.size(0))
 
-        sim = self.cosine_sim(z[i], z[j])
-        disim = self.cosine_sim(z[i], z[k])
-        out = (sim - disim).sum(dim=1)
-        # out = (z[i] - z[j]).pow(2).sum(dim=1) - (z[i] - z[k]).pow(2).sum(dim=1)
-        return torch.clamp(out + self.margin, min=0).mean()
+        # relabel edges
+        relabeled_edges_list = []
+        max_node = 0
+        for edges in edges_list:
+            e_idx = edges.edge_index.clone()
+            e_idx += max_node
+            max_node = edges.n_nodes
+            relabeled_edges_list.append(e_idx)
 
-        loss_1 = self.pos_embedding_loss(z, pos_edges)
-        return loss_1
+        relabeled_edges_list = torch.cat(relabeled_edges_list, dim=1)
+        relabeled_edges_list.to(z.device)
+
+        # do sampling
+        i, j, k = structured_negative_sampling(relabeled_edges_list)
+
+        pos = 1 - self.cosine_sim(z[i], z[j])
+        neg = 1 - self.cosine_sim(z[i], z[k])
+        out = pos - neg
+        loss = torch.clamp(out + self.margin, min=0)
+        loss = loss[loss > 0]
+        return loss.mean()
+
 
 if __name__ == "__main__":
     from ksptrack.models.my_augmenters import Normalize
     from torch.utils.data import DataLoader
     from ksptrack.siamese.modeling.siamese import Siamese
-    from ksptrack.utils.bagging import calc_bagging
     from loader import Loader
     from os.path import join as pjoin
-    import clustering as clst
     from ksptrack.siamese import utils as utls
+    from ksptrack.siamese.distrib_buffer import DistribBuffer
 
     device = torch.device('cuda')
     transf_normal = Normalize(mean=[0.485, 0.456, 0.406],
                               std=[0.229, 0.224, 0.225])
 
     dl = Loader(pjoin('/home/ubelix/artorg/lejeune/data/medical-labeling',
-                      'Dataset00'),
-                normalization=transf_normal)
-    dl_train = DataLoader(dl,
-                          collate_fn=dl.collate_fn,
-                          batch_size=2,
-                          shuffle=True)
-    dl_prev = DataLoader(dl, collate_fn=dl.collate_fn)
+                      'Dataset20'),
+                normalization='rescale',
+                resize_shape=512)
+    dl = DataLoader(dl, collate_fn=dl.collate_fn, batch_size=2, shuffle=True)
 
-    model = Siamese(10, 10, roi_size=1, roi_scale=1, alpha=1)
+    model = Siamese(15, 15, backbone='unet')
 
-    run_path = '/home/ubelix/artorg/lejeune/runs/siamese_dec/Dataset00'
+    run_path = '/home/ubelix/artorg/lejeune/runs/siamese_dec/Dataset20'
     cp_path = pjoin(run_path, 'checkpoints', 'init_dec.pth.tar')
     state_dict = torch.load(cp_path, map_location=lambda storage, loc: storage)
     model.load_state_dict(state_dict)
     model.to(device)
     model.train()
-    criterion = LDALoss()
+    criterion = TripletLoss()
 
-    features, pos_masks, _ = clst.get_features(model, dl_prev, device)
-    cat_features = np.concatenate(features)
-    cat_pos_mask = np.concatenate(pos_masks)
-    print('computing probability map')
-    probas = calc_bagging(cat_features,
-                          cat_pos_mask,
-                          30,
-                          bag_max_depth=64,
-                          bag_n_feats=None,
-                          bag_max_samples=500,
-                          n_jobs=1)
-    probas = torch.from_numpy(probas).to(device)
-    n_labels = [np.unique(s['labels']).size for s in dl_prev.dataset]
-    probas = torch.split(probas, n_labels)
+    distrib_buff = DistribBuffer(10, thr_assign=0.0001)
+    distrib_buff.maybe_update(model, dl, device)
 
-    for data in dl_train:
-        # edges_nn, _, _ = make_couple_graphs(model, device, data, 0.1, L, True)
+    for data in dl:
         data = utls.batch_to_device(data, device)
-        res = model(data)
-        probas_ = torch.cat([probas[i] for i in data['frame_idx']])
 
-        loss = criterion(res['proj_pooled_aspp_feats'], probas_)
+        _, targets = distrib_buff[data['frame_idx']]
+        res = model(data)
+        loss = criterion(res['proj_pooled_feats'], targets, data['graph'])

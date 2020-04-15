@@ -72,22 +72,22 @@ class BaseDataset(data.Dataset):
 
         self.augmentations = augmentations
 
-        if(isinstance(normalization, iaa.Augmenter)):
+        if (isinstance(normalization, iaa.Augmenter)):
             self.normalization = normalization
-        elif(isinstance(normalization, str)):
+        elif (isinstance(normalization, str)):
             # check for right parameters in list
             if normalization not in ['rescale', 'std']:
                 raise ValueError("Invalid value for 'normalization': %s "
-                                "'normalization' should be in "
-                                "['rescale', 'std']"
-                                    % normalization)
-            if(normalization == 'std'):
+                                 "'normalization' should be in "
+                                 "['rescale', 'std']" % normalization)
+            if (normalization == 'std'):
 
                 im_flat = np.array(self.imgs).reshape((-1, 3)) / 255
                 mean = im_flat.mean(axis=0)
                 std = im_flat.std(axis=0)
-                self.normalization = iaa.Sequential([rescale_augmenter,
-                                                    Normalize(mean=mean, std=std)])
+                self.normalization = iaa.Sequential(
+                    [rescale_augmenter,
+                     Normalize(mean=mean, std=std)])
             else:
                 im_flat = np.array(self.imgs).reshape((-1, 3)) / 255
                 min_ = im_flat.min(axis=0)
@@ -97,7 +97,7 @@ class BaseDataset(data.Dataset):
         self.reshaper_img = iaa.Noop()
         self.reshaper_seg = iaa.Noop()
 
-        if(resize_shape is not None):
+        if (resize_shape is not None):
             self.reshaper_img = iaa.size.Resize(resize_shape)
             self.reshaper_seg = iaa.size.Resize(resize_shape, 'nearest')
 
@@ -163,6 +163,7 @@ class BaseDataset(data.Dataset):
             'frame_name': os.path.split(self.img_paths[idx])[-1],
             'labels': labels,
             'frame_idx': idx,
+            'n_frames': self.__len__(),
             'label/segmentation': truth
         }
 
@@ -187,6 +188,7 @@ class BaseDataset(data.Dataset):
             'image_unnormal': im_unnormal,
             'frame_name': [d['frame_name'] for d in data],
             'frame_idx': [d['frame_idx'] for d in data],
+            'n_frames': [d['n_frames'] for d in data],
             'label/segmentation': truth,
             'labels': labels
         }

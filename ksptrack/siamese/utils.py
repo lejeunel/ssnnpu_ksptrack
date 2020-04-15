@@ -8,6 +8,48 @@ import shutil
 from tqdm import tqdm
 import networkx as nx
 from itertools import combinations
+from torch_geometric.data import Data
+
+
+def make_edges_ccl(model, dataloader, device):
+    """Computes for each graph in dataloader its
+    connected component edge list
+
+    Args:
+        model (pytorch model)
+        dataloader
+        """
+
+    edges = []
+    for data in tqdm(dataloader):
+
+        data = batch_to_device(data, device)
+
+        clst = model(data)['clusters'].argmax(dim=1)
+
+        # remove edges according to cluster assignments
+        edges_ = [(n0, n1) for n0, n1 in data['graph'][0].edges
+                  if (clst[n0] == clst[n1])]
+
+        # create the induced subgraph of each component
+        g = nx.Graph(edges_)
+        S = [g.subgraph(c).copy() for c in nx.connected_components(g)]
+
+        # all connected components form a fully connected group
+        edges_cc = [combinations(S_.nodes, 2) for S_ in S]
+        edges_cc = [item for sublist in edges_cc for item in sublist]
+        g_cc = nx.Graph()
+        g_cc.add_edges_from(edges_cc)
+
+        edges_cc = np.array([e for e in g_cc.edges])
+        edges_cc = torch.from_numpy(edges_cc).T
+        data = Data(edge_index=edges_cc)
+        data.n_nodes = clst.numel()
+
+        edges.append(data)
+
+    return edges
+
 
 def get_hard_constraint_edges(batch):
 
@@ -15,14 +57,14 @@ def get_hard_constraint_edges(batch):
     nodes = []
     for i in range(len(batch['frame_idx'])):
         kps = batch['loc_keypoints'][i]
-        if(not kps.empty):
+        if (not kps.empty):
             kps = kps.to_xy_array().astype(int)
             for kp in kps:
                 label = int(batch['labels'][i, 0, kp[1], kp[0]].item())
                 nodes.append(label + max_node)
         max_node += int(batch['labels'][i, ...].max().item()) + 1
 
-    if(len(nodes) == 0):
+    if (len(nodes) == 0):
         return None
 
     edges = np.array(list(combinations(nodes, 2)))
@@ -40,15 +82,11 @@ def combine_nn_edges(edges_nn_list):
     return torch.cat(combined_edges_nn, dim=0)
 
 
-def make_single_graph_nn_edges(g, device, nn_radius=None, add_self_loops=True):
-    if(add_self_loops):
+def make_single_graph_nn_edges(g, device, add_self_loops=True):
+
+    if (add_self_loops):
         self_edges = [(n, n) for n in g.nodes()]
         g.add_edges_from(self_edges)
-
-    if(nn_radius is None):
-        all_edges = np.array([(n0, n1) for n0, n1 in g.edges()
-                              if(g.edges[n0, n1]['adjacent'])])
-        return torch.from_numpy(all_edges)
 
     all_nodes = np.array([n for n in g.nodes()])
     all_edges = np.array(list(combinations(all_nodes, 2)))
@@ -66,7 +104,11 @@ def make_single_graph_nn_edges(g, device, nn_radius=None, add_self_loops=True):
     return edges_nn
 
 
-def make_couple_graphs(model, device, batch, nn_radius, do_inter_frame=True,
+def make_couple_graphs(model,
+                       device,
+                       batch,
+                       nn_radius,
+                       do_inter_frame=True,
                        do_self_loop=True):
     """
     Builds edge array with nearest neighbors on same frame and next-frame
@@ -95,7 +137,7 @@ def make_couple_graphs(model, device, batch, nn_radius, do_inter_frame=True,
     if (do_inter_frame):
         all_nodes = np.array([n for n in merged.nodes()])
         all_edges = list(combinations(all_nodes, 2))
-        if(do_self_loop):
+        if (do_self_loop):
             all_edges += [(n, n) for n in all_nodes]
         all_edges = np.array(all_edges)
     else:
@@ -103,8 +145,9 @@ def make_couple_graphs(model, device, batch, nn_radius, do_inter_frame=True,
         all_nodes_1 = np.array([n for n in h_.nodes()])
         all_edges = list(combinations(all_nodes_0, 2)) + \
                              list(combinations(all_nodes_1, 2))
-        if(do_self_loop):
-            all_edges += [(n, n) for n in np.concatenate((all_nodes_0, all_nodes_1))]
+        if (do_self_loop):
+            all_edges += [(n, n)
+                          for n in np.concatenate((all_nodes_0, all_nodes_1))]
 
         all_edges = np.array(all_edges)
 
@@ -121,19 +164,21 @@ def make_couple_graphs(model, device, batch, nn_radius, do_inter_frame=True,
     return edges_nn, clusters[0].detach(), clusters[1].detach()
 
 
-def make_all_couple_graphs(model, device, stack_loader, nn_radius,
+def make_all_couple_graphs(model,
+                           device,
+                           stack_loader,
+                           nn_radius,
                            do_inter_frame=True):
 
     couple_graphs = nx.Graph()
     print('making NN-graphs')
     for sample in tqdm(stack_loader):
-        edges_nn, clst0, clst1 = make_couple_graphs(model,
-                                                    device,
-                                                    sample,
-                                                    nn_radius,
-                                                    do_inter_frame)
-        couple_graphs.add_nodes_from([(n, dict(clst=c))
-                                      for n, c in zip(sample['frame_idx'], [clst0, clst1])])
+        edges_nn, clst0, clst1 = make_couple_graphs(model, device, sample,
+                                                    nn_radius, do_inter_frame)
+        couple_graphs.add_nodes_from([
+            (n, dict(clst=c))
+            for n, c in zip(sample['frame_idx'], [clst0, clst1])
+        ])
 
         couple_graphs.add_edge(sample['frame_idx'][0],
                                sample['frame_idx'][1],

@@ -1,30 +1,26 @@
 import numpy as np
 from ksptrack.siamese.clustering import get_features
 import torch
-from imgaug import augmenters as iaa
 from ksptrack.utils.link_agent_radius import LinkAgentRadius
-from ksptrack.models.my_augmenters import rescale_augmenter, center_augmenter
 from torch.utils.data import DataLoader
 import tqdm
 from sklearn.mixture import GaussianMixture
 import matplotlib.pyplot as plt
-from ksptrack.utils.loc_prior_dataset import LocPriorDataset
+from ksptrack.siamese.loader import Loader
 
 
-class LinkAgentModel(LinkAgentRadius):
+class LinkAgentGMM(LinkAgentRadius):
     def __init__(self,
                  csv_path,
                  data_path,
                  model,
                  entrance_radius=0.1,
-                 siam_pw=False,
                  cuda=False):
 
         super().__init__(csv_path, data_path, entrance_radius=entrance_radius)
 
         self.device = torch.device('cuda' if cuda else 'cpu')
         self.data_path = data_path
-        self.siam_pw = siam_pw
 
         self.model = model
         self.model.to(self.device)
@@ -35,28 +31,24 @@ class LinkAgentModel(LinkAgentRadius):
             for k, v in batch.items()
         }
 
-        if(not self.siam_pw):
-            self.dset = LocPriorDataset(data_path,
-                                        normalization='rescale',
-                                        resize_shape=512)
-        else:
-            self.dset = LocPriorDataset(data_path,
-                                        normalization='rescale',
-                                        resize_shape=512)
-            
+        self.dset = Loader(data_path,
+                           normalization='rescale',
+                           resize_shape=512)
 
         self.dl = DataLoader(self.dset, collate_fn=self.dset.collate_fn)
 
         self.prepare_feats()
 
-        if(not self.siam_pw):
-            self.fit_gmm()
+        self.fit_gmm()
 
     def prepare_feats(self, all_edges_nn=None, feat_field='pooled_feats'):
-        print('preparing features for linkAgentModel')
+        print('preparing features for linkAgentGMM')
 
         self.feats, self.labels_pos, self.assignments, self.obj_preds = get_features(
-            self.model, self.dl, self.device, return_assign=True,
+            self.model,
+            self.dl,
+            self.device,
+            return_assign=True,
             feat_field=feat_field,
             return_obj_preds=True)
 
@@ -77,13 +69,19 @@ class LinkAgentModel(LinkAgentRadius):
             np.sum(assign_ == c) / assign_.shape[0]
             for c in np.arange(n_clusters)
         ])
+
+        # correct for collapsed clusters
+        nz = weights > 0
+        weights = weights[nz]
+        n_clusters = nz.sum()
+        centroids = centroids[nz]
         try:
             covs = [
                 np.cov(feats_[assign_ == c, :].T)
                 for c in np.arange(n_clusters)
             ]
             precs = np.stack([np.linalg.inv(s) for s in covs])
-            self.gmm = GaussianMixture(n_components=centroids.shape[0],
+            self.gmm = GaussianMixture(n_components=n_clusters,
                                        means_init=centroids,
                                        weights_init=weights,
                                        reg_covar=1e-3,
@@ -92,7 +90,7 @@ class LinkAgentModel(LinkAgentRadius):
             self.gmm.fit(feats_)
         except:
             print('something wrong happened with covariance initialization...')
-            self.gmm = GaussianMixture(n_components=centroids.shape[0],
+            self.gmm = GaussianMixture(n_components=n_clusters,
                                        means_init=centroids,
                                        weights_init=weights,
                                        reg_covar=1e-3,
