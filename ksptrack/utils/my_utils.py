@@ -24,8 +24,10 @@ from ksptrack.utils import bagging as bag
 
 
 def probas_to_df(labels, probas):
-    probas = np.concatenate(probas)
-    if(probas.ndim == 1):
+
+    if (isinstance(probas, list)):
+        probas = np.concatenate(probas)
+    if (probas.ndim == 1):
         probas = probas[..., None]
 
     frame_labels_list = [[(f, l) for f in range(labels.shape[0])

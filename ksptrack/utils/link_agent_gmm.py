@@ -9,6 +9,45 @@ import matplotlib.pyplot as plt
 from ksptrack.siamese.loader import Loader
 
 
+def make_clusters(labels, predictions):
+    cmap = plt.get_cmap('viridis')
+    shape = labels.shape
+    n_clusters = predictions.shape[1]
+    mapping = np.array([
+        (np.array(cmap(c / n_clusters)[:3]) * 255).astype(np.uint8)
+        for c in np.argmax(predictions, axis=1)
+    ])
+    mapping = np.concatenate((np.unique(labels)[..., None], mapping), axis=1)
+
+    _, ind = np.unique(labels, return_inverse=True)
+    clusters_colorized = mapping[ind, 1:].reshape((shape[0], shape[1], 3))
+    clusters_colorized = clusters_colorized.astype(np.uint8)
+
+    return clusters_colorized
+
+
+def make_cluster_maps(model, dl, device):
+    batch_to_device = lambda batch: {
+        k: v.to(device) if (isinstance(v, torch.Tensor)) else v
+        for k, v in batch.items()
+    }
+
+    maps = []
+
+    pbar = tqdm.tqdm(total=len(dl))
+    for i, data in enumerate(dl):
+        data = batch_to_device(data)
+        with torch.no_grad():
+            res = model(data)
+            preds = res['clusters'].detach().cpu().numpy()
+            labels = data['labels'].squeeze().cpu().numpy()
+        maps.append(make_clusters(labels, preds))
+        pbar.update(1)
+    pbar.close()
+
+    return np.stack(maps)
+
+
 class LinkAgentGMM(LinkAgentRadius):
     def __init__(self,
                  csv_path,
@@ -100,43 +139,8 @@ class LinkAgentGMM(LinkAgentRadius):
             self.gmm.predict_proba(np.dot(f, L.T)) for f in self.feats
         ]
 
-    def make_clusters(self, labels, predictions):
-        cmap = plt.get_cmap('viridis')
-        shape = labels.shape
-        n_clusters = predictions.shape[1]
-        mapping = np.array([
-            (np.array(cmap(c / n_clusters)[:3]) * 255).astype(np.uint8)
-            for c in np.argmax(predictions, axis=1)
-        ])
-        mapping = np.concatenate((np.unique(labels)[..., None], mapping),
-                                 axis=1)
-
-        _, ind = np.unique(labels, return_inverse=True)
-        clusters_colorized = mapping[ind, 1:].reshape((shape[0], shape[1], 3))
-        clusters_colorized = clusters_colorized.astype(np.uint8)
-
-        return clusters_colorized
-
     def make_cluster_maps(self):
-        batch_to_device = lambda batch: {
-            k: v.to(self.device) if (isinstance(v, torch.Tensor)) else v
-            for k, v in batch.items()
-        }
-
-        maps = []
-
-        pbar = tqdm.tqdm(total=len(self.dl))
-        for i, data in enumerate(self.dl):
-            data = batch_to_device(data)
-            with torch.no_grad():
-                res = self.model(data)
-                preds = res['clusters'].detach().cpu().numpy()
-                labels = data['labels'].squeeze().cpu().numpy()
-            maps.append(self.make_clusters(labels, preds))
-            pbar.update(1)
-        pbar.close()
-
-        return np.stack(maps)
+        return make_cluster_maps(self.model, self.dl, self.device)
 
     def get_proba(self, f0, l0, f1, l1, *args):
 

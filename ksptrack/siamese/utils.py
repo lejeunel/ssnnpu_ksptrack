@@ -11,7 +11,12 @@ from itertools import combinations
 from torch_geometric.data import Data
 
 
-def make_edges_ccl(model, dataloader, device):
+def make_edges_ccl(model,
+                   dataloader,
+                   device,
+                   probas,
+                   drho=0.3,
+                   return_subgraphs=False):
     """Computes for each graph in dataloader its
     connected component edge list
 
@@ -21,19 +26,23 @@ def make_edges_ccl(model, dataloader, device):
         """
 
     edges = []
+    subgraphs = []
     for data in tqdm(dataloader):
 
         data = batch_to_device(data, device)
 
         clst = model(data)['clusters'].argmax(dim=1)
+        probas_ = probas[data['frame_idx'][0]]
 
-        # remove edges according to cluster assignments
-        edges_ = [(n0, n1) for n0, n1 in data['graph'][0].edges
-                  if (clst[n0] == clst[n1])]
+        # get edges according to cluster assignments and probas
+        edges_ = [(n0, n1) for n0, n1 in data['graph'][0].edges if (
+            (clst[n0] == clst[n1]) and (abs(probas_[n0] - probas_[n1]) < drho))
+                  ]
 
         # create the induced subgraph of each component
         g = nx.Graph(edges_)
         S = [g.subgraph(c).copy() for c in nx.connected_components(g)]
+        subgraphs.append(S)
 
         # all connected components form a fully connected group
         edges_cc = [combinations(S_.nodes, 2) for S_ in S]
@@ -47,6 +56,9 @@ def make_edges_ccl(model, dataloader, device):
         data.n_nodes = clst.numel()
 
         edges.append(data)
+
+    if return_subgraphs:
+        return edges, subgraphs
 
     return edges
 

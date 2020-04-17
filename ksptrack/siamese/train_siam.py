@@ -24,19 +24,6 @@ from ksptrack.utils.bagging import calc_bagging
 from ksptrack.siamese.modeling.dil_unet import init_weights
 
 
-def get_keypoints_on_batch(data):
-    kp_labels = []
-    max_node = 0
-    n_nodes = [g.number_of_nodes() for g in data['graph']]
-    for labels, n_nodes_ in zip(data['label_keypoints'], n_nodes):
-        for l in labels:
-            l += max_node
-            kp_labels.append(l)
-        max_node += n_nodes_ + 1
-
-    return kp_labels
-
-
 def train_one_epoch(model,
                     dataloaders,
                     optimizers,
@@ -224,7 +211,7 @@ def train(cfg, model, device, dataloaders, run_path):
         'siam':
         optim.Adam(params=[{
             'params': model.siamese.parameters(),
-            'lr': cfg.lr_dist * 10,
+            'lr': cfg.lr_dist,
         }]),
         # weight_decay=cfg.decay),
         'L':
@@ -241,16 +228,12 @@ def train(cfg, model, device, dataloaders, run_path):
 
     lr_sch = {
         'feats':
-        torch.optim.lr_scheduler.ExponentialLR(optimizers['feats'],
-                                               cfg.lr_power),
-        'L':
-        torch.optim.lr_scheduler.ExponentialLR(optimizers['L'], cfg.lr_power),
+        torch.optim.lr_scheduler.ExponentialLR(optimizers['feats'], 1.),
+        'L': torch.optim.lr_scheduler.ExponentialLR(optimizers['L'], 1.),
         'assign':
-        torch.optim.lr_scheduler.ExponentialLR(optimizers['assign'],
-                                               cfg.lr_power),
+        torch.optim.lr_scheduler.ExponentialLR(optimizers['assign'], 1.),
         'siamese':
-        torch.optim.lr_scheduler.ExponentialLR(optimizers['siam'],
-                                               cfg.lr_power)
+        torch.optim.lr_scheduler.ExponentialLR(optimizers['siam'], 1.)
     }
     distrib_buff = DistribBuffer(cfg.tgt_update_period,
                                  thr_assign=cfg.thr_assign)
@@ -269,7 +252,7 @@ def train(cfg, model, device, dataloaders, run_path):
                     print('Generating connected components graphs')
                     edges_list = utls.make_edges_ccl(model,
                                                      dataloaders['all_prev'],
-                                                     device)
+                                                     device, probas)
 
                 res = train_one_epoch(model,
                                       dataloaders,

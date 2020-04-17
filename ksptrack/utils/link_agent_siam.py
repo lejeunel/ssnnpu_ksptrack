@@ -16,7 +16,9 @@ class LinkAgentSiam(LinkAgentGMM):
                  data_path,
                  model,
                  entrance_radius=0.1,
-                 cuda=False):
+                 cuda=False,
+                 K=0.5,
+                 T=0.2):
 
         super().__init__(csv_path,
                          data_path,
@@ -25,6 +27,8 @@ class LinkAgentSiam(LinkAgentGMM):
                          cuda=cuda)
 
         self.prepare_all()
+        self.K = K
+        self.T = T
 
     def prepare_all(self, all_edges_nn=None, feat_field='pooled_feats'):
         print('preparing features for linkAgent')
@@ -53,4 +57,8 @@ class LinkAgentSiam(LinkAgentGMM):
         f0 = self.siam_feats[f0][l0]
         f1 = self.siam_feats[f1][l1]
 
-        return np.dot(f0, f1)
+        cos = np.dot(f0, f1)
+
+        prob = 1 / (1 + np.exp(-(cos - self.K) / self.T))
+
+        return prob

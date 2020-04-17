@@ -271,6 +271,8 @@ class TripletLoss(nn.Module):
         super(TripletLoss, self).__init__()
         self.cosine_sim = nn.CosineSimilarity()
         self.margin = margin
+        self.K = 0.5
+        self.T = 0.2
 
     def forward(self, z, edges_list):
         """Computes the triplet loss between positive node pairs and sampled
@@ -296,12 +298,10 @@ class TripletLoss(nn.Module):
         # do sampling
         i, j, k = structured_negative_sampling(relabeled_edges_list)
 
-        pos = 1 - self.cosine_sim(z[i], z[j])
-        neg = 1 - self.cosine_sim(z[i], z[k])
-        out = pos - neg
-        loss = torch.clamp(out + self.margin, min=0)
-        loss = loss[loss > 0]
-        return loss.mean()
+        pos = self.cosine_sim(z[i], z[j])
+        neg = self.cosine_sim(z[i], z[k])
+
+        return torch.log(1 + torch.exp((self.K + neg - pos) / self.T)).mean()
 
 
 if __name__ == "__main__":

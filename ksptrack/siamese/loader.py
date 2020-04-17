@@ -66,21 +66,21 @@ class Loader(LocPriorDataset):
                                     'sp_labels.npz'))['sp_labels']
 
         npzfile = np.load(pjoin(root_path, 'precomp_desc', 'flows.npz'))
-        self.flows = dict()
-        self.flows['bvx'] = npzfile['bvx']
-        self.flows['fvx'] = npzfile['fvx']
-        self.flows['bvy'] = npzfile['bvy']
-        self.flows['fvy'] = npzfile['fvy']
-        self.fvx = np.rollaxis(
-            np.concatenate(
-                (self.flows['fvx'], self.flows['fvx'][..., -1][..., None]),
-                axis=-1), -1, 0)
-        self.fvy = np.rollaxis(
-            np.concatenate(
-                (self.flows['fvy'], self.flows['fvy'][..., -1][..., None]),
-                axis=-1), -1, 0)
-        self.fv = np.sqrt(self.fvx**2 + self.fvy**2)
-        self.fv = [(f - f.min()) / (f.max() - f.min() + 1e-8) for f in self.fv]
+        flows = dict()
+        flows['bvx'] = npzfile['bvx']
+        flows['fvx'] = npzfile['fvx']
+        flows['bvy'] = npzfile['bvy']
+        flows['fvy'] = npzfile['fvy']
+        fx = np.rollaxis(
+            np.concatenate((flows['fvx'], flows['fvx'][..., -1][..., None]),
+                           axis=-1), -1, 0)
+        fy = np.rollaxis(
+            np.concatenate((flows['fvy'], flows['fvy'][..., -1][..., None]),
+                           axis=-1), -1, 0)
+        fv = np.sqrt(fx**2 + fy**2)
+        self.fv = [(f - f.min()) / (f.max() - f.min() + 1e-8) for f in fv]
+        self.fx = [(f - f.min()) / (f.max() - f.min() + 1e-8) for f in fx]
+        self.fy = [(f - f.min()) / (f.max() - f.min() + 1e-8) for f in fy]
 
     def prepare_graphs(self):
 
@@ -102,9 +102,18 @@ class Loader(LocPriorDataset):
 
         sample['graph'] = self.graphs[idx]
 
-        flow = self.fv[idx][..., None]
-        flow = self.reshaper_img.augment_image(flow)
-        sample['flow'] = flow
+        fnorm = self.fv[idx][..., None]
+        fnorm = self.reshaper_img.augment_image(fnorm)
+        sample['fnorm'] = fnorm
+
+        fx = self.fx[idx][..., None]
+        fx = self.reshaper_img.augment_image(fx)
+        sample['fx'] = fx
+
+        fy = self.fy[idx][..., None]
+        fy = self.reshaper_img.augment_image(fy)
+        sample['fy'] = fy
+
         return sample
 
     def collate_fn(self, samples):
@@ -112,9 +121,17 @@ class Loader(LocPriorDataset):
 
         out['graph'] = [s['graph'] for s in samples]
 
-        flow = [np.rollaxis(d['flow'], -1) for d in samples]
-        flow = torch.stack([torch.from_numpy(f) for f in flow]).float()
-        out['flow'] = flow
+        fnorm = [np.rollaxis(d['fnorm'], -1) for d in samples]
+        fnorm = torch.stack([torch.from_numpy(f) for f in fnorm]).float()
+        out['fnorm'] = fnorm
+
+        fx = [np.rollaxis(d['fx'], -1) for d in samples]
+        fx = torch.stack([torch.from_numpy(f) for f in fx]).float()
+        out['fx'] = fx
+
+        fy = [np.rollaxis(d['fy'], -1) for d in samples]
+        fy = torch.stack([torch.from_numpy(f) for f in fy]).float()
+        out['fy'] = fy
 
         return out
 

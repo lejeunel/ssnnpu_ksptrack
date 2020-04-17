@@ -128,13 +128,20 @@ class LocPriorDataset(BaseDataset, data.Dataset):
         sample['prior'] = obj_prior
         sample['loc_keypoints'] = keypoints
 
-        coords = np.array([(np.round(kp.y).astype(int), np.round_(kp.x).astype(int))
+        coords = np.array([(np.round(kp.y).astype(int),
+                            np.round_(kp.x).astype(int))
                            for kp in keypoints.keypoints])
-        if(coords.shape[0] > 0):
-            coords[:, 0] = np.clip(coords[:, 0], a_min=0, a_max=keypoints.shape[0]-1)
-            coords[:, 1] = np.clip(coords[:, 1], a_min=0, a_max=keypoints.shape[1]-1)
+        if (coords.shape[0] > 0):
+            coords[:, 0] = np.clip(coords[:, 0],
+                                   a_min=0,
+                                   a_max=keypoints.shape[0] - 1)
+            coords[:, 1] = np.clip(coords[:, 1],
+                                   a_min=0,
+                                   a_max=keypoints.shape[1] - 1)
 
-        sample['labels_clicked'] = [sample['labels'][i, j, 0] for i, j in coords]
+        sample['labels_clicked'] = [
+            sample['labels'][i, j, 0] for i, j in coords
+        ]
 
         return sample
 
