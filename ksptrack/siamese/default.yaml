@@ -1,6 +1,7 @@
 frames: []
 
 epochs-autoenc: 150
+epochs-pre-pred: 20
 epochs-dec: 100
 epochs-dist: 200
 
@@ -19,9 +20,9 @@ lr-power : 0.97
 momentum: 0.9
 lambda-: 10
 gamma: 100
-beta: 1
+beta: 1e-3
 alpha: 1
-delta: 300
+delta: 100
 
 # batch
 batch-size: 2

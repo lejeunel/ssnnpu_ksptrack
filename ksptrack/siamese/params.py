@@ -5,13 +5,14 @@ from os.path import join as pjoin
 
 def str2bool(v):
     if isinstance(v, bool):
-       return v
+        return v
     if v.lower() in ('yes', 'true', 't', 'y', '1'):
         return True
     elif v.lower() in ('no', 'false', 'f', 'n', '0'):
         return False
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
+
 
 def get_params(path='.'):
     p = configargparse.ArgParser(
@@ -24,6 +25,7 @@ def get_params(path='.'):
     p.add('--frames', action='append', type=int)
     p.add('--n-patches', type=int)
     p.add('--epochs-autoenc', type=int)
+    p.add('--epochs-pre-pred', type=int)
     p.add('--epochs-dist', type=int)
     p.add('--epochs-dec', type=int)
     p.add('--prev-period', type=int)
@@ -99,9 +101,21 @@ def get_params(path='.'):
     p.add('--thr-assign', type=float)
     p.add('--skip-train-dec', default=False, action='store_true')
     p.add('--triplet', default=False, action='store_true', help='optimize GCN')
-    p.add('--clf', default=False, action='store_true', help='optimize classifier')
-    p.add('--clf-reg', default=False, action='store_true', help='optimize classifier')
-    p.add('--pw', default=False, action='store_true', help='optimize classifier')
-    p.add('--fix-clst', default=False, action='store_true', help='not optimize centroids')
+    p.add('--clf',
+          default=False,
+          action='store_true',
+          help='optimize classifier')
+    p.add('--clf-reg',
+          default=False,
+          action='store_true',
+          help='optimize classifier')
+    p.add('--pw',
+          default=False,
+          action='store_true',
+          help='optimize classifier')
+    p.add('--fix-clst',
+          default=False,
+          action='store_true',
+          help='not optimize centroids')
 
     return p

@@ -7,6 +7,7 @@ import torch_geometric.nn as gnn
 import torch_geometric.utils as gutls
 from ksptrack.siamese.modeling.superpixPool.pytorch_superpixpool.suppixpool_layer import SupPixPool
 from ksptrack.siamese.losses import structured_negative_sampling
+from ksptrack.siamese.modeling.dil_unet import ConvolutionalEncoder
 
 
 class AppearanceBranch(nn.Module):
@@ -43,7 +44,7 @@ class AppearanceBranch(nn.Module):
         x = self.nonlin(x)
         x = self.dropout(x)
 
-        x = x / torch.clamp(x.norm(dim=1)[..., None], min=1e-8)
+        x = F.normalize(x, p=2, dim=-1)
 
         return x
 
@@ -144,7 +145,7 @@ class LocMotionBranch(nn.Module):
         x = self.nonlin(x)
         x = self.dropout(x)
 
-        x = x / torch.clamp(x.norm(dim=1)[..., None], min=1e-8)
+        x = F.normalize(x, p=2, dim=-1)
 
         return x
 
@@ -204,7 +205,8 @@ class Siamese(nn.Module):
                  embedded_dims=None,
                  cluster_number: int = 30,
                  alpha: float = 1.0,
-                 backbone='drn'):
+                 backbone='drn',
+                 out_channels=3):
         """
         Arguments:
             in_channels: int, number of channels in the input tensor.
@@ -212,7 +214,11 @@ class Siamese(nn.Module):
         """
         super(Siamese, self).__init__()
 
-        self.dec = DEC(embedded_dims, cluster_number, alpha, backbone)
+        self.dec = DEC(embedding_dims=embedded_dims,
+                       cluster_number=cluster_number,
+                       alpha=alpha,
+                       backbone=backbone,
+                       out_channels=out_channels)
 
         self.sigmoid = nn.Sigmoid()
 
@@ -224,7 +230,7 @@ class Siamese(nn.Module):
         self.roi_pool = SupPixPool()
 
         self.locmotionapp = LocMotionAppearance(self.in_dims[-1], dropout=0.1)
-        self.pw_clf = nn.Linear(2 * 16, 1)
+        self.pw_clf = nn.Sequential(*[nn.Linear(16, 1, bias=False), nn.ReLU()])
 
     def load_partial(self, state_dict):
         # filter out unnecessary keys
@@ -273,13 +279,16 @@ class Siamese(nn.Module):
             i, j, k = structured_negative_sampling(relabeled_edges_list)
 
             # concatenate couples
-            pos = torch.cat((locmotionapp[i], locmotionapp[j]), dim=1)
-            neg = torch.cat((locmotionapp[i], locmotionapp[k]), dim=1)
+            pos_diff = (locmotionapp[i] - locmotionapp[j]).abs()
+            neg_diff = (locmotionapp[i] - locmotionapp[k]).abs()
 
-            pw = self.sigmoid(self.pw_clf(locmotionapp))
+            pos_neg = torch.cat((pos_diff, neg_diff), dim=0)
+
+            pw = self.pw_clf(pos_neg).view(-1)
+            pw = torch.exp(-pw)
             pw_pseudo_label = torch.cat(
-                (torch.ones(pos.shape[0]),
-                 torch.zeros(neg.shape[0]))).to(obj_pred.device)
+                (torch.ones(pos_diff.shape[0]),
+                 torch.zeros(neg_diff.shape[0]))).to(obj_pred.device)
             res.update({'pw': pw, 'pw_pseudo_label': pw_pseudo_label})
 
         return res

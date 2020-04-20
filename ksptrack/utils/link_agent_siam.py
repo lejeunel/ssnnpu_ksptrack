@@ -26,6 +26,7 @@ class LinkAgentSiam(LinkAgentGMM):
                          entrance_radius=entrance_radius,
                          cuda=cuda)
 
+        self.sigmoid = torch.nn.Sigmoid()
         self.prepare_all()
         self.K = K
         self.T = T
@@ -36,7 +37,6 @@ class LinkAgentSiam(LinkAgentGMM):
         self.obj_preds = []
         self.siam_feats = []
 
-        sigmoid = torch.nn.Sigmoid()
         self.model.eval()
         self.model.to(self.device)
         print('getting features')
@@ -46,8 +46,8 @@ class LinkAgentSiam(LinkAgentGMM):
             with torch.no_grad():
                 res = self.model(data)
 
-            self.obj_preds.append(sigmoid(res['obj_pred']).cpu().numpy())
-            self.siam_feats.append(res['locmotionapp'].cpu().numpy())
+            self.obj_preds.append(self.sigmoid(res['obj_pred']).cpu().numpy())
+            self.siam_feats.append(res['locmotionapp'])
 
             pbar.update(1)
         pbar.close()
@@ -57,8 +57,8 @@ class LinkAgentSiam(LinkAgentGMM):
         f0 = self.siam_feats[f0][l0]
         f1 = self.siam_feats[f1][l1]
 
-        cos = np.dot(f0, f1)
-
-        prob = 1 / (1 + np.exp(-(cos - self.K) / self.T))
+        dist = (f0 - f1).abs()
+        pw = self.model.pw_clf(dist)
+        prob = torch.exp(-pw).detach().cpu().numpy()
 
         return prob

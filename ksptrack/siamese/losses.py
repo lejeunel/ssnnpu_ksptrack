@@ -186,6 +186,25 @@ class LabelKLPairwiseLoss(nn.Module):
         return loss_pw
 
 
+class PairwiseContrastive(nn.Module):
+    def __init__(self, margin=0.2):
+        super(PairwiseContrastive, self).__init__()
+        self.bce = nn.BCELoss(reduction='none')
+        self.margin = 0.
+
+    def forward(self, input, target):
+
+        loss = self.bce(input, target)
+
+        loss_pos = loss[target == 1]
+        loss_pos = loss_pos[loss_pos <= 1 - self.margin].mean()
+
+        loss_neg = loss[target == 0]
+        loss_neg = loss_neg[loss_neg >= self.margin].mean()
+
+        return (loss_neg + loss_pos) / 2
+
+
 class EmbeddingLoss(nn.Module):
     def __init__(self):
         super(EmbeddingLoss, self).__init__()

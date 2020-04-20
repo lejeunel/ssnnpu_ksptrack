@@ -4,12 +4,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 from ksptrack.siamese.modeling.coordconv import CoordConv2d
 
+
 @torch.no_grad()
 def init_weights(m):
     if type(m) == nn.Linear:
         m.weight.fill_(1.0)
     if type(m) == nn.Conv2d:
         nn.init.xavier_uniform_(m.weight)
+
 
 class ResidualBlock(nn.Module):
     """
@@ -72,6 +74,7 @@ class ConvolutionalEncoder(nn.Module):
                  dropout_max=0.2,
                  blockObject=ResidualBlock,
                  convObject=nn.Conv2d,
+                 l2_normalize=False,
                  batchNormObject=nn.BatchNorm2d):
         """
         n_features_input (int): number of intput features
@@ -86,7 +89,8 @@ class ConvolutionalEncoder(nn.Module):
         super(ConvolutionalEncoder, self).__init__()
         self.in_channels = in_channels
 
-        self.filts_dims = [start_filts*(2**i) for i in range(depth)]
+        self.filts_dims = [start_filts * (2**i) for i in range(depth)]
+        self.l2_normalize = l2_normalize
 
         self.stages = nn.ModuleList()
         dropout = [(1 - t) * dropout_min + t * dropout_max
@@ -94,10 +98,10 @@ class ConvolutionalEncoder(nn.Module):
         # input convolution block
         block = [
             convObject(in_channels,
-                      self.filts_dims[0],
-                      kernel_size=kernel_size,
-                      stride=1,
-                      padding=padding)
+                       self.filts_dims[0],
+                       kernel_size=kernel_size,
+                       stride=1,
+                       padding=padding)
         ]
         for _ in range(n_resblocks):
             block += [
@@ -114,17 +118,20 @@ class ConvolutionalEncoder(nn.Module):
             # downsampling
             block = [
                 nn.MaxPool2d(2),
-                convObject(self.filts_dims[i], self.filts_dims[i+1], kernel_size=1, padding=0),
-                batchNormObject(self.filts_dims[i+1]),
+                convObject(self.filts_dims[i],
+                           self.filts_dims[i + 1],
+                           kernel_size=1,
+                           padding=0),
+                batchNormObject(self.filts_dims[i + 1]),
                 nn.ReLU()
             ]
             # residual blocks
             for _ in range(n_resblocks):
                 block += [
-                    blockObject(self.filts_dims[i+1],
+                    blockObject(self.filts_dims[i + 1],
                                 kernel_size,
                                 padding,
-                                dropout=dropout[i+1],
+                                dropout=dropout[i + 1],
                                 batchNormObject=batchNormObject)
                 ]
             self.stages.append(nn.Sequential(*block))
@@ -134,6 +141,9 @@ class ConvolutionalEncoder(nn.Module):
         for stage in self.stages:
             x = stage(x)
             skips.append(x)
+
+        if (self.l2_normalize):
+            x = F.normalize(x, p=2, dim=1)
         return x, skips
 
     def getInputShape(self):
@@ -181,7 +191,7 @@ class ConvolutionalDecoder(nn.Module):
                 "Only \"concat\", and \"none\" are allowed.".format(skip_mode))
 
         self.out_channels = out_channels
-        self.filts_dims = [start_filts*(2**i) for i in range(depth)][::-1]
+        self.filts_dims = [start_filts * (2**i) for i in range(depth)][::-1]
         self.upConvolutions = nn.ModuleList()
         self.skipMergers = nn.ModuleList()
         self.residualBlocks = nn.ModuleList()
@@ -193,19 +203,19 @@ class ConvolutionalDecoder(nn.Module):
             self.upConvolutions.append(
                 nn.Sequential(
                     nn.ConvTranspose2d(self.filts_dims[i],
-                                       self.filts_dims[i+1],
+                                       self.filts_dims[i + 1],
                                        kernel_size=3,
                                        stride=2,
                                        padding=1,
                                        output_padding=1),
-                    batchNormObject(self.filts_dims[i+1]), nn.ReLU()))
-            if(self.skip_mode == 'conv'):
+                    batchNormObject(self.filts_dims[i + 1]), nn.ReLU()))
+            if (self.skip_mode == 'conv'):
                 self.skipMergers.append(
-                    convObject(2 * self.filts_dims[i+1],
-                            self.filts_dims[i+1],
-                            kernel_size=kernel_size,
-                            stride=1,
-                            padding=padding))
+                    convObject(2 * self.filts_dims[i + 1],
+                               self.filts_dims[i + 1],
+                               kernel_size=kernel_size,
+                               stride=1,
+                               padding=padding))
             else:
                 self.skipMergers.append(nn.Identity())
             # residual blocks
@@ -213,7 +223,7 @@ class ConvolutionalDecoder(nn.Module):
             p = next(iter(dropout))
             for _ in range(n_resblocks):
                 block += [
-                    blockObject(self.filts_dims[i+1],
+                    blockObject(self.filts_dims[i + 1],
                                 kernel_size,
                                 padding,
                                 dropout=p,
@@ -223,10 +233,10 @@ class ConvolutionalDecoder(nn.Module):
         # output convolution block
         block = [
             convObject(self.filts_dims[-1],
-                      out_channels,
-                      kernel_size=kernel_size,
-                      stride=1,
-                      padding=padding)
+                       out_channels,
+                       kernel_size=kernel_size,
+                       stride=1,
+                       padding=padding)
         ]
         self.output_convolution = nn.Sequential(*block)
 
@@ -235,7 +245,7 @@ class ConvolutionalDecoder(nn.Module):
                                          self.residualBlocks, skips):
             x = up(x)
 
-            if(self.skip_mode == 'conv'):
+            if (self.skip_mode == 'conv'):
                 cat = torch.cat([x, skip], 1)
                 x = merge(cat)
             x = conv(x)
@@ -252,7 +262,10 @@ class DilatedConvolutions(nn.Module):
     """
     Sequential Dilated convolutions
     """
-    def __init__(self, n_channels, n_convolutions, dropout,
+    def __init__(self,
+                 n_channels,
+                 n_convolutions,
+                 dropout,
                  convObject=nn.Conv2d):
         super(DilatedConvolutions, self).__init__()
         kernel_size = 3
@@ -262,10 +275,10 @@ class DilatedConvolutions(nn.Module):
         self.strides = [2**(k + 1) for k in range(n_convolutions)]
         convs = [
             convObject(n_channels,
-                      n_channels,
-                      kernel_size=kernel_size,
-                      dilation=s,
-                      padding=s) for s in self.strides
+                       n_channels,
+                       kernel_size=kernel_size,
+                       dilation=s,
+                       padding=s) for s in self.strides
         ]
         self.convs = nn.ModuleList()
         self.bns = nn.ModuleList()
@@ -286,7 +299,6 @@ class DilatedConvolutions(nn.Module):
         return x, skips
 
 
-
 class UNet(nn.Module):
     """
     U-Net model with dynamic number of layers, Residual Blocks, Dilated Convolutions, Dropout and Group Normalization
@@ -304,6 +316,7 @@ class UNet(nn.Module):
                  padding=1,
                  skip_mode='conv',
                  kernel_size=3,
+                 l2_normalize=False,
                  group_norm=32):
         """
         initialize the model
@@ -320,12 +333,14 @@ class UNet(nn.Module):
         """
         super(UNet, self).__init__()
 
+        self.l2_normalize = l2_normalize
+
         if coordconv:
             convObject = CoordConv2d
         else:
             convObject = nn.Conv2d
 
-        self.filts_dims = [start_filts*(2**i) for i in range(depth)]
+        self.filts_dims = [start_filts * (2**i) for i in range(depth)]
         self.last_feats_dims = self.filts_dims[-1]
         if group_norm > 0:
             for h in self.filts_dims:
@@ -343,11 +358,13 @@ class UNet(nn.Module):
                                             dropout_max=dropout_max,
                                             blockObject=ResidualBlock,
                                             convObject=convObject,
+                                            l2_normalize=l2_normalize,
                                             batchNormObject=batchNormObject)
         if num_dilated_convs > 0:
-            self.dilatedConvs = DilatedConvolutions(
-                self.filts_dims[-1], num_dilated_convs,
-                dropout_max, convObject=convObject)
+            self.dilatedConvs = DilatedConvolutions(self.filts_dims[-1],
+                                                    num_dilated_convs,
+                                                    dropout_max,
+                                                    convObject=convObject)
         else:
             self.dilatedConvs = None
         self.decoder = ConvolutionalDecoder(out_channels=out_channels,
@@ -368,6 +385,7 @@ class UNet(nn.Module):
     def forward(self, x):
         in_shape = x.shape
         x, skips = self.encoder(x)
+
         if self.dilatedConvs is not None:
             x, dilated_skips = self.dilatedConvs(x)
             for d in dilated_skips:
@@ -384,17 +402,13 @@ class UNet(nn.Module):
                               mode='bilinear',
                               align_corners=True)
 
-        return {'output': x,
-                'feats': feats,
-                'layers': skips}
+        return {'output': x, 'feats': feats, 'layers': skips}
 
     def to_predictor(self):
-        
+
         in_dim = self.decoder.output_convolution[0].in_channels
         kernel_size = self.decoder.output_convolution[0].kernel_size
         padding = self.decoder.output_convolution[0].padding
         stride = self.decoder.output_convolution[0].stride
-        new_out = torch.nn.Conv2d(
-            in_dim, 1, kernel_size, stride, padding)
+        new_out = torch.nn.Conv2d(in_dim, 1, kernel_size, stride, padding)
         self.decoder.output_convolution = torch.nn.Sequential(new_out)
-

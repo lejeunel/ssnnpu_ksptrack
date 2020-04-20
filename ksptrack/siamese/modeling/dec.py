@@ -80,7 +80,8 @@ class DEC(nn.Module):
                  embedding_dims,
                  cluster_number: int = 30,
                  alpha: float = 1.0,
-                 backbone='drn'):
+                 backbone='drn',
+                 out_channels=3):
         """
         Module which holds all the moving parts of the DEC algorithm, as described in
         Xie/Girshick/Farhadi; this includes the AutoEncoder stage and the ClusterAssignment stage.
@@ -93,8 +94,11 @@ class DEC(nn.Module):
         """
 
         super(DEC, self).__init__()
-        if(backbone == 'unet'):
-            self.autoencoder = UNet(depth=4, skip_mode='none')
+        if (backbone == 'unet'):
+            self.autoencoder = UNet(depth=4,
+                                    out_channels=out_channels,
+                                    l2_normalize=True,
+                                    skip_mode='none')
         else:
             self.autoencoder = DeepLabv3Plus()
 
@@ -107,15 +111,14 @@ class DEC(nn.Module):
         self.roi_pool = SupPixPool()
 
         self.transform = nn.Linear(self.autoencoder.last_feats_dims,
-                                   embedding_dims, bias=False)
-        self.assignment = ClusterAssignment(cluster_number,
-                                            embedding_dims,
+                                   embedding_dims,
+                                   bias=False)
+        self.assignment = ClusterAssignment(cluster_number, embedding_dims,
                                             alpha)
 
     def set_clusters(self, clusters, requires_grad=True):
         self.assignment = ClusterAssignment(clusters.shape[0],
-                                            self.embedding_dims,
-                                            self.alpha)
+                                            self.embedding_dims, self.alpha)
         clusters.requires_grad = requires_grad
         self.assignment.cluster_centers = nn.Parameter(clusters)
 
@@ -147,16 +150,18 @@ class DEC(nn.Module):
         res = self.autoencoder(data['image'])
         feats = res['feats']
 
-        pooled_feats = [self.roi_pool(feats[b].unsqueeze(0),
-                                      data['labels'][b].unsqueeze(0)).squeeze().T
-                        for b in range(data['labels'].shape[0])]
+        pooled_feats = [
+            self.roi_pool(feats[b].unsqueeze(0),
+                          data['labels'][b].unsqueeze(0)).squeeze().T
+            for b in range(data['labels'].shape[0])
+        ]
         pooled_feats = torch.cat(pooled_feats)
         res.update({'pooled_feats': pooled_feats})
 
         proj_pooled_feats = self.transform(pooled_feats)
         res.update({'proj_pooled_feats': proj_pooled_feats})
 
-        clusters = self.assignment(proj_pooled_feats)
+        clusters = self.assignment(pooled_feats)
         res.update({'clusters': clusters})
 
         return res

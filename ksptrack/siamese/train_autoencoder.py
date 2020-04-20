@@ -91,7 +91,6 @@ def get_features(model, dataloader, device):
     return features, labels_pos_mask
 
 
-
 class PriorMSELoss(torch.nn.Module):
     def __init__(self):
         super(PriorMSELoss, self).__init__()
@@ -117,8 +116,7 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
         for k, v in batch.items()
     }
 
-    check_cp_exist = pjoin(run_path, 'checkpoints',
-                           'cp_autoenc.pth.tar')
+    check_cp_exist = pjoin(run_path, 'checkpoints', 'cp_autoenc.pth.tar')
     if (os.path.exists(check_cp_exist)):
         print('found checkpoint at {}. Skipping.'.format(check_cp_exist))
         return
@@ -160,8 +158,7 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
 
                     # loss = criterion(sigmoid(res['output']),
                     #                  data['image'])
-                    loss = criterion(sigmoid(res['output']),
-                                     data['image'],
+                    loss = criterion(sigmoid(res['output']), data['image'],
                                      data['prior'])
 
                     loss.backward()
@@ -225,8 +222,8 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
                 io.imsave(pjoin(test_im_dir, 'ep_{:04d}.png'.format(epoch)),
                           all)
 
-                all = make_pm_prevs(model, dataloaders, cfg, centroids, all_labels,
-                                    device)
+                all = make_pm_prevs(model, dataloaders, cfg, centroids,
+                                    all_labels, device)
 
                 io.imsave(pjoin(pm_im_dir, 'ep_{:04d}.png'.format(epoch)), all)
 
@@ -237,8 +234,8 @@ def main(cfg):
 
     # model = DeepLabv3Plus(pretrained=False)
     # model = UNet(merge_mode='none', depth=4)
-    if(cfg.backbone == 'unet'):
-        model = UNet(depth=4, skip_mode='none')
+    if (cfg.backbone == 'unet'):
+        model = UNet(depth=4, skip_mode='none', l2_normalize=True)
     else:
         model = DeepLabv3Plus()
     model.to(device)

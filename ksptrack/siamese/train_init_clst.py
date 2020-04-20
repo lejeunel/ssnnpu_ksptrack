@@ -1,5 +1,5 @@
 from torch.utils.data import DataLoader
-from ksptrack.utils.loc_prior_dataset import LocPriorDataset
+from ksptrack.siamese.loader import Loader
 import params
 import torch
 import os
@@ -85,9 +85,8 @@ def train_kmeans(model,
         if (reduc_method == 'lfda'):
 
             print('LFDA: computing transform matrix')
-            L = get_lfda_transform(cat_features, probas,
-                                   [down_thr, up_thr], 6000,
-                                   embedded_dims)
+            L = get_lfda_transform(cat_features, probas, [down_thr, up_thr],
+                                   6000, embedded_dims)
         else:
             print('PLS: computing transform matrix')
             L = get_pls_transform(cat_features, probas, [0.8, 0.5], 2000,
@@ -96,7 +95,8 @@ def train_kmeans(model,
     print('fitting {} clusters with kmeans'.format(n_clusters))
 
     clf = KMeans(n_clusters=n_clusters, n_init=30)
-    preds = clf.fit_predict(np.dot(cat_features, L))
+    # preds = clf.fit_predict(np.dot(cat_features, L))
+    preds = clf.fit_predict(cat_features)
     init_clusters = clf.cluster_centers_
 
     predictions = [utls.to_onehot(p, n_clusters).ravel() for p in preds]
@@ -109,7 +109,7 @@ def train_kmeans(model,
 
 def train(cfg, model, device, dataloaders, run_path=None):
 
-    if(run_path is not None):
+    if (run_path is not None):
         clusters_prevs_path = pjoin(run_path, 'clusters_prevs')
         if (not os.path.exists(clusters_prevs_path)):
             os.makedirs(clusters_prevs_path)
@@ -125,18 +125,14 @@ def train(cfg, model, device, dataloaders, run_path=None):
             dataloaders['buff'],
             device,
             cfg.n_clusters,
-            embedded_dims=cfg.embedded_dims,
+            embedded_dims=256,
             reduc_method=cfg.reduc_method,
             bag_t=cfg.bag_t,
             bag_n_feats=cfg.bag_n_feats,
             bag_max_depth=cfg.bag_max_depth,
             up_thr=cfg.ml_up_thr,
             down_thr=cfg.ml_down_thr)
-        data = {
-            'clusters': init_clusters,
-            'preds': preds,
-            'L': L
-        }
+        data = {'clusters': init_clusters, 'preds': preds, 'L': L}
 
         np.savez(init_clusters_path, **data)
 
@@ -146,9 +142,10 @@ def train(cfg, model, device, dataloaders, run_path=None):
     prev_ims = clst.do_prev_clusters_init(dataloaders['prev'], preds)
 
     # save initial clusterings to disk
-    if(not os.path.exists(init_clusters_prev_path)):
+    if (not os.path.exists(init_clusters_prev_path)):
         os.makedirs(init_clusters_prev_path)
-        print('saving initial clustering previews to {}'.format(init_clusters_prev_path))
+        print('saving initial clustering previews to {}'.format(
+            init_clusters_prev_path))
         for k, v in prev_ims.items():
             io.imsave(pjoin(init_clusters_prev_path, k), v)
 
@@ -159,21 +156,19 @@ def train(cfg, model, device, dataloaders, run_path=None):
     writer.add_image('clusters', init_prev, 0, dataformats='HWC')
 
     L = torch.tensor(L).float().to(device)
-    init_clusters = torch.tensor(init_clusters,
-                                 dtype=torch.float).to(device)
+    init_clusters = torch.tensor(init_clusters, dtype=torch.float).to(device)
 
     model.dec.set_clusters(init_clusters)
     model.dec.set_transform(L.T)
     path = pjoin(run_path, 'checkpoints')
     print('saving DEC with initial parameters to {}'.format(path))
-    utls.save_checkpoint(
-        {
-            'epoch': -1,
-            'model': model
-        },
-        False,
-        fname_cp='init_dec.pth.tar',
-        path=path)
+    utls.save_checkpoint({
+        'epoch': -1,
+        'model': model
+    },
+                         False,
+                         fname_cp='init_dec.pth.tar',
+                         path=path)
 
     return model
 
@@ -187,7 +182,7 @@ def main(cfg):
 
     device = torch.device('cuda' if cfg.cuda else 'cpu')
 
-    model = Siamese(embedded_dims=cfg.embedded_dims,
+    model = Siamese(embedded_dims=256,
                     cluster_number=cfg.n_clusters,
                     alpha=cfg.alpha,
                     backbone=cfg.backbone)
@@ -202,9 +197,9 @@ def main(cfg):
             'checkpoint {} not found. Train autoencoder first'.format(path_cp))
         return
 
-    dl = LocPriorDataset(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
-                         resize_shape=cfg.in_shape,
-                         normalization='rescale')
+    dl = Loader(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
+                resize_shape=cfg.in_shape,
+                normalization='rescale')
 
     frames_tnsr_brd = np.linspace(0,
                                   len(dl) - 1,

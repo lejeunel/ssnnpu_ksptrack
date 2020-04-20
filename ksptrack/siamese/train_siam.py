@@ -18,10 +18,10 @@ from ksptrack.cfgs import params as params_ksp
 from ksptrack.siamese import utils as utls
 from ksptrack.siamese.distrib_buffer import DistribBuffer
 from ksptrack.siamese.loader import Loader
-from ksptrack.siamese.losses import TripletLoss
+from ksptrack.siamese.losses import PairwiseContrastive
 from ksptrack.siamese.modeling.siamese import Siamese
 from ksptrack.utils.bagging import calc_bagging
-from ksptrack.siamese.modeling.dil_unet import init_weights
+from ksptrack.siamese.train_init_clst import train_kmeans
 
 
 def train_one_epoch(model,
@@ -39,12 +39,12 @@ def train_one_epoch(model,
     running_loss = 0.0
     running_clst = 0.0
     running_recons = 0.0
-    running_gcn = 0.0
+    running_pw = 0.0
     running_obj_pred = 0.0
     running_prob_dens = 0.0
 
     criterion_clst = torch.nn.KLDivLoss(reduction='mean')
-    criterion_embd = TripletLoss()
+    criterion_pw = PairwiseContrastive()
     criterion_obj_pred = torch.nn.BCEWithLogitsLoss()
     criterion_recons = torch.nn.MSELoss()
 
@@ -60,8 +60,10 @@ def train_one_epoch(model,
             _, targets = distrib_buff[data['frame_idx']]
 
             probas_ = torch.cat([probas[i] for i in data['frame_idx']])
-            edges_list_ = [edges_list[i] for i in data['frame_idx']]
-            res = model(data)
+            res = model(
+                data,
+                edges_list=[edges_list[i]
+                            for i in data['frame_idx']] if cfg.pw else None)
 
             loss = 0
 
@@ -85,8 +87,8 @@ def train_one_epoch(model,
                 loss += cfg.gamma * loss_recons
 
             if (cfg.pw):
-                loss_gcn = criterion_embd(res['locmotionapp'], edges_list_)
-                loss += cfg.beta * loss_gcn
+                loss_pw = criterion_pw(res['pw'], res['pw_pseudo_label'])
+                loss += cfg.beta * loss_pw
 
             loss.backward()
 
@@ -104,7 +106,7 @@ def train_one_epoch(model,
         if (cfg.clf_reg):
             running_prob_dens += loss_proba_density.cpu().detach().numpy()
         if (cfg.pw):
-            running_gcn += loss_gcn.cpu().detach().numpy()
+            running_pw += loss_pw.cpu().detach().numpy()
         loss_ = running_loss / ((i + 1) * cfg.batch_size)
         pbar.set_description('lss {:.6e}'.format(loss_))
         pbar.update(1)
@@ -112,7 +114,7 @@ def train_one_epoch(model,
     pbar.close()
 
     loss_recons = running_recons / (cfg.batch_size * len(dataloaders['train']))
-    loss_gcn = running_gcn / (cfg.batch_size * len(dataloaders['train']))
+    loss_pw = running_pw / (cfg.batch_size * len(dataloaders['train']))
     loss_clst = running_clst / (cfg.batch_size * len(dataloaders['train']))
     loss_obj_pred = running_obj_pred / (cfg.batch_size *
                                         len(dataloaders['train']))
@@ -121,7 +123,7 @@ def train_one_epoch(model,
 
     out = {
         'loss': loss_,
-        'loss_gcn': loss_gcn,
+        'loss_pw': loss_pw,
         'loss_clst': loss_clst,
         'loss_obj_pred': loss_obj_pred,
         'loss_prob_dens': loss_prob_dens,
@@ -205,135 +207,130 @@ def train(cfg, model, device, dataloaders, run_path):
         'feats':
         optim.Adam(params=[{
             'params': model.dec.autoencoder.parameters(),
-            'lr': cfg.lr_autoenc * 10,
-        }]),
-        # weight_decay=cfg.decay),
-        'siam':
+            'lr': cfg.lr_autoenc,
+        }],
+                   weight_decay=cfg.decay),
+        'locmotionapp':
         optim.Adam(params=[{
-            'params': model.siamese.parameters(),
+            'params': model.locmotionapp.parameters(),
             'lr': cfg.lr_dist,
         }]),
-        # weight_decay=cfg.decay),
+        'pw_clf':
+        optim.Adam(params=[{
+            'params': model.pw_clf.parameters(),
+            'lr': cfg.lr_dist,
+        }],
+                   weight_decay=cfg.decay),
         'L':
         optim.Adam(params=[{
             'params': model.dec.transform.parameters(),
             'lr': cfg.lr_dist,
-        }]),
+        }],
+                   weight_decay=cfg.decay),
         'assign':
         optim.Adam(params=[{
             'params': model.dec.assignment.parameters(),
             'lr': cfg.lr_dist,
-        }])
+        }],
+                   weight_decay=cfg.decay)
     }
 
     lr_sch = {
         'feats':
         torch.optim.lr_scheduler.ExponentialLR(optimizers['feats'], 1.),
-        'L': torch.optim.lr_scheduler.ExponentialLR(optimizers['L'], 1.),
+        'L':
+        torch.optim.lr_scheduler.ExponentialLR(optimizers['L'], 1.),
         'assign':
         torch.optim.lr_scheduler.ExponentialLR(optimizers['assign'], 1.),
-        'siamese':
-        torch.optim.lr_scheduler.ExponentialLR(optimizers['siam'], 1.)
+        'locmotionapp':
+        torch.optim.lr_scheduler.ExponentialLR(optimizers['locmotionapp'], 1.),
+        'pw_clf':
+        torch.optim.lr_scheduler.ExponentialLR(optimizers['pw_clf'], 1.)
     }
+
     distrib_buff = DistribBuffer(cfg.tgt_update_period,
                                  thr_assign=cfg.thr_assign)
     distrib_buff.maybe_update(model, dataloaders['all_prev'], device)
-    edges_list = None
 
-    for epoch in range(1, cfg.epochs_dist + 1):
-        # if (distrib_buff.converged):
-        #     print('clustering assignment hit threshold. Ending training.')
-        #     break
+    for epoch in range(cfg.epochs_dist):
 
-        print('epoch {}/{}'.format(epoch, cfg.epochs_dist))
-        for phase in ['train', 'prev']:
-            if phase == 'train':
-                if (cfg.pw and ((epoch - 1) % cfg.tgt_update_period == 0)):
+        if epoch < cfg.epochs_pre_pred:
+            mode = 'pred'
+            cfg.fix_clst = True
+            cfg.clf = True
+            cfg.clf_reg = False
+            cfg.pw = False
+        else:
+            if (epoch >= cfg.epochs_pre_pred):
+                if epoch == cfg.epochs_pre_pred:
+                    print('training k-means')
+                    init_clusters, preds, L, feats, labels = train_kmeans(
+                        model,
+                        dataloaders['all_prev'],
+                        device,
+                        cfg.n_clusters,
+                        embedded_dims=256,
+                        reduc_method='pca')
+                    L = torch.tensor(L).float().to(device)
+                    init_clusters = torch.tensor(init_clusters,
+                                                 dtype=torch.float).to(device)
+
+                    print('Setting dim reduction and init. clusters')
+                    model.dec.set_clusters(init_clusters)
+                    model.dec.set_transform(L.T)
+                mode = 'siam'
+                cfg.fix_clst = False
+                cfg.clf_reg = True
+                cfg.pw = True
+                if ((epoch - cfg.epochs_pre_pred) %
+                        cfg.tgt_update_period == 0):
                     print('Generating connected components graphs')
                     edges_list = utls.make_edges_ccl(model,
                                                      dataloaders['all_prev'],
                                                      device, probas)
+                    print('Updating target distributions')
+                    distrib_buff.do_update(model, dataloaders['all_prev'],
+                                           device)
 
-                res = train_one_epoch(model,
-                                      dataloaders,
-                                      optimizers,
-                                      device,
-                                      distrib_buff,
-                                      lr_sch,
-                                      cfg,
-                                      probas=probas,
-                                      edges_list=edges_list)
+        # save checkpoint
+        if (epoch % cfg.cp_period == 0):
+            path = pjoin(run_path, 'checkpoints')
+            utls.save_checkpoint(
+                {
+                    'epoch': epoch + 1,
+                    'model': model,
+                    'best_loss': best_loss,
+                },
+                False,
+                fname_cp=cp_fname,
+                fname_bm=best_cp_fname,
+                path=path)
+        # save previews
+        if (epoch % cfg.prev_period == 0):
+            out_path = rags_prevs_path
 
-                if (epoch < cfg.epochs_dist):
-                    distrib_buff.inc_epoch()
+            print('generating previews to {}'.format(out_path))
 
-                if (not cfg.fix_clst):
-                    distrib_buff.maybe_update(model, dataloaders['all_prev'],
-                                              device)
+            cfg_ksp.siam_path = pjoin(run_path, 'checkpoints', cp_fname)
+            cfg_ksp.use_siam_pred = cfg.clf
+            cfg_ksp.use_siam_trans = cfg.pw
+            prev_ims = prev_trans_costs.main(cfg_ksp)
+            io.imsave(pjoin(out_path, 'ep_{:04d}.png'.format(epoch)), prev_ims)
 
-                # write losses to tensorboard
-                for k, v in res.items():
-                    writer.add_scalar(k, v, epoch)
+        print('epoch {}/{}. Mode: {}'.format(epoch, cfg.epochs_dist, mode))
+        res = train_one_epoch(model,
+                              dataloaders,
+                              optimizers,
+                              device,
+                              distrib_buff,
+                              lr_sch,
+                              cfg,
+                              probas=probas,
+                              edges_list=edges_list if (cfg.pw) else None)
 
-                if ((epoch % cfg.proba_update_period) == 0):
-                    features, pos_masks = clst.get_features(
-                        model, dataloaders['all_prev'], device)
-                    cat_features = np.concatenate(features)
-                    cat_pos_mask = np.concatenate(pos_masks)
-                    print('computing probability map')
-                    probas = calc_bagging(cat_features,
-                                          cat_pos_mask,
-                                          cfg.bag_t,
-                                          bag_n_feats=cfg.bag_n_feats,
-                                          bag_max_depth=cfg.bag_max_depth,
-                                          n_jobs=1)
-                    probas = torch.from_numpy(probas).to(device)
-                    n_labels = [
-                        np.unique(s['labels']).size
-                        for s in dataloaders['all_prev'].dataset
-                    ]
-                    probas = torch.split(probas, n_labels)
-
-                # save checkpoint
-                if (epoch % cfg.cp_period == 0):
-                    is_best = False
-                    if (res['loss'] < best_loss):
-                        is_best = True
-                        best_loss = res['loss']
-                    path = pjoin(run_path, 'checkpoints')
-                    utls.save_checkpoint(
-                        {
-                            'epoch': epoch + 1,
-                            'model': model,
-                            'best_loss': best_loss,
-                        },
-                        is_best,
-                        fname_cp=cp_fname,
-                        fname_bm=best_cp_fname,
-                        path=path)
-
-            else:
-
-                # save previews
-                if (epoch % cfg.prev_period == 0):
-                    out_path = rags_prevs_path
-
-                    print('generating previews to {}'.format(out_path))
-
-                    cfg_ksp.siam_path = pjoin(run_path, 'checkpoints',
-                                              cp_fname)
-                    cfg_ksp.use_siam_pred = cfg.clf
-                    cfg_ksp.use_siam_trans = cfg.pw
-                    prev_ims = prev_trans_costs.main(cfg_ksp)
-                    io.imsave(pjoin(out_path, 'ep_{:04d}.png'.format(epoch)),
-                              prev_ims)
-
-                    # write previews to tensorboard
-                    # prev_ims_pt = np.vstack([im for im in prev_ims.values()])
-                    # writer.add_image('rags',
-                    #                  prev_ims_pt,
-                    #                  epoch,
-                    #                  dataformats='HWC')
+        # write losses to tensorboard
+        for k, v in res.items():
+            writer.add_scalar(k, v, epoch)
 
     return model
 
@@ -349,7 +346,7 @@ def main(cfg):
         os.makedirs(run_path)
 
     device = torch.device('cuda' if cfg.cuda else 'cpu')
-    model = Siamese(embedded_dims=cfg.embedded_dims,
+    model = Siamese(embedded_dims=256,
                     cluster_number=cfg.n_clusters,
                     alpha=cfg.alpha,
                     backbone=cfg.backbone).to(device)
