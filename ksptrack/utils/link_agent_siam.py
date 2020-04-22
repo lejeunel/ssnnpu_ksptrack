@@ -16,9 +16,7 @@ class LinkAgentSiam(LinkAgentGMM):
                  data_path,
                  model,
                  entrance_radius=0.1,
-                 cuda=False,
-                 K=0.5,
-                 T=0.2):
+                 cuda=False):
 
         super().__init__(csv_path,
                          data_path,
@@ -27,15 +25,14 @@ class LinkAgentSiam(LinkAgentGMM):
                          cuda=cuda)
 
         self.sigmoid = torch.nn.Sigmoid()
+        self.cosine_sim = torch.nn.CosineSimilarity()
         self.prepare_all()
-        self.K = K
-        self.T = T
 
     def prepare_all(self, all_edges_nn=None, feat_field='pooled_feats'):
         print('preparing features for linkAgent')
         # form initial cluster centres
         self.obj_preds = []
-        self.siam_feats = []
+        self.feats_csml = []
 
         self.model.eval()
         self.model.to(self.device)
@@ -47,18 +44,14 @@ class LinkAgentSiam(LinkAgentGMM):
                 res = self.model(data)
 
             self.obj_preds.append(self.sigmoid(res['obj_pred']).cpu().numpy())
-            self.siam_feats.append(res['locmotionapp'])
+            self.feats_csml.append(res['cs_r'])
 
             pbar.update(1)
         pbar.close()
 
     def get_proba(self, f0, l0, f1, l1, *args):
 
-        f0 = self.siam_feats[f0][l0]
-        f1 = self.siam_feats[f1][l1]
-
-        dist = (f0 - f1).abs()
-        pw = self.model.pw_clf(dist)
-        prob = torch.exp(-pw).detach().cpu().numpy()
-
-        return prob
+        f0 = self.feats_csml[f0][l0].cpu().numpy()
+        f1 = self.feats_csml[f1][l1].cpu().numpy()
+        sim = np.dot(f0, f1)
+        return sim

@@ -12,7 +12,7 @@ def main(cfg):
     cfg.epochs_dist = 20
     cfg.exp_name = 'pred'
     cfg.init_cp_fname = 'cp_pred.pth.tar'
-    train_siam(cfg)
+    train_siam.main(cfg)
 
     train_init_clst.main(cfg)
 

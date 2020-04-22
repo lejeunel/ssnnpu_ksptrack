@@ -18,7 +18,7 @@ from ksptrack.cfgs import params as params_ksp
 from ksptrack.siamese import utils as utls
 from ksptrack.siamese.distrib_buffer import DistribBuffer
 from ksptrack.siamese.loader import Loader
-from ksptrack.siamese.losses import PairwiseContrastive
+from ksptrack.siamese.losses import PairwiseContrastive, TripletLoss, CosineSoftMax
 from ksptrack.siamese.modeling.siamese import Siamese
 from ksptrack.utils.bagging import calc_bagging
 from ksptrack.siamese.train_init_clst import train_kmeans
@@ -44,7 +44,7 @@ def train_one_epoch(model,
     running_prob_dens = 0.0
 
     criterion_clst = torch.nn.KLDivLoss(reduction='mean')
-    criterion_pw = PairwiseContrastive()
+    criterion_pw = CosineSoftMax()
     criterion_obj_pred = torch.nn.BCEWithLogitsLoss()
     criterion_recons = torch.nn.MSELoss()
 
@@ -60,10 +60,7 @@ def train_one_epoch(model,
             _, targets = distrib_buff[data['frame_idx']]
 
             probas_ = torch.cat([probas[i] for i in data['frame_idx']])
-            res = model(
-                data,
-                edges_list=[edges_list[i]
-                            for i in data['frame_idx']] if cfg.pw else None)
+            res = model(data)
 
             loss = 0
 
@@ -87,7 +84,7 @@ def train_one_epoch(model,
                 loss += cfg.gamma * loss_recons
 
             if (cfg.pw):
-                loss_pw = criterion_pw(res['pw'], res['pw_pseudo_label'])
+                loss_pw = criterion_pw(res['cs_r'], targets)
                 loss += cfg.beta * loss_pw
 
             loss.backward()
@@ -278,6 +275,9 @@ def train(cfg, model, device, dataloaders, run_path):
                     print('Setting dim reduction and init. clusters')
                     model.dec.set_clusters(init_clusters)
                     model.dec.set_transform(L.T)
+                    # print('synchronizing branches')
+                    # model.locmotionapp.model.load_state_dict(
+                    #     model.dec.autoencoder.encoder.state_dict())
                 mode = 'siam'
                 cfg.fix_clst = False
                 cfg.clf_reg = True

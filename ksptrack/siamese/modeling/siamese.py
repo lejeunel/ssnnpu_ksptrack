@@ -7,183 +7,142 @@ import torch_geometric.nn as gnn
 import torch_geometric.utils as gutls
 from ksptrack.siamese.modeling.superpixPool.pytorch_superpixpool.suppixpool_layer import SupPixPool
 from ksptrack.siamese.losses import structured_negative_sampling
-from ksptrack.siamese.modeling.dil_unet import ConvolutionalEncoder
+from ksptrack.siamese.modeling.dil_unet import ConvolutionalEncoder, ResidualBlock, DilatedConvolutions
+from ksptrack.siamese.modeling.coordconv import CoordConv2d
 
 
-class AppearanceBranch(nn.Module):
+def sp_pool(feats, labels):
+    roi_pool = SupPixPool()
+    upsamp = nn.UpsamplingBilinear2d(labels.size()[2:])
+    pooled_feats = [
+        roi_pool(upsamp(feats[b].unsqueeze(0)),
+                 labels[b].unsqueeze(0)).squeeze().T
+        for b in range(labels.shape[0])
+    ]
+    pooled_feats = torch.cat(pooled_feats)
+    return pooled_feats
+
+
+class LocMotionAppearanceGCN(nn.Module):
     """
 
     """
-    def __init__(self, in_channels, dropout=0.):
+    def __init__(self, in_channels, filt_dims, dropout=0., mixing_coeff=0.):
         """
-        Arguments:
-            in_channels: int, number of channels in the input tensor.
-                Default is 3 for RGB images.
         """
-        super(AppearanceBranch, self).__init__()
+        super(LocMotionAppearanceGCN, self).__init__()
+        self.filt_dims = filt_dims
+        self.sigma = 0.2
 
-        self.conv1 = nn.Conv1d(in_channels, 64, 1)
-        self.dropout = nn.Dropout(dropout)
+        in_dim = in_channels
+        self.gcns = []
+        for out_dim in filt_dims:
+            gcn = gnn.GCNConv(in_dim, out_dim)
+            self.gcns.append(gcn)
+            in_dim = out_dim
+
+        # cosine classification block
+        self.lin1 = nn.Linear(256, 15, bias=False)
+        self.bn1 = nn.BatchNorm1d(256)
         self.nonlin = nn.ReLU()
-        self.bn1 = nn.BatchNorm1d(64)
-        self.lin = nn.Linear(64, 32)
-        self.bn2 = nn.BatchNorm1d(32)
-
+        self.dropout = nn.Dropout2d(p=dropout)
+        self.mixing_coeff = mixing_coeff
         self.roi_pool = SupPixPool()
 
-    def forward(self, x):
+    def forward(self, data, edges_nn, probas, feats):
 
-        # pass through layers
-        x = self.conv1(x.unsqueeze(-1))
-        x = self.bn1(x)
-        x = self.nonlin(x)
-        x = self.dropout(x)
+        # add self loops
+        edges, _ = gutls.add_self_loops(edges_nn)
+        weights = torch.exp(-(probas[edges[0]] - probas[edges[1]]).abs() /
+                            self.sigma)
 
-        x = self.lin(x.squeeze())
-        x = self.bn2(x)
-        x = self.nonlin(x)
-        x = self.dropout(x)
+        Z = sp_pool(data['image'], data['labels'])
+        Z = F.relu(self.gcns[0](Z, edges, weights))
 
-        x = F.normalize(x, p=2, dim=-1)
+        for i, gcn in enumerate(self.gcns[1:]):
+            # do GCNConv and average result with encoder features
+            H_pool = sp_pool(feats[i], data['labels'])
+            Z = self.mixing_coeff * H_pool + (1 - self.mixing_coeff) * Z
+            Z = F.relu(gcn(Z, edges, weights))
 
-        return x
+        cs_r = F.normalize(Z, p=2, dim=1)
 
+        # l2-normalize weights
+        with torch.no_grad():
+            self.lin1.weight.div_(
+                torch.norm(self.lin1.weight, p=2, dim=1, keepdim=True))
+        cs = self.lin1(cs_r)
 
-class LocMotionBranch(nn.Module):
-    """
-
-    """
-    def __init__(self, in_channels, dropout=0.):
-        """
-        Arguments:
-            in_channels: int, number of channels in the input tensor.
-                Default is 3 for RGB images.
-        """
-        super(LocMotionBranch, self).__init__()
-
-        self.conv1 = nn.Conv1d(in_channels, 64, 1)
-        self.dropout = nn.Dropout(dropout)
-        self.nonlin = nn.ReLU()
-        self.bn1 = nn.BatchNorm1d(64)
-        self.lin = nn.Linear(64, 32)
-        self.bn2 = nn.BatchNorm1d(32)
-
-        self.roi_pool = SupPixPool()
-
-    def make_coord_map(self, batch_size, w, h):
-        xx_ones = torch.ones([1, 1, 1, w], dtype=torch.int32)
-        yy_ones = torch.ones([1, 1, 1, h], dtype=torch.int32)
-
-        xx_range = torch.arange(w, dtype=torch.int32)
-        yy_range = torch.arange(h, dtype=torch.int32)
-        xx_range = xx_range[None, None, :, None]
-        yy_range = yy_range[None, None, :, None]
-
-        xx_channel = torch.matmul(xx_range, xx_ones)
-        yy_channel = torch.matmul(yy_range, yy_ones)
-
-        # transpose y
-        yy_channel = yy_channel.permute(0, 1, 3, 2)
-
-        xx_channel = xx_channel.float() / (w - 1)
-        yy_channel = yy_channel.float() / (h - 1)
-
-        xx_channel = xx_channel * 2 - 1
-        yy_channel = yy_channel * 2 - 1
-
-        xx_channel = xx_channel.repeat(batch_size, 1, 1, 1)
-        yy_channel = yy_channel.repeat(batch_size, 1, 1, 1)
-
-        out = torch.cat([xx_channel, yy_channel], dim=1)
-
-        return out
-
-    def forward(self, data):
-
-        # make location/motion input tensor
-        batch_size, _, w, h = data['labels'].shape
-        coord_maps = self.make_coord_map(batch_size, w,
-                                         h).to(data['labels'].device)
-        pooled_coords = [
-            self.roi_pool(coord_maps[b].unsqueeze(0),
-                          data['labels'][b]).squeeze()
-            for b in range(data['labels'].shape[0])
-        ]
-
-        pooled_fx = [
-            self.roi_pool(flow.unsqueeze(0), labels).squeeze()[None, ...]
-            for flow, labels in zip(data['fx'], data['labels'])
-        ]
-
-        pooled_fy = [
-            self.roi_pool(flow.unsqueeze(0), labels).squeeze()[None, ...]
-            for flow, labels in zip(data['fy'], data['labels'])
-        ]
-
-        n_samples = [s.shape[-1] for s in pooled_coords]
-        time_idxs = [
-            torch.tensor(n * [idx / (N - 1)]).unsqueeze(0).to(
-                data['labels'].device) for n, idx, N in zip(
-                    n_samples, data['frame_idx'], data['n_frames'])
-        ]
-
-        all_ = [
-            torch.cat((t, fx, fy, c)) for t, fx, fy, c in zip(
-                time_idxs, pooled_fx, pooled_fy, pooled_coords)
-        ]
-
-        x = torch.cat(all_, dim=-1).unsqueeze(0).T
-
-        # pass through layers
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.nonlin(x)
-        x = self.dropout(x)
-
-        x = self.lin(x.squeeze())
-        x = self.bn2(x)
-        x = self.nonlin(x)
-        x = self.dropout(x)
-
-        x = F.normalize(x, p=2, dim=-1)
-
-        return x
+        return cs, cs_r
 
 
 class LocMotionAppearance(nn.Module):
     """
 
     """
-    def __init__(self, in_channels, dropout=0.):
+    def __init__(self, in_channels, dropout=0., mixing_coeff=0.):
         """
         """
         super(LocMotionAppearance, self).__init__()
-        self.appearance = AppearanceBranch(in_channels, dropout)
-        self.locmotion = LocMotionBranch(5, dropout)
+        self.model = ConvolutionalEncoder(in_channels=5,
+                                          start_filts=32,
+                                          kernel_size=3,
+                                          padding=1,
+                                          depth=4,
+                                          n_resblocks=1,
+                                          dropout_min=0,
+                                          dropout_max=0,
+                                          blockObject=ResidualBlock,
+                                          convObject=CoordConv2d,
+                                          batchNormObject=nn.BatchNorm2d)
+        self.dilatedConvs = DilatedConvolutions(256,
+                                                n_convolutions=3,
+                                                dropout=0.,
+                                                convObject=CoordConv2d)
 
-        self.dropout = nn.Dropout(dropout)
+        # 128 output size?
+        self.lin1 = nn.Linear(256, 15, bias=False)
+        self.bn1 = nn.BatchNorm1d(256)
         self.nonlin = nn.ReLU()
-        self.lin1 = nn.Linear(32, 32)
-        self.bn1 = nn.BatchNorm1d(32)
-        self.lin2 = nn.Linear(32, 16)
-        self.bn2 = nn.BatchNorm1d(16)
+        self.dropout = nn.Dropout2d(p=dropout)
+        self.mixing_coeff = mixing_coeff
+        self.roi_pool = SupPixPool()
 
-    def forward(self, feats, data):
-        locmotion = self.locmotion(data)
-        appearance = self.appearance(feats)
-        x = torch.stack((locmotion, appearance)).mean(dim=0)
+    def forward(self, data, dec_feats):
 
-        x = self.lin1(x)
-        x = self.bn1(x)
-        x = self.nonlin(x)
-        x = self.dropout(x)
+        # make location/motion input tensor
+        batch_size, _, w, h = data['labels'].shape
 
-        x = self.lin2(x)
-        x = self.bn2(x)
-        x = self.nonlin(x)
-        x = self.dropout(x)
+        input = torch.cat((data['image'], data['fx'], data['fy']), dim=1)
 
-        return x
+        # get features
+        x, skips = self.model(input)
+        x, dilated_skips = self.dilatedConvs(x)
+        for d in dilated_skips:
+            x += d
+        x += skips[-1]
+
+        #upsample and pool to superpixels
+        upsamp = nn.UpsamplingBilinear2d(data['labels'].size()[2:])
+        x = upsamp(x)
+        x = [
+            self.roi_pool(x[b].unsqueeze(0), data['labels'][b]).squeeze().T
+            for b in range(data['labels'].shape[0])
+        ]
+        x = torch.cat(x)
+        x = F.normalize(x, p=2, dim=1)
+
+        # merge features
+        cs_r = self.mixing_coeff * dec_feats + (1 - self.mixing_coeff) * x
+        cs_r = F.normalize(cs_r, p=2, dim=1)
+
+        # l2-normalize weights
+        with torch.no_grad():
+            self.lin1.weight.div_(
+                torch.norm(self.lin1.weight, p=2, dim=1, keepdim=True))
+        cs = self.lin1(cs_r)
+
+        return cs, cs_r
 
 
 class Siamese(nn.Module):
@@ -229,8 +188,10 @@ class Siamese(nn.Module):
 
         self.roi_pool = SupPixPool()
 
-        self.locmotionapp = LocMotionAppearance(self.in_dims[-1], dropout=0.1)
-        self.pw_clf = nn.Sequential(*[nn.Linear(16, 1, bias=False), nn.ReLU()])
+        self.locmotionapp = LocMotionAppearanceGCN(5,
+                                                   self.in_dims,
+                                                   dropout=0.1,
+                                                   mixing_coeff=0.2)
 
     def load_partial(self, state_dict):
         # filter out unnecessary keys
@@ -240,55 +201,16 @@ class Siamese(nn.Module):
         }
         self.load_state_dict(state_dict, strict=False)
 
-    def sp_pool(self, feats, labels):
-
-        upsamp = nn.UpsamplingBilinear2d(labels.size()[2:])
-        pooled_feats = [
-            self.roi_pool(upsamp(feats[b].unsqueeze(0)),
-                          labels[b].unsqueeze(0)).squeeze().T
-            for b in range(labels.shape[0])
-        ]
-        pooled_feats = torch.cat(pooled_feats)
-        return pooled_feats
-
-    def forward(self, data, edges_list=None):
+    def forward(self, data):
 
         res = self.dec(data)
 
-        obj_pred = self.sp_pool(res['output'], data['labels'])
+        obj_pred = sp_pool(res['output'], data['labels'])
         res.update({'obj_pred': obj_pred})
 
         # feat and location/motion branches
-        locmotionapp = self.locmotionapp(res['pooled_feats'], data)
-        res.update({'locmotionapp': locmotionapp})
-
-        if edges_list is not None:
-            # relabel edges
-            relabeled_edges_list = []
-            max_node = 0
-            for edges in edges_list:
-                e_idx = edges.edge_index.clone()
-                e_idx += max_node
-                max_node = edges.n_nodes
-                relabeled_edges_list.append(e_idx)
-
-            relabeled_edges_list = torch.cat(relabeled_edges_list, dim=1)
-            relabeled_edges_list.to(obj_pred.device)
-
-            # do sampling
-            i, j, k = structured_negative_sampling(relabeled_edges_list)
-
-            # concatenate couples
-            pos_diff = (locmotionapp[i] - locmotionapp[j]).abs()
-            neg_diff = (locmotionapp[i] - locmotionapp[k]).abs()
-
-            pos_neg = torch.cat((pos_diff, neg_diff), dim=0)
-
-            pw = self.pw_clf(pos_neg).view(-1)
-            pw = torch.exp(-pw)
-            pw_pseudo_label = torch.cat(
-                (torch.ones(pos_diff.shape[0]),
-                 torch.zeros(neg_diff.shape[0]))).to(obj_pred.device)
-            res.update({'pw': pw, 'pw_pseudo_label': pw_pseudo_label})
+        cs, cs_r = self.locmotionapp(data, res['pooled_feats'])
+        res.update({'cs': cs})
+        res.update({'cs_r': cs_r})
 
         return res

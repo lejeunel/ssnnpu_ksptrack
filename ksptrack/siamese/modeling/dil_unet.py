@@ -74,7 +74,6 @@ class ConvolutionalEncoder(nn.Module):
                  dropout_max=0.2,
                  blockObject=ResidualBlock,
                  convObject=nn.Conv2d,
-                 l2_normalize=False,
                  batchNormObject=nn.BatchNorm2d):
         """
         n_features_input (int): number of intput features
@@ -90,7 +89,6 @@ class ConvolutionalEncoder(nn.Module):
         self.in_channels = in_channels
 
         self.filts_dims = [start_filts * (2**i) for i in range(depth)]
-        self.l2_normalize = l2_normalize
 
         self.stages = nn.ModuleList()
         dropout = [(1 - t) * dropout_min + t * dropout_max
@@ -142,8 +140,6 @@ class ConvolutionalEncoder(nn.Module):
             x = stage(x)
             skips.append(x)
 
-        if (self.l2_normalize):
-            x = F.normalize(x, p=2, dim=1)
         return x, skips
 
     def getInputShape(self):
@@ -358,7 +354,6 @@ class UNet(nn.Module):
                                             dropout_max=dropout_max,
                                             blockObject=ResidualBlock,
                                             convObject=convObject,
-                                            l2_normalize=l2_normalize,
                                             batchNormObject=batchNormObject)
         if num_dilated_convs > 0:
             self.dilatedConvs = DilatedConvolutions(self.filts_dims[-1],
@@ -397,12 +392,11 @@ class UNet(nn.Module):
                           size=in_shape[2:],
                           mode='bilinear',
                           align_corners=True)
-        feats = F.interpolate(feats,
-                              size=in_shape[2:],
-                              mode='bilinear',
-                              align_corners=True)
+        if (self.l2_normalize):
 
-        return {'output': x, 'feats': feats, 'layers': skips}
+            feats = F.normalize(feats, p=2, dim=1)
+
+        return {'output': x, 'feats': feats, 'layers': skips + [feats]}
 
     def to_predictor(self):
 

@@ -5,6 +5,7 @@ from ksptrack.models.deeplab import DeepLabv3Plus
 from ksptrack.siamese.modeling.dil_unet import UNet
 from torchvision.ops import RoIPool
 from ksptrack.siamese.modeling.superpixPool.pytorch_superpixpool.suppixpool_layer import SupPixPool
+import torch.nn.functional as F
 
 
 class SuperpixelPooling(nn.Module):
@@ -150,12 +151,15 @@ class DEC(nn.Module):
         res = self.autoencoder(data['image'])
         feats = res['feats']
 
+        upsamp = nn.UpsamplingBilinear2d(data['labels'].size()[2:])
+        feats = upsamp(feats)
         pooled_feats = [
             self.roi_pool(feats[b].unsqueeze(0),
                           data['labels'][b].unsqueeze(0)).squeeze().T
             for b in range(data['labels'].shape[0])
         ]
         pooled_feats = torch.cat(pooled_feats)
+        pooled_feats = F.normalize(pooled_feats, p=2, dim=1)
         res.update({'pooled_feats': pooled_feats})
 
         proj_pooled_feats = self.transform(pooled_feats)

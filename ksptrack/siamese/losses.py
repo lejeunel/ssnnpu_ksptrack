@@ -285,13 +285,27 @@ def complete_graph_from_list(L, create_using=None):
     return G
 
 
+class CosineSoftMax(nn.Module):
+    def __init__(self, kappa=5.):
+        super(CosineSoftMax, self).__init__()
+        self.kappa = kappa
+        self.loss = nn.CrossEntropyLoss()
+
+    def forward(self, z, targets):
+
+        targets_ = targets.argmax(dim=1).to(z.device)
+        inputs = self.kappa * z
+
+        return self.loss(inputs, targets_)
+
+
 class TripletLoss(nn.Module):
     def __init__(self, margin=0.2):
         super(TripletLoss, self).__init__()
         self.cosine_sim = nn.CosineSimilarity()
         self.margin = margin
-        self.K = 0.5
-        self.T = 0.2
+        # self.K = 0.5
+        # self.T = 0.2
 
     def forward(self, z, edges_list):
         """Computes the triplet loss between positive node pairs and sampled
@@ -317,10 +331,11 @@ class TripletLoss(nn.Module):
         # do sampling
         i, j, k = structured_negative_sampling(relabeled_edges_list)
 
-        pos = self.cosine_sim(z[i], z[j])
-        neg = self.cosine_sim(z[i], z[k])
+        d_ap = 1 - self.cosine_sim(z[i], z[j])
+        d_an = 1 - self.cosine_sim(z[i], z[k])
 
-        return torch.log(1 + torch.exp((self.K + neg - pos) / self.T)).mean()
+        loss = torch.log1p(d_ap - d_an).mean()
+        return loss
 
 
 if __name__ == "__main__":
