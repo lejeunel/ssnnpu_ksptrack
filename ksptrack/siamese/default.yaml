@@ -16,11 +16,11 @@ lr-dist: 1e-4
 lr-autoenc: 1e-4
 lr-assign: 1e-3
 decay : 2e-4
-lr-power : 0.97
+lr-power : 0.99
 momentum: 0.9
 lambda-: 10
-gamma: 100
-beta: 1e-2
+gamma: 10
+beta: 1e-1
 alpha: 1
 delta: 1000
 
@@ -42,9 +42,11 @@ in-shape: 512
 n-frames-epoch: 100
 
 # augmentation
-aug-noise: 0.08
-aug-blur-color: 30
-aug-blur-space: 50
+aug-noise: 0.1
+aug-blur-color-low: 100
+aug-blur-color-high: 250
+aug-blur-space-low: 100
+aug-blur-space-high: 250
 aug-gamma-low: 0.5
 aug-gamma-high: 2.0
 aug-flip-proba: 0.5

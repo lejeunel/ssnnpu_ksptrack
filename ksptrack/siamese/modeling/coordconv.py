@@ -128,9 +128,9 @@ class CoordConv2d(conv.Conv2d):
                              padding, dilation, groups, bias)
         self.rank = 2
         self.addcoords = AddCoords(self.rank, with_r)
-        self.conv = nn.Conv2d(in_channels + self.rank + int(with_r),
-                              out_channels, kernel_size, stride, padding,
-                              dilation, groups, bias)
+        self.in_channels = in_channels + self.rank + int(with_r)
+        self.conv = nn.Conv2d(self.in_channels, out_channels, kernel_size,
+                              stride, padding, dilation, groups, bias)
 
     def forward(self, input_tensor):
         """

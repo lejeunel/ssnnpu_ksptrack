@@ -19,10 +19,43 @@ from ksptrack.models.my_augmenters import rescale_augmenter
 from torch.nn.functional import sigmoid, tanh
 from ksptrack.siamese.clustering import get_features
 from ksptrack.utils.bagging import calc_bagging
-from ksptrack.siamese.modeling.superpixPool.pytorch_superpixpool.suppixpool_layer import SupPixPool
+from ksptrack.siamese.modeling.siamese import sp_pool
 from ksptrack.utils.my_utils import get_pm_array
 import pandas as pd
 from ksptrack.prev_trans_costs import colorize
+
+
+def get_features(model, dataloader, device):
+    # form initial cluster centres
+    labels_pos_mask = []
+    features = []
+
+    model.eval()
+    model.to(device)
+    print('getting features')
+    pbar = tqdm.tqdm(total=len(dataloader))
+    for index, data in enumerate(dataloader):
+        data = utls.batch_to_device(data, device)
+        with torch.no_grad():
+            res = model(data['image'])
+
+        clicked_labels = [
+            item for sublist in data['labels_clicked'] for item in sublist
+        ]
+
+        to_add = np.zeros(np.unique(
+            data['labels'].cpu().numpy()).shape[0]).astype(bool)
+        to_add[clicked_labels] = True
+        labels_pos_mask.append(to_add)
+
+        f = sp_pool(res['feats'], data['labels'])
+        features.append(f.detach().cpu().numpy().squeeze())
+        pbar.update(1)
+    pbar.close()
+
+    res = [features, labels_pos_mask]
+
+    return res
 
 
 def make_pm_prevs(model, dataloaders, cfg, centroids, all_labels, device):
@@ -52,43 +85,6 @@ def make_pm_prevs(model, dataloaders, cfg, centroids, all_labels, device):
     all = np.concatenate((all_images, all_scores, all_scores_thr), axis=0)
 
     return all
-
-
-def get_features(model, dataloader, device):
-    # form initial cluster centres
-    labels_pos_mask = []
-    features = []
-
-    roi_pool = SupPixPool()
-    model.eval()
-    model.to(device)
-    print('getting features')
-    pbar = tqdm.tqdm(total=len(dataloader))
-    for index, data in enumerate(dataloader):
-        data = utls.batch_to_device(data, device)
-        with torch.no_grad():
-            res = model(data['image'])
-
-        pooled_feats = [
-            roi_pool(res['feats'][b].unsqueeze(0),
-                     data['labels'][b].unsqueeze(0)).squeeze().T
-            for b in range(data['labels'].shape[0])
-        ]
-
-        pooled_feats = torch.cat(pooled_feats)
-        features.append(pooled_feats.detach().cpu().numpy().squeeze())
-        clicked_labels = [
-            item for sublist in data['labels_clicked'] for item in sublist
-        ]
-        labels = data['labels'].cpu().numpy()
-        to_add = np.zeros(np.unique(labels).shape[0]).astype(bool)
-        to_add[clicked_labels] = True
-        labels_pos_mask.append(to_add)
-
-        pbar.update(1)
-    pbar.close()
-
-    return features, labels_pos_mask
 
 
 class PriorMSELoss(torch.nn.Module):
@@ -128,8 +124,8 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
     if (not os.path.exists(pm_im_dir)):
         os.makedirs(pm_im_dir)
 
-    # criterion = torch.nn.MSELoss()
-    criterion = PriorMSELoss()
+    criterion = torch.nn.MSELoss()
+    # criterion = PriorMSELoss()
     writer = SummaryWriter(run_path)
     lr_sch = torch.optim.lr_scheduler.ExponentialLR(optimizer, cfg.lr_power)
     best_loss = float('inf')
@@ -156,10 +152,9 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
                     # zero the parameter gradients
                     optimizer.zero_grad()
 
-                    # loss = criterion(sigmoid(res['output']),
-                    #                  data['image'])
-                    loss = criterion(sigmoid(res['output']), data['image'],
-                                     data['prior'])
+                    loss = criterion(sigmoid(res['output']), data['image'])
+                    # loss = criterion(sigmoid(res['output']), data['image'],
+                    #                  data['prior'])
 
                     loss.backward()
                     optimizer.step()
@@ -235,7 +230,11 @@ def main(cfg):
     # model = DeepLabv3Plus(pretrained=False)
     # model = UNet(merge_mode='none', depth=4)
     if (cfg.backbone == 'unet'):
-        model = UNet(depth=4, skip_mode='none', l2_normalize=True)
+        model = UNet(depth=4,
+                     skip_mode='none',
+                     l2_normalize=True,
+                     coordconv=False,
+                     dropout_max=0.)
     else:
         model = DeepLabv3Plus()
     model.to(device)

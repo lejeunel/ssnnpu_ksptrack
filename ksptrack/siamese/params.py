@@ -59,8 +59,10 @@ def get_params(path='.'):
 
     p.add('--aug-noise', type=float)
     p.add('--aug-scale', type=float)
-    p.add('--aug-blur-color', type=int)
-    p.add('--aug-blur-space', type=int)
+    p.add('--aug-blur-color-low', type=int)
+    p.add('--aug-blur-color-high', type=int)
+    p.add('--aug-blur-space-low', type=int)
+    p.add('--aug-blur-space-high', type=int)
     p.add('--aug-gamma-low', type=float)
     p.add('--aug-gamma-high', type=float)
     p.add('--aug-rotate', type=float)

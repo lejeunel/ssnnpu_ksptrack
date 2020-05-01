@@ -150,8 +150,11 @@ def make_tiled_clusters(im, labels, predictions):
 
 def make_data_aug(cfg, do_resize=False):
     transf = iaa.Sequential([
-        iaa.BilateralBlur(d=3, sigma_color=cfg.aug_blur_color,
-                          sigma_space=cfg.aug_blur_space),
+        iaa.BilateralBlur(d=8,
+                          sigma_color=(cfg.aug_blur_color_low,
+                                       cfg.aug_blur_color_high),
+                          sigma_space=(cfg.aug_blur_space_low,
+                                       cfg.aug_blur_space_high)),
         iaa.Affine(scale={
             "x": (1 - cfg.aug_scale, 1 + cfg.aug_scale),
             "y": (1 - cfg.aug_scale, 1 + cfg.aug_scale)
@@ -169,7 +172,7 @@ def make_data_aug(cfg, do_resize=False):
     #                                 center_augmenter])
     transf_normal = iaa.Sequential([rescale_augmenter])
 
-    if(do_resize):
+    if (do_resize):
         transf_normal.add(iaa.size.Resize(cfg.in_shape))
 
     return transf, transf_normal

@@ -2,6 +2,7 @@ from torch import nn
 import numpy as np
 import torch
 from ksptrack.siamese import utils as utls
+from ksptrack.siamese.modeling.superpixPool.pytorch_superpixpool.suppixpool_layer import SupPixPool
 import networkx as nx
 import itertools
 
@@ -286,17 +287,94 @@ def complete_graph_from_list(L, create_using=None):
 
 
 class CosineSoftMax(nn.Module):
-    def __init__(self, kappa=5.):
+    def __init__(self, kappa=10.):
         super(CosineSoftMax, self).__init__()
         self.kappa = kappa
-        self.loss = nn.CrossEntropyLoss()
+        self.loss = nn.CrossEntropyLoss(reduction='none')
 
     def forward(self, z, targets):
 
         targets_ = targets.argmax(dim=1).to(z.device)
+
+        bc = torch.bincount(targets_)
+        freq_weights = bc.max() / bc.float()
+        freq_smp_weights = freq_weights[targets.argmax(dim=1)]
         inputs = self.kappa * z
 
-        return self.loss(inputs, targets_)
+        loss = (freq_smp_weights * self.loss(inputs, targets_)).mean()
+        return loss
+
+
+def make_coord_map(batch_size, w, h):
+    xx_ones = torch.ones([1, 1, 1, w], dtype=torch.int32)
+    yy_ones = torch.ones([1, 1, 1, h], dtype=torch.int32)
+
+    xx_range = torch.arange(w, dtype=torch.int32)
+    yy_range = torch.arange(h, dtype=torch.int32)
+    xx_range = xx_range[None, None, :, None]
+    yy_range = yy_range[None, None, :, None]
+
+    xx_channel = torch.matmul(xx_range, xx_ones)
+    yy_channel = torch.matmul(yy_range, yy_ones)
+
+    # transpose y
+    yy_channel = yy_channel.permute(0, 1, 3, 2)
+
+    xx_channel = xx_channel.float() / (w - 1)
+    yy_channel = yy_channel.float() / (h - 1)
+
+    xx_channel = xx_channel * 2 - 1
+    yy_channel = yy_channel * 2 - 1
+
+    xx_channel = xx_channel.repeat(batch_size, 1, 1, 1)
+    yy_channel = yy_channel.repeat(batch_size, 1, 1, 1)
+
+    out = torch.cat([xx_channel, yy_channel], dim=1)
+
+    return out
+
+
+def sp_pool(f, labels):
+    roi_pool = SupPixPool()
+    upsamp = nn.UpsamplingBilinear2d(labels.size()[2:])
+    pooled = [
+        roi_pool(upsamp(f[b].unsqueeze(0)), labels[b].unsqueeze(0)).squeeze().T
+        for b in range(labels.shape[0])
+    ]
+    pooled = torch.cat(pooled)
+    return pooled
+
+
+class PWClusteringLoss(nn.Module):
+    def __init__(self, sigma=1e-3):
+        super(PWClusteringLoss, self).__init__()
+        self.sigma = sigma
+        self.kl = nn.KLDivLoss(reduction='none')
+
+    def forward(self, inputs, targets, edges=None, labels=None):
+
+        if (edges is not None):
+            b, _, w, h = labels.shape
+            coords = make_coord_map(b, w, h).to(labels.device)
+            locations = sp_pool(coords, labels)
+
+            weights_dist = torch.exp(
+                -(locations[edges[0]] - locations[edges[1]]).norm(dim=1)**2 /
+                self.sigma)
+
+            loss = self.kl((inputs[edges[0]] + 1e-8).log(),
+                           targets[edges[1]]).sum(dim=1)
+            loss += self.kl((inputs[edges[1]] + 1e-8).log(),
+                            targets[edges[0]]).sum(dim=1)
+            loss = loss / 2
+            bc = torch.bincount(targets[edges[0]].argmax(dim=1))
+            freq_weights = bc.max() / bc.float()
+            freq_smp_weights = freq_weights[targets[edges[0]].argmax(dim=1)]
+            loss = (freq_smp_weights * weights_dist * loss).mean()
+        else:
+            loss = self.kl(inputs, targets).mean()
+
+        return loss
 
 
 class TripletLoss(nn.Module):

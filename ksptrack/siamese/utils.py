@@ -9,6 +9,7 @@ from tqdm import tqdm
 import networkx as nx
 from itertools import combinations
 from torch_geometric.data import Data
+import torch_geometric.utils as gutls
 
 
 def make_edges_ccl(model,
@@ -16,7 +17,8 @@ def make_edges_ccl(model,
                    device,
                    probas,
                    drho=0.3,
-                   return_subgraphs=False):
+                   return_subgraphs=False,
+                   add_self_loops=False):
     """Computes for each graph in dataloader its
     connected component edge list
 
@@ -52,6 +54,9 @@ def make_edges_ccl(model,
 
         edges_cc = np.array([e for e in g_cc.edges])
         edges_cc = torch.from_numpy(edges_cc).T
+
+        if (add_self_loops):
+            edges_cc, _ = gutls.add_self_loops(edges_cc)
         data = Data(edge_index=edges_cc)
         data.n_nodes = clst.numel()
 

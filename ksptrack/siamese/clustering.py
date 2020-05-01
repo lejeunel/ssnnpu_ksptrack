@@ -131,7 +131,7 @@ def get_features(model,
             assignments.append(res['clusters'].argmax(dim=1).cpu().numpy())
 
         if (return_obj_preds):
-            obj_preds.append(sigmoid(res['obj_pred']).cpu().numpy())
+            obj_preds.append(sigmoid(res['rho_hat']).cpu().numpy())
 
         clicked_labels = [
             item for sublist in data['labels_clicked'] for item in sublist

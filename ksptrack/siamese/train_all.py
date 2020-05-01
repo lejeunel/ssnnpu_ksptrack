@@ -4,17 +4,9 @@ from ksptrack.siamese import train_autoencoder, train_dec, train_init_clst, trai
 
 def main(cfg):
     train_autoencoder.main(cfg)
-
-    # Train objectness predictor
-    cfg.clf = True
-    cfg.clf_reg = False
-    cfg.pw = False
-    cfg.epochs_dist = 20
-    cfg.exp_name = 'pred'
-    cfg.init_cp_fname = 'cp_pred.pth.tar'
-    train_siam.main(cfg)
-
     train_init_clst.main(cfg)
+
+    train_siam.main(cfg)
 
     # train_dec.main(cfg)
 

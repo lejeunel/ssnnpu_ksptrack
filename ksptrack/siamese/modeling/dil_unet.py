@@ -9,7 +9,7 @@ from ksptrack.siamese.modeling.coordconv import CoordConv2d
 def init_weights(m):
     if type(m) == nn.Linear:
         m.weight.fill_(1.0)
-    if type(m) == nn.Conv2d:
+    if (type(m) == nn.Conv2d or type(m) == CoordConv2d):
         nn.init.xavier_uniform_(m.weight)
 
 
@@ -332,9 +332,9 @@ class UNet(nn.Module):
         self.l2_normalize = l2_normalize
 
         if coordconv:
-            convObject = CoordConv2d
+            self.convObject = CoordConv2d
         else:
-            convObject = nn.Conv2d
+            self.convObject = nn.Conv2d
 
         self.filts_dims = [start_filts * (2**i) for i in range(depth)]
         self.last_feats_dims = self.filts_dims[-1]
@@ -353,13 +353,13 @@ class UNet(nn.Module):
                                             dropout_min=dropout_min,
                                             dropout_max=dropout_max,
                                             blockObject=ResidualBlock,
-                                            convObject=convObject,
+                                            convObject=self.convObject,
                                             batchNormObject=batchNormObject)
         if num_dilated_convs > 0:
             self.dilatedConvs = DilatedConvolutions(self.filts_dims[-1],
                                                     num_dilated_convs,
                                                     dropout_max,
-                                                    convObject=convObject)
+                                                    convObject=self.convObject)
         else:
             self.dilatedConvs = None
         self.decoder = ConvolutionalDecoder(out_channels=out_channels,
@@ -372,7 +372,7 @@ class UNet(nn.Module):
                                             dropout_max=dropout_max,
                                             skip_mode=skip_mode,
                                             blockObject=ResidualBlock,
-                                            convObject=convObject,
+                                            convObject=self.convObject,
                                             batchNormObject=batchNormObject)
 
         self.apply(init_weights)
@@ -386,23 +386,24 @@ class UNet(nn.Module):
             for d in dilated_skips:
                 x += d
             x += skips[-1]
+
+        if (self.l2_normalize):
+            x = F.normalize(x, p=2, dim=1)
+
         feats = x
         x = self.decoder(x, skips[:-1][::-1])
         x = F.interpolate(x,
                           size=in_shape[2:],
                           mode='bilinear',
                           align_corners=True)
-        if (self.l2_normalize):
 
-            feats = F.normalize(feats, p=2, dim=1)
-
-        return {'output': x, 'feats': feats, 'layers': skips + [feats]}
+        return {'output': x, 'feats': feats, 'skips': skips}
 
     def to_predictor(self):
 
-        in_dim = self.decoder.output_convolution[0].in_channels
+        in_dim = self.decoder.filts_dims[-1]
         kernel_size = self.decoder.output_convolution[0].kernel_size
         padding = self.decoder.output_convolution[0].padding
         stride = self.decoder.output_convolution[0].stride
-        new_out = torch.nn.Conv2d(in_dim, 1, kernel_size, stride, padding)
+        new_out = self.convObject(in_dim, 1, kernel_size, stride, padding)
         self.decoder.output_convolution = torch.nn.Sequential(new_out)

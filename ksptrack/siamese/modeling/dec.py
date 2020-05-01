@@ -99,6 +99,7 @@ class DEC(nn.Module):
             self.autoencoder = UNet(depth=4,
                                     out_channels=out_channels,
                                     l2_normalize=True,
+                                    coordconv=False,
                                     skip_mode='none')
         else:
             self.autoencoder = DeepLabv3Plus()
@@ -139,7 +140,7 @@ class DEC(nn.Module):
         for param in self.assignment.parameters():
             param.requires_grad = switch
 
-    def forward(self, data):
+    def forward(self, image, labels):
         """
         Compute the cluster assignment using the ClusterAssignment after running the batch
         through the encoder part of the associated AutoEncoder module.
@@ -148,15 +149,15 @@ class DEC(nn.Module):
         :return: [batch size, number of clusters] FloatTensor
         """
 
-        res = self.autoencoder(data['image'])
+        res = self.autoencoder(image)
         feats = res['feats']
 
-        upsamp = nn.UpsamplingBilinear2d(data['labels'].size()[2:])
+        upsamp = nn.UpsamplingBilinear2d(labels.size()[2:])
         feats = upsamp(feats)
         pooled_feats = [
             self.roi_pool(feats[b].unsqueeze(0),
-                          data['labels'][b].unsqueeze(0)).squeeze().T
-            for b in range(data['labels'].shape[0])
+                          labels[b].unsqueeze(0)).squeeze().T
+            for b in range(labels.shape[0])
         ]
         pooled_feats = torch.cat(pooled_feats)
         pooled_feats = F.normalize(pooled_feats, p=2, dim=1)
@@ -165,6 +166,7 @@ class DEC(nn.Module):
         proj_pooled_feats = self.transform(pooled_feats)
         res.update({'proj_pooled_feats': proj_pooled_feats})
 
+        # clusters = self.assignment(proj_pooled_feats)
         clusters = self.assignment(pooled_feats)
         res.update({'clusters': clusters})
 

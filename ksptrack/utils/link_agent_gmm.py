@@ -99,8 +99,7 @@ class LinkAgentGMM(LinkAgentRadius):
         print('fitting GMM...')
         centroids = self.model.dec.assignment.cluster_centers.detach().cpu(
         ).numpy()
-        L = self.model.dec.transform.weight.detach().cpu().numpy()
-        feats_ = np.dot(np.concatenate(self.feats, axis=0), L.T)
+        feats_ = np.concatenate(self.feats, axis=0)
         assign_ = self.assignments
 
         n_clusters = self.model.dec.cluster_number
@@ -135,9 +134,7 @@ class LinkAgentGMM(LinkAgentRadius):
                                        reg_covar=1e-3,
                                        covariance_type='diag')
             self.gmm.fit(feats_)
-        self.probas = [
-            self.gmm.predict_proba(np.dot(f, L.T)) for f in self.feats
-        ]
+        self.probas = [self.gmm.predict_proba(f) for f in self.feats]
 
     def make_cluster_maps(self):
         return make_cluster_maps(self.model, self.dl, self.device)

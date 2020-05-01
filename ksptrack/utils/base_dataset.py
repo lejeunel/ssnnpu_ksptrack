@@ -116,6 +116,8 @@ class BaseDataset(data.Dataset):
         # we apply a threshold to get back to binary
 
         im = self.imgs[idx]
+        im = self.reshaper_img.augment_image(im)
+
         shape = im.shape
 
         truth = None
@@ -138,8 +140,8 @@ class BaseDataset(data.Dataset):
         else:
             aug_det = iaa.Noop()
 
-        im = aug_det.augment_images([im])[0]
-        im_unnormal = im.copy()
+        im_aug = aug_det.augment_images([im])[0]
+        im_unnormal = im_aug.copy()
 
         truth = ia.SegmentationMapsOnImage(truth, shape=truth.shape)
         labels = ia.SegmentationMapsOnImage(self.labels[..., idx].astype(
@@ -148,17 +150,19 @@ class BaseDataset(data.Dataset):
 
         if (self.normalization is not None):
             im = self.normalization.augment_image(im)
+            im_aug = self.normalization.augment_image(im_aug)
 
         truth = truth.get_arr()[..., np.newaxis]
         labels = labels.get_arr()[..., np.newaxis]
 
-        im = self.reshaper_img.augment_image(im)
+        im_aug = self.reshaper_img.augment_image(im_aug)
         im_unnormal = self.reshaper_img.augment_image(im_unnormal)
         truth = self.reshaper_seg.augment_image(truth)
         labels = self.reshaper_seg.augment_image(labels)
 
         return {
-            'image': im,
+            'image': im_aug,
+            'image_noaug': im,
             'image_unnormal': im_unnormal,
             'frame_name': os.path.split(self.img_paths[idx])[-1],
             'labels': labels,
@@ -176,6 +180,8 @@ class BaseDataset(data.Dataset):
         im_unnormal = [np.rollaxis(d['image_unnormal'], -1) for d in data]
         im_unnormal = torch.stack(
             [torch.from_numpy(i).float() for i in im_unnormal])
+        im_noaug = [np.rollaxis(d['image_noaug'], -1) for d in data]
+        im_noaug = torch.stack([torch.from_numpy(i).float() for i in im_noaug])
 
         truth = [np.rollaxis(d['label/segmentation'], -1) for d in data]
         truth = torch.stack([torch.from_numpy(i) for i in truth]).float()
@@ -185,6 +191,7 @@ class BaseDataset(data.Dataset):
 
         return {
             'image': im,
+            'image_noaug': im_noaug,
             'image_unnormal': im_unnormal,
             'frame_name': [d['frame_name'] for d in data],
             'frame_idx': [d['frame_idx'] for d in data],
@@ -192,3 +199,24 @@ class BaseDataset(data.Dataset):
             'label/segmentation': truth,
             'labels': labels
         }
+
+
+if __name__ == "__main__":
+
+    import matplotlib.pyplot as plt
+
+    transf = iaa.OneOf([
+        iaa.BilateralBlur(d=8, sigma_color=(100, 250), sigma_space=(100, 250)),
+        iaa.AdditiveGaussianNoise(scale=(0, 0.1 * 255)),
+        iaa.GammaContrast((0.5, 2.0))
+    ])
+
+    dl = BaseDataset(pjoin('/home/ubelix/lejeune/data/medical-labeling',
+                           'Dataset00'),
+                     normalization='rescale',
+                     augmentations=transf,
+                     resize_shape=512)
+
+    for sample in dl:
+        plt.imshow(sample['image'])
+        plt.show()
