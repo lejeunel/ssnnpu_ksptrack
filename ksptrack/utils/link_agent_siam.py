@@ -53,12 +53,17 @@ class LinkAgentSiam(LinkAgentRadius):
         self.labels_pos = []
         self.assignments = []
 
+        edges_list = utls.make_edges_ccl(self.model, self.dl, self.device)
+
         print('getting features')
         pbar = tqdm.tqdm(total=len(self.dl))
         for index, data in enumerate(self.dl):
             data = utls.batch_to_device(data, self.device)
+            edges_ = torch.cat(
+                [edges_list[f].edge_index for f in data['frame_idx']], dim=1)
             with torch.no_grad():
-                res = self.model(data)
+
+                res = self.model(data, edges_nn=edges_.to(self.device))
 
             clicked_labels = [
                 item for sublist in data['labels_clicked'] for item in sublist
@@ -78,6 +83,7 @@ class LinkAgentSiam(LinkAgentRadius):
 
             pbar.update(1)
         pbar.close()
+
         self.model.train()
 
     def make_cluster_maps(self):
@@ -91,5 +97,5 @@ class LinkAgentSiam(LinkAgentRadius):
 
         f0 = self.feats_csml[f0][l0].cpu().numpy()
         f1 = self.feats_csml[f1][l1].cpu().numpy()
-        sim = (np.dot(f0, f1) + 1) / 2
+        sim = np.dot(f0, f1)
         return sim

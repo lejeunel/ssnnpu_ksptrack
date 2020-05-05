@@ -28,35 +28,30 @@ class LocMotionAppearance(nn.Module):
 
     """
     def __init__(self,
-                 in_channels,
+                 in_dims,
                  dropout_min=0.,
                  dropout_max=0.2,
-                 mixing_coeff=0.):
+                 mixing_coeff=0.,
+                 sigma=0.05):
         """
         """
         super(LocMotionAppearance, self).__init__()
+        self.gcns = []
+        self.sigma = sigma
+        self.mixing_coeff = mixing_coeff
 
-        self.conv1 = nn.Conv1d(in_channels=in_channels,
-                               out_channels=256,
-                               kernel_size=3,
-                               stride=1,
-                               padding=1)
-        self.lin1 = nn.Linear(in_features=256, out_features=256)
+        in_dims = in_dims + [in_dims[-1]]
+        for i in range(len(in_dims) - 1):
+            gcn_ = gnn.GCNConv(in_channels=in_dims[i],
+                               out_channels=in_dims[i + 1],
+                               normalize=False)
 
-        self.conv1_merge = nn.Conv1d(in_channels=512,
-                                     out_channels=512,
-                                     kernel_size=3,
-                                     stride=1,
-                                     padding=1)
-        self.lin1_merge = nn.Linear(in_features=512, out_features=256)
-        self.lin2_merge = nn.Linear(in_features=256, out_features=128)
+            self.gcns.append(gcn_)
 
-        self.lin1_dist = nn.Linear(128, 15, bias=False)
-        self.nonlin = nn.CELU()
-        self.dropout = nn.Dropout(dropout_max)
+        self.gcns = nn.ModuleList(self.gcns)
 
-        self.lin_pred = nn.Linear(128, 1)
-        self.apply(init_weights)
+        self.lin = nn.Linear(256, 1, bias=False)
+        self.sigmoid = nn.Sigmoid()
 
     def make_coord_map(self, batch_size, w, h):
         xx_ones = torch.ones([1, 1, 1, w], dtype=torch.int32)
@@ -83,7 +78,7 @@ class LocMotionAppearance(nn.Module):
 
         return out
 
-    def forward(self, data, dec_feats):
+    def forward(self, data, autoenc_skips, edges_nn):
 
         # make location/motion input tensor
         batch_size, _, w, h = data['labels'].shape
@@ -92,51 +87,41 @@ class LocMotionAppearance(nn.Module):
                                          h).to(data['labels'].device)
 
         pooled_coords = sp_pool(coord_maps, data['labels'])
-        pooled_fx = sp_pool(data['fx'], data['labels'])[..., None]
-        pooled_fy = sp_pool(data['fy'], data['labels'])[..., None]
+        # pooled_im = sp_pool(data['image'], data['labels'])
+        # pooled_fx = sp_pool(data['fx'], data['labels'])[..., None]
+        # pooled_fy = sp_pool(data['fy'], data['labels'])[..., None]
 
-        n_samples = [torch.unique(l).numel() for l in data['labels']]
-        time_idxs = torch.cat([
-            torch.tensor(n * [idx / (N - 1)]).to(data['labels'].device) for n,
-            idx, N in zip(n_samples, data['frame_idx'], data['n_frames'])
-        ])[..., None]
+        # n_samples = [torch.unique(l).numel() for l in data['labels']]
+        # time_idxs = torch.cat([
+        #     torch.tensor(n * [idx / (N - 1)]).to(data['labels'].device) for n,
+        #     idx, N in zip(n_samples, data['frame_idx'], data['n_frames'])
+        # ])[..., None]
 
-        x = torch.cat((time_idxs, pooled_coords, pooled_fx, pooled_fy),
-                      dim=1).T[None, ...]
-        x = self.conv1(x)
-        x = self.nonlin(x)
-        x = self.dropout(x)
-        x = self.lin1(x.squeeze(0).T)
-        x = self.nonlin(x)
-        x = self.dropout(x)
+        # x = torch.cat(
+        #     (time_idxs, pooled_coords, pooled_fx, pooled_fy, pooled_im), dim=1)
+        # x = pooled_im
 
-        x = F.normalize(x, p=2, dim=1)
-        x = torch.cat((x, dec_feats), dim=1)
+        r0 = pooled_coords[edges_nn[0]]
+        r1 = pooled_coords[edges_nn[1]]
+        dr = r0 - r1
+        dist = dr.norm(dim=1)
+        edge_attr = torch.exp(-dist**2 / self.sigma)
+        data_x = sp_pool(autoenc_skips[0], data['labels'])
+        x = Data(x=data_x, edge_index=edges_nn, edge_attr=edge_attr)
 
-        x = self.conv1_merge(x.T.unsqueeze(0))
-        x = self.nonlin(x)
-        x = self.dropout(x)
-        x = self.lin1_merge(x.squeeze(0).T)
-        x = self.nonlin(x)
-        x = self.dropout(x)
-        x = self.lin2_merge(x)
-        x = self.nonlin(x)
-        x = self.dropout(x)
+        for i, g in enumerate(self.gcns):
+            if (i > 0):
+                skip = sp_pool(autoenc_skips[i], data['labels'])
+                x.x = (1 - self.mixing_coeff) * x.x + self.mixing_coeff * skip
+            x.x = F.relu(g(x.x, x.edge_index, edge_weight=x.edge_attr))
 
-        rho_hat = self.lin_pred(x)
-        rho_hat = self.dropout(rho_hat)
+        negs = structured_negative_sampling(edges_nn)
+        dap = self.sigmoid(
+            self.lin(x.x[edges_nn[0]]) - self.lin(x.x[edges_nn[1]]))
 
-        x = F.normalize(x, p=2, dim=1)
+        dan = self.sigmoid(self.lin(x.x[edges_nn[0]]) - self.lin(x.x[negs]))
 
-        # l2-normalize weights
-        with torch.no_grad():
-            self.lin1_dist.weight.div_(
-                torch.norm(self.lin1_dist.weight, p=2, dim=1, keepdim=True))
-        cs = self.lin1_dist(x)
-        # cs = self.bn1(cs)
-        cs = self.dropout(cs)
-
-        return cs, x, rho_hat
+        return {'dan': dan, 'dap': dap, 'dist': edge_attr}
 
 
 class Siamese(nn.Module):
@@ -175,17 +160,13 @@ class Siamese(nn.Module):
 
         self.sigmoid = nn.Sigmoid()
 
-        if (backbone == 'drn'):
-            self.in_dims = [3, 32, 64, 128, 256]
-        else:
-            self.in_dims = [3] + self.dec.autoencoder.filts_dims
-
         self.roi_pool = SupPixPool()
 
-        self.locmotionapp = LocMotionAppearance(5,
-                                                dropout_min=0,
-                                                dropout_max=0.2,
-                                                mixing_coeff=0.2)
+        self.locmotionapp = LocMotionAppearance(
+            in_dims=self.dec.autoencoder.filts_dims,
+            dropout_min=0,
+            dropout_max=0.2,
+            mixing_coeff=0.2)
 
     def load_partial(self, state_dict):
         # filter out unnecessary keys
@@ -195,15 +176,14 @@ class Siamese(nn.Module):
         }
         self.load_state_dict(state_dict, strict=False)
 
-    def forward(self, data):
+    def forward(self, data, edges_nn=None):
 
         res = self.dec(data['image'], data['labels'])
 
-        # feat and location/motion branches
-        cs, cs_r, rho_hat = self.locmotionapp(data, res['pooled_feats'])
+        if (edges_nn is not None):
+            cs, cs_r = self.locmotionapp(data, res['skips'], edges_nn)
+            res.update({'cs': cs, 'cs_r': cs_r})
 
-        res.update({'cs': cs})
-        res.update({'cs_r': cs_r})
-        res.update({'rho_hat': rho_hat})
+        res['rho_hat'] = sp_pool(res['output'], data['labels'])
 
         return res

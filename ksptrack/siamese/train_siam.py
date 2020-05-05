@@ -58,8 +58,8 @@ def train_one_epoch(model,
     running_pw = 0.0
     running_obj_pred = 0.0
 
-    # criterion_clst = torch.nn.KLDivLoss(reduction='mean')
-    criterion_clst = PWClusteringLoss()
+    criterion_clst = torch.nn.KLDivLoss(reduction='mean')
+    # criterion_clst = PWClusteringLoss()
     criterion_pw = CosineSoftMax()
     criterion_obj_pred = torch.nn.BCEWithLogitsLoss()
     criterion_recons = torch.nn.MSELoss()
@@ -74,30 +74,27 @@ def train_one_epoch(model,
                 optimizers[k].zero_grad()
 
             _, targets = distrib_buff[data['frame_idx']]
+            edges_ = torch.cat(
+                [edges_list[f].edge_index for f in data['frame_idx']], dim=1)
 
             probas_ = torch.cat([probas[i] for i in data['frame_idx']])
-            res = model(data)
+            res = model(data, edges_nn=edges_.to(probas_.device))
 
             loss = 0
 
             if (not cfg.fix_clst):
-                loss_clst = criterion_clst(
-                    res['clusters'],
-                    targets.to(res['clusters']),
-                    edges=torch.cat(
-                        [edges_list[f].edge_index for f in data['frame_idx']],
-                        dim=1),
-                    labels=data['labels'])
-                loss += 100 * loss_clst
+                loss_clst = criterion_clst(res['clusters'],
+                                           targets.to(res['clusters']))
+                loss += loss_clst
 
             if (cfg.clf):
                 loss_obj_pred = criterion_obj_pred(res['rho_hat'].squeeze(),
                                                    (probas_ >= 0.5).float())
                 loss += cfg.lambda_ * loss_obj_pred
 
-            loss_recons = criterion_recons(sigmoid(res['output']),
-                                           data['image_noaug'])
-            loss += cfg.gamma * loss_recons
+            # loss_recons = criterion_recons(sigmoid(res['output']),
+            #                                data['image_noaug'])
+            # loss += cfg.gamma * loss_recons
 
             if (cfg.pw):
                 loss_pw = criterion_pw(res['cs'], targets)
@@ -112,7 +109,7 @@ def train_one_epoch(model,
                 lr_sch[k].step()
 
         running_loss += loss.cpu().detach().numpy()
-        running_recons += loss_recons.cpu().detach().numpy()
+        # running_recons += loss_recons.cpu().detach().numpy()
         if (not cfg.fix_clst):
             running_clst += loss_clst.cpu().detach().numpy()
         if (cfg.clf):
@@ -152,7 +149,7 @@ def train(cfg, model, device, dataloaders, run_path):
     print('loading checkpoint {}'.format(path_))
     state_dict = torch.load(path_, map_location=lambda storage, loc: storage)
     model.load_partial(state_dict)
-    # model.dec.autoencoder.to_predictor()
+    model.dec.autoencoder.to_predictor()
 
     check_cp_exist = pjoin(run_path, 'checkpoints', best_cp_fname)
     if (os.path.exists(check_cp_exist)):
@@ -219,7 +216,7 @@ def train(cfg, model, device, dataloaders, run_path):
         'locmotionapp':
         optim.Adam(params=[{
             'params': model.locmotionapp.parameters(),
-            'lr': cfg.lr_autoenc,
+            'lr': cfg.lr_autoenc * 10,
         }]),
         'assign':
         optim.Adam(params=[{
@@ -286,9 +283,7 @@ def train(cfg, model, device, dataloaders, run_path):
                     print('Generating connected components graphs')
                     edges_list = utls.make_edges_ccl(model,
                                                      dataloaders['all_prev'],
-                                                     device,
-                                                     probas,
-                                                     add_self_loops=True)
+                                                     device, probas)
                     print('Updating target distributions')
                     distrib_buff.do_update(model, dataloaders['all_prev'],
                                            device)

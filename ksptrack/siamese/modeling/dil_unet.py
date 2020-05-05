@@ -387,17 +387,18 @@ class UNet(nn.Module):
                 x += d
             x += skips[-1]
 
+        feats = x
+
         if (self.l2_normalize):
             x = F.normalize(x, p=2, dim=1)
 
-        feats = x
         x = self.decoder(x, skips[:-1][::-1])
         x = F.interpolate(x,
                           size=in_shape[2:],
                           mode='bilinear',
                           align_corners=True)
 
-        return {'output': x, 'feats': feats, 'skips': skips}
+        return {'output': x, 'feats': feats, 'skips': skips + [feats]}
 
     def to_predictor(self):
 

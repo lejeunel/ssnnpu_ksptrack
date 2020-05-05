@@ -287,7 +287,7 @@ def complete_graph_from_list(L, create_using=None):
 
 
 class CosineSoftMax(nn.Module):
-    def __init__(self, kappa=10.):
+    def __init__(self, kappa=20.):
         super(CosineSoftMax, self).__init__()
         self.kappa = kappa
         self.loss = nn.CrossEntropyLoss(reduction='none')

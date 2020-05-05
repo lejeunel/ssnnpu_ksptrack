@@ -15,7 +15,7 @@ import torch_geometric.utils as gutls
 def make_edges_ccl(model,
                    dataloader,
                    device,
-                   probas,
+                   probas=None,
                    drho=0.3,
                    return_subgraphs=False,
                    add_self_loops=False):
@@ -34,12 +34,15 @@ def make_edges_ccl(model,
         data = batch_to_device(data, device)
 
         clst = model(data)['clusters'].argmax(dim=1)
-        probas_ = probas[data['frame_idx'][0]]
 
-        # get edges according to cluster assignments and probas
-        edges_ = [(n0, n1) for n0, n1 in data['graph'][0].edges if (
-            (clst[n0] == clst[n1]) and (abs(probas_[n0] - probas_[n1]) < drho))
-                  ]
+        # get edges according to cluster assignments
+        edges_ = [(n0, n1) for n0, n1 in data['graph'][0].edges
+                  if ((clst[n0] == clst[n1]))]
+
+        if (probas is not None):
+            probas_ = probas[data['frame_idx'][0]]
+            edges_ = [(n0, n1) for n0, n1 in edges_
+                      if abs(probas_[n0] - probas_[n1]) < drho]
 
         # create the induced subgraph of each component
         g = nx.Graph(edges_)

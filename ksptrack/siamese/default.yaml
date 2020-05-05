@@ -18,9 +18,9 @@ lr-assign: 1e-3
 decay : 2e-4
 lr-power : 0.99
 momentum: 0.9
-lambda-: 10
+lambda-: 1
 gamma: 10
-beta: 1e-1
+beta: 1e-2
 alpha: 1
 delta: 1000
 
