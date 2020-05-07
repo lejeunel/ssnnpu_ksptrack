@@ -95,8 +95,8 @@ def train_kmeans(model,
     print('fitting {} clusters with kmeans'.format(n_clusters))
 
     clf = KMeans(n_clusters=n_clusters, n_init=30)
-    # preds = clf.fit_predict(np.dot(cat_features, L))
-    preds = clf.fit_predict(cat_features)
+    preds = clf.fit_predict(np.dot(cat_features, L))
+    # preds = clf.fit_predict(cat_features)
     init_clusters = clf.cluster_centers_
 
     predictions = [utls.to_onehot(p, n_clusters).ravel() for p in preds]
@@ -125,7 +125,7 @@ def train(cfg, model, device, dataloaders, run_path=None):
             dataloaders['buff'],
             device,
             cfg.n_clusters,
-            embedded_dims=256,
+            embedded_dims=cfg.embedded_dims,
             reduc_method=cfg.reduc_method,
             bag_t=cfg.bag_t,
             bag_n_feats=cfg.bag_n_feats,
@@ -182,7 +182,7 @@ def main(cfg):
 
     device = torch.device('cuda' if cfg.cuda else 'cpu')
 
-    model = Siamese(embedded_dims=256,
+    model = Siamese(embedded_dims=cfg.embedded_dims,
                     cluster_number=cfg.n_clusters,
                     alpha=cfg.alpha,
                     backbone=cfg.backbone)

@@ -160,14 +160,14 @@ class DEC(nn.Module):
             for b in range(labels.shape[0])
         ]
         pooled_feats = torch.cat(pooled_feats)
-        pooled_feats = F.normalize(pooled_feats, p=2, dim=1)
+        # pooled_feats = F.normalize(pooled_feats, p=2, dim=1)
         res.update({'pooled_feats': pooled_feats})
 
         proj_pooled_feats = self.transform(pooled_feats)
         res.update({'proj_pooled_feats': proj_pooled_feats})
 
-        # clusters = self.assignment(proj_pooled_feats)
-        clusters = self.assignment(pooled_feats)
+        clusters = self.assignment(proj_pooled_feats)
+        # clusters = self.assignment(pooled_feats)
         res.update({'clusters': clusters})
 
         return res

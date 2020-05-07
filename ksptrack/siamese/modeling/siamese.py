@@ -41,17 +41,18 @@ class LocMotionAppearance(nn.Module):
         self.mixing_coeff = mixing_coeff
 
         in_dims = in_dims + [in_dims[-1]]
+        in_dims[0] += 4
         for i in range(len(in_dims) - 1):
-            gcn_ = gnn.GCNConv(in_channels=in_dims[i],
-                               out_channels=in_dims[i + 1],
-                               normalize=False)
+            gcn_ = gnn.SAGEConv(in_channels=in_dims[i],
+                                out_channels=in_dims[i + 1],
+                                normalize=False)
 
             self.gcns.append(gcn_)
 
         self.gcns = nn.ModuleList(self.gcns)
 
-        self.lin = nn.Linear(256, 1, bias=False)
-        self.sigmoid = nn.Sigmoid()
+        self.top_bns = nn.ModuleList([nn.BatchNorm1d(d) for d in in_dims])
+        self.bns = nn.ModuleList([nn.BatchNorm1d(d) for d in in_dims[1:]])
 
     def make_coord_map(self, batch_size, w, h):
         xx_ones = torch.ones([1, 1, 1, w], dtype=torch.int32)
@@ -87,41 +88,28 @@ class LocMotionAppearance(nn.Module):
                                          h).to(data['labels'].device)
 
         pooled_coords = sp_pool(coord_maps, data['labels'])
-        # pooled_im = sp_pool(data['image'], data['labels'])
-        # pooled_fx = sp_pool(data['fx'], data['labels'])[..., None]
-        # pooled_fy = sp_pool(data['fy'], data['labels'])[..., None]
+        pooled_fx = sp_pool(data['fx'], data['labels'])[..., None]
+        pooled_fy = sp_pool(data['fy'], data['labels'])[..., None]
 
-        # n_samples = [torch.unique(l).numel() for l in data['labels']]
-        # time_idxs = torch.cat([
-        #     torch.tensor(n * [idx / (N - 1)]).to(data['labels'].device) for n,
-        #     idx, N in zip(n_samples, data['frame_idx'], data['n_frames'])
-        # ])[..., None]
+        n_samples = [torch.unique(l).numel() for l in data['labels']]
 
-        # x = torch.cat(
-        #     (time_idxs, pooled_coords, pooled_fx, pooled_fy, pooled_im), dim=1)
-        # x = pooled_im
-
-        r0 = pooled_coords[edges_nn[0]]
-        r1 = pooled_coords[edges_nn[1]]
-        dr = r0 - r1
-        dist = dr.norm(dim=1)
-        edge_attr = torch.exp(-dist**2 / self.sigma)
         data_x = sp_pool(autoenc_skips[0], data['labels'])
-        x = Data(x=data_x, edge_index=edges_nn, edge_attr=edge_attr)
+        data_x = torch.cat((pooled_coords, pooled_fx, pooled_fy, data_x),
+                           dim=1)
+        data_x = self.top_bns[0](data_x)
+        x = Data(x=data_x, edge_index=edges_nn[:2])
 
         for i, g in enumerate(self.gcns):
             if (i > 0):
                 skip = sp_pool(autoenc_skips[i], data['labels'])
+                skip = self.top_bns[i](skip)
+                x.x = self.bns[i - 1](x.x)
                 x.x = (1 - self.mixing_coeff) * x.x + self.mixing_coeff * skip
-            x.x = F.relu(g(x.x, x.edge_index, edge_weight=x.edge_attr))
+            x.x = F.relu(g(x.x, x.edge_index))
 
-        negs = structured_negative_sampling(edges_nn)
-        dap = self.sigmoid(
-            self.lin(x.x[edges_nn[0]]) - self.lin(x.x[edges_nn[1]]))
+        x = F.normalize(x.x, p=2, dim=1)
 
-        dan = self.sigmoid(self.lin(x.x[edges_nn[0]]) - self.lin(x.x[negs]))
-
-        return {'dan': dan, 'dap': dap, 'dist': edge_attr}
+        return {'siam_feats': x}
 
 
 class Siamese(nn.Module):
@@ -166,7 +154,7 @@ class Siamese(nn.Module):
             in_dims=self.dec.autoencoder.filts_dims,
             dropout_min=0,
             dropout_max=0.2,
-            mixing_coeff=0.2)
+            mixing_coeff=0.5)
 
     def load_partial(self, state_dict):
         # filter out unnecessary keys
@@ -178,11 +166,11 @@ class Siamese(nn.Module):
 
     def forward(self, data, edges_nn=None):
 
-        res = self.dec(data['image'], data['labels'])
+        res = self.dec(data['image_noaug'], data['labels'])
 
         if (edges_nn is not None):
-            cs, cs_r = self.locmotionapp(data, res['skips'], edges_nn)
-            res.update({'cs': cs, 'cs_r': cs_r})
+            res_siam = self.locmotionapp(data, res['skips'], edges_nn)
+            res.update(res_siam)
 
         res['rho_hat'] = sp_pool(res['output'], data['labels'])
 

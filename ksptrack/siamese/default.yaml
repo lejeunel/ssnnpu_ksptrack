@@ -12,15 +12,15 @@ proba-update-period: 999
 cp-period: 2
 
 # optimizer
-lr-dist: 1e-4
+lr-dist: 1e-3
 lr-autoenc: 1e-4
 lr-assign: 1e-3
 decay : 2e-4
-lr-power : 0.99
+lr-power : 1.
 momentum: 0.9
 lambda-: 1
 gamma: 10
-beta: 1e-2
+beta: 1
 alpha: 1
 delta: 1000
 

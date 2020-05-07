@@ -18,7 +18,7 @@ from ksptrack.cfgs import params as params_ksp
 from ksptrack.siamese import utils as utls
 from ksptrack.siamese.distrib_buffer import DistribBuffer
 from ksptrack.siamese.loader import Loader
-from ksptrack.siamese.losses import CosineSoftMax, PWClusteringLoss
+from ksptrack.siamese.losses import RAGTripletLoss, PWClusteringLoss
 from ksptrack.siamese.modeling.siamese import Siamese
 from ksptrack.utils.bagging import calc_bagging
 from ksptrack.siamese.train_init_clst import train_kmeans
@@ -60,7 +60,8 @@ def train_one_epoch(model,
 
     criterion_clst = torch.nn.KLDivLoss(reduction='mean')
     # criterion_clst = PWClusteringLoss()
-    criterion_pw = CosineSoftMax()
+    # criterion_pw = CosineSoftMax()
+    criterion_pw = RAGTripletLoss()
     criterion_obj_pred = torch.nn.BCEWithLogitsLoss()
     criterion_recons = torch.nn.MSELoss()
 
@@ -74,11 +75,12 @@ def train_one_epoch(model,
                 optimizers[k].zero_grad()
 
             _, targets = distrib_buff[data['frame_idx']]
-            edges_ = torch.cat(
-                [edges_list[f].edge_index for f in data['frame_idx']], dim=1)
-
             probas_ = torch.cat([probas[i] for i in data['frame_idx']])
-            res = model(data, edges_nn=edges_.to(probas_.device))
+            edges_ = torch.cat(
+                [edges_list[f].edge_index for f in data['frame_idx']],
+                dim=1).to(probas_.device)
+
+            res = model(data, edges_nn=edges_)
 
             loss = 0
 
@@ -97,7 +99,7 @@ def train_one_epoch(model,
             # loss += cfg.gamma * loss_recons
 
             if (cfg.pw):
-                loss_pw = criterion_pw(res['cs'], targets)
+                loss_pw = criterion_pw(res['siam_feats'], edges_)
                 loss += cfg.beta * loss_pw
 
             loss.backward()
@@ -105,8 +107,8 @@ def train_one_epoch(model,
             for k in optimizers.keys():
                 optimizers[k].step()
 
-            for k in lr_sch.keys():
-                lr_sch[k].step()
+            # for k in lr_sch.keys():
+            # lr_sch[k].step()
 
         running_loss += loss.cpu().detach().numpy()
         # running_recons += loss_recons.cpu().detach().numpy()
@@ -223,6 +225,12 @@ def train(cfg, model, device, dataloaders, run_path):
             'params': model.dec.assignment.parameters(),
             'lr': cfg.lr_dist,
         }],
+                   weight_decay=cfg.decay),
+        'transform':
+        optim.Adam(params=[{
+            'params': model.dec.transform.parameters(),
+            'lr': cfg.lr_dist,
+        }],
                    weight_decay=cfg.decay)
     }
 
@@ -265,7 +273,7 @@ def train(cfg, model, device, dataloaders, run_path):
                         dataloaders['all_prev'],
                         device,
                         cfg.n_clusters,
-                        embedded_dims=256,
+                        embedded_dims=cfg.embedded_dims,
                         reduc_method='pca')
                     L = torch.tensor(L).float().to(device)
                     init_clusters = torch.tensor(init_clusters,
@@ -342,7 +350,7 @@ def main(cfg):
         os.makedirs(run_path)
 
     device = torch.device('cuda' if cfg.cuda else 'cpu')
-    model = Siamese(embedded_dims=256,
+    model = Siamese(embedded_dims=cfg.embedded_dims,
                     cluster_number=cfg.n_clusters,
                     alpha=cfg.alpha,
                     backbone=cfg.backbone).to(device)

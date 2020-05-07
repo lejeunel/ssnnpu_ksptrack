@@ -80,7 +80,7 @@ class LinkAgentGMM(LinkAgentRadius):
 
         self.fit_gmm()
 
-    def prepare_feats(self, all_edges_nn=None, feat_field='pooled_feats'):
+    def prepare_feats(self, all_edges_nn=None, feat_field='proj_pooled_feats'):
         print('preparing features for linkAgentGMM')
 
         self.feats, self.labels_pos, self.assignments, self.obj_preds = get_features(

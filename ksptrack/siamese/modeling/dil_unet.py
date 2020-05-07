@@ -389,8 +389,8 @@ class UNet(nn.Module):
 
         feats = x
 
-        if (self.l2_normalize):
-            x = F.normalize(x, p=2, dim=1)
+        # if (self.l2_normalize):
+        #     x = F.normalize(x, p=2, dim=1)
 
         x = self.decoder(x, skips[:-1][::-1])
         x = F.interpolate(x,

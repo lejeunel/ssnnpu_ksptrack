@@ -75,7 +75,7 @@ class LinkAgentSiam(LinkAgentRadius):
             self.labels_pos.append(to_add)
 
             self.obj_preds.append(self.sigmoid(res['rho_hat']).cpu().numpy())
-            self.feats_csml.append(res['cs_r'])
+            self.feats_csml.append(res['siam_feats'])
             self.feats.append(
                 res['pooled_feats'].detach().cpu().numpy().squeeze())
             self.assignments.append(
@@ -95,7 +95,9 @@ class LinkAgentSiam(LinkAgentRadius):
 
     def get_proba(self, f0, l0, f1, l1, *args):
 
-        f0 = self.feats_csml[f0][l0].cpu().numpy()
-        f1 = self.feats_csml[f1][l1].cpu().numpy()
-        sim = np.dot(f0, f1)
-        return sim
+        f0 = self.feats_csml[f0][l0].detach().cpu().numpy()
+        f1 = self.feats_csml[f1][l1].detach().cpu().numpy()
+
+        p = np.dot(f0, f1)
+
+        return p

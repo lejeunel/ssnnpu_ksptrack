@@ -48,8 +48,8 @@ def make_link_agent(cfg):
         cfg_path = pjoin(cfg_path, 'cfg.yml')
         with open(cfg_path) as f:
             cfg_siam = Bunch(yaml.load(f, Loader=yaml.FullLoader))
-        model = Siamese(256, cfg_siam.n_clusters, cfg_siam.alpha,
-                        cfg_siam.backbone)
+        model = Siamese(cfg_siam.embedded_dims, cfg_siam.n_clusters,
+                        cfg_siam.alpha, cfg_siam.backbone)
         if (cfg.use_siam_pred):
             model.dec.autoencoder.to_predictor()
         print('loading checkpoint {}'.format(cfg.siam_path))

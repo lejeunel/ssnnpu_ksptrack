@@ -377,42 +377,76 @@ class PWClusteringLoss(nn.Module):
         return loss
 
 
-class TripletLoss(nn.Module):
-    def __init__(self, margin=0.2):
-        super(TripletLoss, self).__init__()
-        self.cosine_sim = nn.CosineSimilarity()
-        self.margin = margin
-        # self.K = 0.5
-        # self.T = 0.2
+def sample_triplets(edges):
 
-    def forward(self, z, edges_list):
+    # for each clique, generate a mask
+    tplts = []
+    for c in torch.unique(edges[-1, :]):
+        cands = torch.unique(edges[:2, edges[-1, :] != c].flatten())
+        idx = torch.randint(0,
+                            cands.numel(),
+                            size=((edges[-1, :] == c).sum(), ))
+        tplts.append(
+            torch.cat((edges[:2, edges[-1, :] == c], cands[idx][None, ...]),
+                      dim=0))
+
+    tplts = torch.cat(tplts, dim=1)
+
+    return tplts
+
+
+class RAGTripletLoss(nn.Module):
+    def __init__(self):
+        super(RAGTripletLoss, self).__init__()
+        self.cs = nn.CosineSimilarity(dim=1)
+        self.thr = 0.2
+
+    def forward(self, feats, edges):
         """Computes the triplet loss between positive node pairs and sampled
         non-node pairs.
 
-        Args:
-            z (Tensor): The node embeddings.
-            pos_edge_index (LongTensor): The positive edge indices.
         """
 
-        # relabel edges
-        relabeled_edges_list = []
-        max_node = 0
-        for edges in edges_list:
-            e_idx = edges.edge_index.clone()
-            e_idx += max_node
-            max_node = edges.n_nodes
-            relabeled_edges_list.append(e_idx)
+        tplts = sample_triplets(edges)
 
-        relabeled_edges_list = torch.cat(relabeled_edges_list, dim=1)
-        relabeled_edges_list.to(z.device)
+        cs_ap = self.cs(feats[tplts[0]], feats[tplts[1]])
+        cs_an = self.cs(feats[tplts[0]], feats[tplts[2]])
+        dap = 1 - cs_ap
+        dan = 1 - cs_an
 
-        # do sampling
-        i, j, k = structured_negative_sampling(relabeled_edges_list)
+        loss = torch.log1p(torch.exp(dap - dan)).mean()
+        return loss
 
-        d_ap = 1 - self.cosine_sim(z[i], z[j])
-        d_an = 1 - self.cosine_sim(z[i], z[k])
 
-        loss = torch.log1p(d_ap - d_an).mean()
+class TripletLoss(nn.Module):
+    def __init__(self):
+        super(TripletLoss, self).__init__()
+        self.cs = nn.CosineSimilarity(dim=1)
+        self.thr = 0.2
+        self.max_tplts = 2000
+
+    def forward(self, feats, edges_nn):
+        """Computes the triplet loss between positive node pairs and sampled
+        non-node pairs.
+
+        """
+
+        _, _, neg = structured_negative_sampling(edges_nn)
+        cs_ap = self.cs(feats[edges_nn[0]], feats[edges_nn[1]])
+        cs_an = self.cs(feats[edges_nn[0]], feats[neg])
+        dap = 1 - cs_ap
+        dan = 1 - cs_an
+
+        idx = dap > self.thr
+        dap = dap[idx]
+        dan = dan[idx]
+
+        if (dap.numel() > self.max_tplts):
+            idx = torch.randperm(dap.numel())[:self.max_tplts]
+            dap = dap[idx]
+            dan = dan[idx]
+
+        loss = torch.log1p(torch.exp(dap - dan)).mean()
         return loss
 
 
