@@ -16,7 +16,7 @@ def make_edges_ccl(model,
                    dataloader,
                    device,
                    probas=None,
-                   drho=0.3,
+                   drho=0.5,
                    return_subgraphs=False,
                    add_self_loops=False):
     """Computes for each graph in dataloader its
@@ -51,12 +51,15 @@ def make_edges_ccl(model,
 
         # all connected components form a fully connected group
         # edges_cc = [combinations(S_.nodes, 2) for S_ in S]
-        # edges_cc = [item for sublist in edges_cc for item in sublist]
+        edges_cc = [[(n0, n1, c) for n0, n1 in S_.edges]
+                    for c, S_ in enumerate(S)]
+        edges_cc = [item for sublist in edges_cc for item in sublist]
+        edges_cc = np.array(edges_cc)
         # g_cc = nx.Graph()
         # g_cc.add_edges_from(sub)
 
-        edges_cc = np.concatenate([[(n0, n1, c) for n0, n1 in s.edges]
-                                   for c, s in enumerate(S)])
+        # edges_cc = np.concatenate([[(n0, n1, c) for n0, n1 in s.edges]
+        # for c, s in enumerate(S)])
         edges_cc = torch.from_numpy(edges_cc).T
 
         # if (add_self_loops):

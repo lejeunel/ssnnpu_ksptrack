@@ -399,7 +399,7 @@ class RAGTripletLoss(nn.Module):
     def __init__(self):
         super(RAGTripletLoss, self).__init__()
         self.cs = nn.CosineSimilarity(dim=1)
-        self.thr = 0.2
+        self.margin = 0.3
 
     def forward(self, feats, edges):
         """Computes the triplet loss between positive node pairs and sampled
@@ -414,7 +414,17 @@ class RAGTripletLoss(nn.Module):
         dap = 1 - cs_ap
         dan = 1 - cs_an
 
-        loss = torch.log1p(torch.exp(dap - dan)).mean()
+        # weight by clique size
+        bc = torch.bincount(edges[-1])
+        freq_weights = bc.max() / bc.float()
+        freq_smp_weights = freq_weights[edges[-1]]
+
+        loss = torch.clamp(dap - dan + self.margin, min=0) * freq_smp_weights
+        loss = loss[loss > 0]
+        # loss = torch.log1p(torch.exp(dap - dan)) * freq_smp_weights
+        # loss = torch.log1p(torch.exp(dap - dan)) * freq_smp_weights
+        loss = loss.mean()
+
         return loss
 
 

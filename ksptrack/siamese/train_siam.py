@@ -211,14 +211,14 @@ def train(cfg, model, device, dataloaders, run_path):
         optim.Adam(
             params=[{
                 'params': model.dec.autoencoder.parameters(),
-                'lr': cfg.lr_autoenc * 10,
+                'lr': cfg.lr_autoenc,
             }],
             # weight_decay=cfg.decay),
             weight_decay=0),
         'locmotionapp':
         optim.Adam(params=[{
             'params': model.locmotionapp.parameters(),
-            'lr': cfg.lr_autoenc * 10,
+            'lr': cfg.lr_autoenc,
         }]),
         'assign':
         optim.Adam(params=[{

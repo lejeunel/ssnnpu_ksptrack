@@ -3,7 +3,7 @@ frames: []
 epochs-autoenc: 150
 epochs-pre-pred: 20
 epochs-dec: 100
-epochs-dist: 200
+epochs-dist: 300
 
 # generate previews every x epochs
 prev-period: 10
@@ -20,7 +20,7 @@ lr-power : 1.
 momentum: 0.9
 lambda-: 1
 gamma: 10
-beta: 1
+beta: 1e-1
 alpha: 1
 delta: 1000
 

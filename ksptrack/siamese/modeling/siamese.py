@@ -40,19 +40,19 @@ class LocMotionAppearance(nn.Module):
         self.sigma = sigma
         self.mixing_coeff = mixing_coeff
 
-        in_dims = in_dims + [in_dims[-1]]
-        in_dims[0] += 4
-        for i in range(len(in_dims) - 1):
-            gcn_ = gnn.SAGEConv(in_channels=in_dims[i],
-                                out_channels=in_dims[i + 1],
-                                normalize=False)
+        in_dims = [[2 * d, 2 * d] for d in in_dims]
+        in_dims[0][0] = 36
+        for dims in in_dims:
+            # gcn_ = gnn.SAGEConv(in_channels=dims[0],
+            #                     out_channels=dims[1],
+            #                     normalize=False)
+            gcn_ = gnn.GCNConv(in_channels=dims[0], out_channels=dims[1])
 
             self.gcns.append(gcn_)
 
         self.gcns = nn.ModuleList(self.gcns)
 
-        self.top_bns = nn.ModuleList([nn.BatchNorm1d(d) for d in in_dims])
-        self.bns = nn.ModuleList([nn.BatchNorm1d(d) for d in in_dims[1:]])
+        self.bns = nn.ModuleList([nn.BatchNorm1d(d[0]) for d in in_dims])
 
     def make_coord_map(self, batch_size, w, h):
         xx_ones = torch.ones([1, 1, 1, w], dtype=torch.int32)
@@ -96,15 +96,14 @@ class LocMotionAppearance(nn.Module):
         data_x = sp_pool(autoenc_skips[0], data['labels'])
         data_x = torch.cat((pooled_coords, pooled_fx, pooled_fy, data_x),
                            dim=1)
-        data_x = self.top_bns[0](data_x)
+        data_x = self.bns[0](data_x)
         x = Data(x=data_x, edge_index=edges_nn[:2])
 
         for i, g in enumerate(self.gcns):
             if (i > 0):
                 skip = sp_pool(autoenc_skips[i], data['labels'])
-                skip = self.top_bns[i](skip)
-                x.x = self.bns[i - 1](x.x)
-                x.x = (1 - self.mixing_coeff) * x.x + self.mixing_coeff * skip
+                x.x = torch.cat((x.x, skip), dim=1)
+                x.x = self.bns[i](x.x)
             x.x = F.relu(g(x.x, x.edge_index))
 
         x = F.normalize(x.x, p=2, dim=1)
