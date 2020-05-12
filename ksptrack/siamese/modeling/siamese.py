@@ -41,18 +41,26 @@ class LocMotionAppearance(nn.Module):
         self.mixing_coeff = mixing_coeff
 
         in_dims = [[2 * d, 2 * d] for d in in_dims]
-        in_dims[0][0] = 36
-        for dims in in_dims:
+        in_dims[0][0] = 34
+        for i, dims in enumerate(in_dims):
             # gcn_ = gnn.SAGEConv(in_channels=dims[0],
             #                     out_channels=dims[1],
             #                     normalize=False)
-            gcn_ = gnn.GCNConv(in_channels=dims[0], out_channels=dims[1])
+            # gcn_ = gnn.GCNConv(in_channels=dims[0], out_channels=dims[1])
+            gcn_ = gnn.SignedConv(in_channels=dims[0],
+                                  out_channels=dims[1],
+                                  first_aggr=True if i == 0 else False)
 
             self.gcns.append(gcn_)
 
         self.gcns = nn.ModuleList(self.gcns)
 
-        self.bns = nn.ModuleList([nn.BatchNorm1d(d[0]) for d in in_dims])
+        self.bns = nn.ModuleList([
+            nn.BatchNorm1d(d[0] if i == 0 else 2 * d[0])
+            for i, d in enumerate(in_dims)
+        ])
+
+        self.lin = nn.Linear(1024, 512)
 
     def make_coord_map(self, batch_size, w, h):
         xx_ones = torch.ones([1, 1, 1, w], dtype=torch.int32)
@@ -93,20 +101,34 @@ class LocMotionAppearance(nn.Module):
 
         n_samples = [torch.unique(l).numel() for l in data['labels']]
 
-        data_x = sp_pool(autoenc_skips[0], data['labels'])
-        data_x = torch.cat((pooled_coords, pooled_fx, pooled_fy, data_x),
-                           dim=1)
-        data_x = self.bns[0](data_x)
-        x = Data(x=data_x, edge_index=edges_nn[:2])
+        x = sp_pool(autoenc_skips[0], data['labels'])
+        x = torch.cat((pooled_fx, pooled_fy, x), dim=1)
+        x = self.bns[0](x)
+        pos_edge_index = edges_nn[:, edges_nn[-1] != -1][:2]
+        neg_edge_index = edges_nn[:, edges_nn[-1] == -1][:2]
+        in_c = x.shape[1]
+        x = F.relu(self.gcns[0](x,
+                                pos_edge_index=pos_edge_index,
+                                neg_edge_index=neg_edge_index))
+        x_pos = x[:, x.shape[1] // 2:]
+        x_neg = x[:, :x.shape[1] // 2]
 
-        for i, g in enumerate(self.gcns):
-            if (i > 0):
-                skip = sp_pool(autoenc_skips[i], data['labels'])
-                x.x = torch.cat((x.x, skip), dim=1)
-                x.x = self.bns[i](x.x)
-            x.x = F.relu(g(x.x, x.edge_index))
+        for i, g in enumerate(self.gcns[1:]):
+            skip = sp_pool(autoenc_skips[i + 1], data['labels'])
+            x_pos = torch.cat((x_pos, skip), dim=1)
+            x_neg = torch.cat((x_neg, skip), dim=1)
+            x = torch.cat((x_pos, x_neg), dim=1)
+            x = self.bns[i + 1](x)
+            x = F.relu(
+                g(x,
+                  pos_edge_index=pos_edge_index,
+                  neg_edge_index=neg_edge_index))
+            x_pos = x[:, x.shape[1] // 2:]
+            x_neg = x[:, :x.shape[1] // 2]
 
-        x = F.normalize(x.x, p=2, dim=1)
+        x = torch.cat((x_pos, x_neg), dim=1)
+        x = self.lin(x)
+        x = F.normalize(x, p=2, dim=1)
 
         return {'siam_feats': x}
 

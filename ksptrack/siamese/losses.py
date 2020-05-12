@@ -407,6 +407,9 @@ class RAGTripletLoss(nn.Module):
 
         """
 
+        # remove negative edges
+        edges = edges[:, edges[-1, :] != -1]
+
         tplts = sample_triplets(edges)
 
         cs_ap = self.cs(feats[tplts[0]], feats[tplts[1]])
@@ -421,8 +424,6 @@ class RAGTripletLoss(nn.Module):
 
         loss = torch.clamp(dap - dan + self.margin, min=0) * freq_smp_weights
         loss = loss[loss > 0]
-        # loss = torch.log1p(torch.exp(dap - dan)) * freq_smp_weights
-        # loss = torch.log1p(torch.exp(dap - dan)) * freq_smp_weights
         loss = loss.mean()
 
         return loss

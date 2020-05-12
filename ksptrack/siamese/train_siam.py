@@ -208,18 +208,17 @@ def train(cfg, model, device, dataloaders, run_path):
 
     optimizers = {
         'feats':
-        optim.Adam(
-            params=[{
-                'params': model.dec.autoencoder.parameters(),
-                'lr': cfg.lr_autoenc,
-            }],
-            # weight_decay=cfg.decay),
-            weight_decay=0),
+        optim.Adam(params=[{
+            'params': model.dec.autoencoder.parameters(),
+            'lr': cfg.lr_autoenc,
+        }],
+                   weight_decay=0),
         'locmotionapp':
         optim.Adam(params=[{
             'params': model.locmotionapp.parameters(),
             'lr': cfg.lr_autoenc,
-        }]),
+        }],
+                   weight_decay=2e-5),
         'assign':
         optim.Adam(params=[{
             'params': model.dec.assignment.parameters(),
@@ -236,11 +235,9 @@ def train(cfg, model, device, dataloaders, run_path):
 
     lr_sch = {
         'feats':
-        torch.optim.lr_scheduler.ExponentialLR(optimizers['feats'],
-                                               cfg.lr_power),
+        torch.optim.lr_scheduler.ExponentialLR(optimizers['feats'], 1.),
         'assign':
-        torch.optim.lr_scheduler.ExponentialLR(optimizers['assign'],
-                                               cfg.lr_power),
+        torch.optim.lr_scheduler.ExponentialLR(optimizers['assign'], 1.),
         'locmotionapp':
         torch.optim.lr_scheduler.ExponentialLR(optimizers['locmotionapp'],
                                                cfg.lr_power)
@@ -254,6 +251,7 @@ def train(cfg, model, device, dataloaders, run_path):
                                      dataloaders['all_prev'],
                                      device,
                                      probas,
+                                     return_signed=True,
                                      add_self_loops=True)
 
     for epoch in range(cfg.epochs_dist):
@@ -291,7 +289,9 @@ def train(cfg, model, device, dataloaders, run_path):
                     print('Generating connected components graphs')
                     edges_list = utls.make_edges_ccl(model,
                                                      dataloaders['all_prev'],
-                                                     device, probas)
+                                                     device,
+                                                     probas,
+                                                     return_signed=True)
                     print('Updating target distributions')
                     distrib_buff.do_update(model, dataloaders['all_prev'],
                                            device)

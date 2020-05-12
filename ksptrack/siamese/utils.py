@@ -18,7 +18,8 @@ def make_edges_ccl(model,
                    probas=None,
                    drho=0.5,
                    return_subgraphs=False,
-                   add_self_loops=False):
+                   add_self_loops=False,
+                   return_signed=False):
     """Computes for each graph in dataloader its
     connected component edge list
 
@@ -50,21 +51,24 @@ def make_edges_ccl(model,
         S = [g.subgraph(c).copy() for c in nx.connected_components(g)]
 
         # all connected components form a fully connected group
-        # edges_cc = [combinations(S_.nodes, 2) for S_ in S]
-        edges_cc = [[(n0, n1, c) for n0, n1 in S_.edges]
-                    for c, S_ in enumerate(S)]
-        edges_cc = [item for sublist in edges_cc for item in sublist]
-        edges_cc = np.array(edges_cc)
-        # g_cc = nx.Graph()
-        # g_cc.add_edges_from(sub)
+        edges_ = [[(n0, n1, c) for n0, n1 in S_.edges]
+                  for c, S_ in enumerate(S)]
+        edges_ = [item for sublist in edges_ for item in sublist]
+        edges_ = np.array(edges_)
+        edges_ = torch.from_numpy(edges_).T
 
-        # edges_cc = np.concatenate([[(n0, n1, c) for n0, n1 in s.edges]
-        # for c, s in enumerate(S)])
-        edges_cc = torch.from_numpy(edges_cc).T
+        if (return_signed):
+            edges_neg = [(n0, n1) for n0, n1 in data['graph'][0].edges
+                         if (clst[n0] != clst[n1])]
+            if (probas is not None):
+                edges_neg = [(n0, n1) for n0, n1 in edges_neg
+                             if abs(probas_[n0] - probas_[n1]) >= drho]
+            edges_neg = [(n0, n1, -1) for n0, n1 in edges_neg]
+            edges_neg = np.array(edges_neg)
+            edges_neg = torch.from_numpy(edges_neg).T
+            edges_ = torch.cat((edges_, edges_neg), dim=1)
 
-        # if (add_self_loops):
-        # edges_cc, _ = gutls.add_self_loops(edges_cc)
-        data = Data(edge_index=edges_cc)
+        data = Data(edge_index=edges_)
         data.n_nodes = clst.numel()
 
         edges.append(data)
