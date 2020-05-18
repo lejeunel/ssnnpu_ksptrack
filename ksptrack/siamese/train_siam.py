@@ -17,8 +17,8 @@ from ksptrack import prev_trans_costs
 from ksptrack.cfgs import params as params_ksp
 from ksptrack.siamese import utils as utls
 from ksptrack.siamese.distrib_buffer import DistribBuffer
-from ksptrack.siamese.loader import Loader
-from ksptrack.siamese.losses import RAGTripletLoss, PWClusteringLoss
+from ksptrack.siamese.loader import Loader, StackLoader, RandomBatchSampler
+from ksptrack.siamese.losses import RAGTripletLoss, PointLoss
 from ksptrack.siamese.modeling.siamese import Siamese
 from ksptrack.utils.bagging import calc_bagging
 from ksptrack.siamese.train_init_clst import train_kmeans
@@ -59,8 +59,6 @@ def train_one_epoch(model,
     running_obj_pred = 0.0
 
     criterion_clst = torch.nn.KLDivLoss(reduction='mean')
-    # criterion_clst = PWClusteringLoss()
-    # criterion_pw = CosineSoftMax()
     criterion_pw = RAGTripletLoss()
     criterion_obj_pred = torch.nn.BCEWithLogitsLoss()
     criterion_recons = torch.nn.MSELoss()
@@ -76,9 +74,8 @@ def train_one_epoch(model,
 
             _, targets = distrib_buff[data['frame_idx']]
             probas_ = torch.cat([probas[i] for i in data['frame_idx']])
-            edges_ = torch.cat(
-                [edges_list[f].edge_index for f in data['frame_idx']],
-                dim=1).to(probas_.device)
+            edges_ = edges_list[data['frame_idx'][0]].edge_index.to(
+                probas_.device)
 
             res = model(data, edges_nn=edges_)
 
@@ -90,8 +87,8 @@ def train_one_epoch(model,
                 loss += loss_clst
 
             if (cfg.clf):
-                loss_obj_pred = criterion_obj_pred(res['rho_hat'].squeeze(),
-                                                   (probas_ >= 0.5).float())
+                loss_obj_pred = criterion_obj_pred(
+                    res['rho_hat_pooled'].squeeze(), (probas_ >= 0.5).float())
                 loss += cfg.lambda_ * loss_obj_pred
 
             # loss_recons = criterion_recons(sigmoid(res['output']),
@@ -103,6 +100,8 @@ def train_one_epoch(model,
                 loss += cfg.beta * loss_pw
 
             loss.backward()
+
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 0.01)
 
             for k in optimizers.keys():
                 optimizers[k].step()
@@ -124,7 +123,7 @@ def train_one_epoch(model,
 
     pbar.close()
 
-    loss_recons = running_recons / (cfg.batch_size * len(dataloaders['train']))
+    # loss_recons = running_recons / (cfg.batch_size * len(dataloaders['train']))
     loss_pw = running_pw / (cfg.batch_size * len(dataloaders['train']))
     loss_clst = running_clst / (cfg.batch_size * len(dataloaders['train']))
     loss_obj_pred = running_obj_pred / (cfg.batch_size *
@@ -134,8 +133,8 @@ def train_one_epoch(model,
         'loss': loss_,
         'loss_pw': loss_pw,
         'loss_clst': loss_clst,
-        'loss_obj_pred': loss_obj_pred,
-        'loss_recons': loss_recons
+        'loss_obj_pred': loss_obj_pred
+        # 'loss_recons': loss_recons
     }
 
     return out
@@ -196,8 +195,8 @@ def train(cfg, model, device, dataloaders, run_path):
     cfg_ksp.fin = [s['frame_idx'] for s in dataloaders['prev'].dataset]
 
     print('generating previews to {}'.format(rags_prevs_path))
-    prev_ims = prev_trans_costs.main(cfg_ksp)
-    io.imsave(pjoin(rags_prevs_path, 'ep_0000.png'), prev_ims)
+    # prev_ims = prev_trans_costs.main(cfg_ksp)
+    # io.imsave(pjoin(rags_prevs_path, 'ep_0000.png'), prev_ims)
 
     writer = SummaryWriter(run_path)
 
@@ -212,13 +211,13 @@ def train(cfg, model, device, dataloaders, run_path):
             'params': model.dec.autoencoder.parameters(),
             'lr': cfg.lr_autoenc,
         }],
-                   weight_decay=0),
+                   weight_decay=cfg.decay),
         'locmotionapp':
         optim.Adam(params=[{
             'params': model.locmotionapp.parameters(),
             'lr': cfg.lr_autoenc,
         }],
-                   weight_decay=2e-5),
+                   weight_decay=cfg.decay),
         'assign':
         optim.Adam(params=[{
             'params': model.dec.assignment.parameters(),
@@ -248,9 +247,8 @@ def train(cfg, model, device, dataloaders, run_path):
     distrib_buff.maybe_update(model, dataloaders['all_prev'], device)
     print('Generating connected components graphs')
     edges_list = utls.make_edges_ccl(model,
-                                     dataloaders['all_prev'],
+                                     dataloaders['edges'],
                                      device,
-                                     probas,
                                      return_signed=True,
                                      add_self_loops=True)
 
@@ -288,9 +286,8 @@ def train(cfg, model, device, dataloaders, run_path):
                         cfg.tgt_update_period == 0):
                     print('Generating connected components graphs')
                     edges_list = utls.make_edges_ccl(model,
-                                                     dataloaders['all_prev'],
+                                                     dataloaders['edges'],
                                                      device,
-                                                     probas,
                                                      return_signed=True)
                     print('Updating target distributions')
                     distrib_buff.do_update(model, dataloaders['all_prev'],
@@ -357,10 +354,12 @@ def main(cfg):
 
     transf = make_data_aug(cfg)
 
-    dl_train = Loader(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
-                      normalization='rescale',
-                      augmentations=transf,
-                      resize_shape=cfg.in_shape)
+    dl_train = StackLoader(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
+                           depth=2,
+                           normalization='rescale',
+                           augmentations=transf,
+                           resize_shape=cfg.in_shape)
+
     dl_prev = Loader(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
                      normalization='rescale',
                      resize_shape=cfg.in_shape)
@@ -378,14 +377,17 @@ def main(cfg):
 
     dataloader_train = DataLoader(dl_train,
                                   collate_fn=dl_train.collate_fn,
-                                  batch_size=cfg.batch_size,
-                                  drop_last=True,
                                   shuffle=True,
+                                  num_workers=cfg.n_workers)
+
+    dataloader_edges = DataLoader(dl_train,
+                                  collate_fn=dl_train.collate_fn,
                                   num_workers=cfg.n_workers)
 
     dataloaders = {
         'train': dataloader_train,
         'all_prev': dataloader_all_prev,
+        'edges': dataloader_edges,
         'prev': dataloader_prev
     }
 

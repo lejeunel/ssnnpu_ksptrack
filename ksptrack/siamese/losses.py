@@ -395,6 +395,51 @@ def sample_triplets(edges):
     return tplts
 
 
+class PointLoss(nn.Module):
+    def __init__(self):
+        super(PointLoss, self).__init__()
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, input, labels, labels_clicked):
+
+        labels_clicked_batch = []
+        max_l = 0
+        for i, l in enumerate(labels_clicked):
+            labels_clicked_batch.append([l_ + max_l for l_ in l])
+            max_l += torch.unique(labels[i]).numel() + 1
+
+        idx = torch.tensor(labels_clicked_batch).to(input.device).flatten()
+        loss = -(torch.log(self.sigmoid(input[idx]) + 1e-8)).mean()
+
+        return loss
+
+
+class LSMLoss(nn.Module):
+    def __init__(self, K=0.5, T=0.1):
+        super(LSMLoss, self).__init__()
+        self.cs = nn.CosineSimilarity(dim=1)
+        self.K = K
+        self.T = T
+
+    def forward(self, feats, edges):
+        """
+        Computes the triplet loss between positive node pairs and sampled
+        non-node pairs.
+        """
+
+        # remove negative edges
+        edges = edges[:, edges[-1, :] != -1]
+        tplts = sample_triplets(edges)
+
+        cs_ap = self.cs(feats[tplts[0]], feats[tplts[1]])
+        cs_an = self.cs(feats[tplts[0]], feats[tplts[2]])
+
+        loss_ap = torch.log1p(torch.exp(-(cs_ap - self.K) / self.T))
+        loss_an = torch.log1p(torch.exp((cs_an - self.K) / self.T))
+
+        return loss
+
+
 class RAGTripletLoss(nn.Module):
     def __init__(self):
         super(RAGTripletLoss, self).__init__()
@@ -402,14 +447,13 @@ class RAGTripletLoss(nn.Module):
         self.margin = 0.3
 
     def forward(self, feats, edges):
-        """Computes the triplet loss between positive node pairs and sampled
+        """
+        Computes the triplet loss between positive node pairs and sampled
         non-node pairs.
-
         """
 
         # remove negative edges
         edges = edges[:, edges[-1, :] != -1]
-
         tplts = sample_triplets(edges)
 
         cs_ap = self.cs(feats[tplts[0]], feats[tplts[1]])
@@ -419,12 +463,14 @@ class RAGTripletLoss(nn.Module):
 
         # weight by clique size
         bc = torch.bincount(edges[-1])
-        freq_weights = bc.max() / bc.float()
+        freq_weights = bc.float() / edges.shape[-1]
         freq_smp_weights = freq_weights[edges[-1]]
 
-        loss = torch.clamp(dap - dan + self.margin, min=0) * freq_smp_weights
+        # loss = torch.log1p(dap - dan) * freq_smp_weights
+        loss = torch.clamp(dap - dan + self.margin, min=0)
         loss = loss[loss > 0]
         loss = loss.mean()
+        # print(loss)
 
         return loss
 
@@ -471,11 +517,9 @@ if __name__ == "__main__":
     from ksptrack.siamese.distrib_buffer import DistribBuffer
 
     device = torch.device('cuda')
-    transf_normal = Normalize(mean=[0.485, 0.456, 0.406],
-                              std=[0.229, 0.224, 0.225])
 
     dl = Loader(pjoin('/home/ubelix/artorg/lejeune/data/medical-labeling',
-                      'Dataset20'),
+                      'Dataset30'),
                 normalization='rescale',
                 resize_shape=512)
     dl = DataLoader(dl, collate_fn=dl.collate_fn, batch_size=2, shuffle=True)

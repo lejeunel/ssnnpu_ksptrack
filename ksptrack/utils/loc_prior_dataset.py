@@ -78,7 +78,7 @@ class LocPriorDataset(BaseDataset, data.Dataset):
                  normalization=iaa.Noop(),
                  resize_shape=None,
                  csv_fname='video1.csv',
-                 sig_prior=0.1):
+                 sig_prior=0.04):
         super().__init__(root_path=root_path,
                          augmentations=augmentations,
                          normalization=normalization,
@@ -117,11 +117,11 @@ class LocPriorDataset(BaseDataset, data.Dataset):
                 for kp in keypoints.keypoints
             ]
             obj_prior = np.asarray(obj_prior).sum(axis=0)[..., None]
-            offset = np.ones_like(obj_prior) * 0.5
+            # offset = np.ones_like(obj_prior) * 0.5
             obj_prior -= obj_prior.min()
             obj_prior /= obj_prior.max()
-            obj_prior *= 0.5
-            obj_prior += offset
+            # obj_prior *= 0.5
+            # obj_prior += offset
         else:
             obj_prior = (np.ones((new_shape[0], new_shape[1])))[..., None]
 
@@ -168,13 +168,11 @@ if __name__ == "__main__":
     # sample = dl[10]
 
     for sample in dl:
-        print(sample['label_keypoints'])
+        print(sample['loc_keypoints'])
         plt.subplot(221)
         plt.imshow(sample['image_unnormal'])
         plt.subplot(222)
         plt.imshow(sample['prior'][..., 0])
         plt.subplot(223)
-        plt.imshow(sample['labels'][..., 0])
-        plt.subplot(224)
-        plt.imshow(sample['labels'][..., 0] == sample['label_keypoints'][0])
+        plt.imshow(sample['prior'][..., 0] > 0.5)
         plt.show()

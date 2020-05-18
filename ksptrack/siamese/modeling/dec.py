@@ -100,6 +100,8 @@ class DEC(nn.Module):
                                     out_channels=out_channels,
                                     l2_normalize=True,
                                     coordconv=False,
+                                    dropout_min=0,
+                                    dropout_max=0.2,
                                     skip_mode='none')
         else:
             self.autoencoder = DeepLabv3Plus()

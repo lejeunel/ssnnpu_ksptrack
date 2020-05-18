@@ -19,6 +19,7 @@ def make_edges_ccl(model,
                    drho=0.5,
                    return_subgraphs=False,
                    add_self_loops=False,
+                   return_pos_labels=False,
                    return_signed=False):
     """Computes for each graph in dataloader its
     connected component edge list
@@ -30,6 +31,8 @@ def make_edges_ccl(model,
 
     edges = []
     subgraphs = []
+    pos_labels = dict()
+
     for data in tqdm(dataloader):
 
         data = batch_to_device(data, device)
@@ -38,11 +41,12 @@ def make_edges_ccl(model,
             clst = model(data)['clusters'].argmax(dim=1)
 
         # get edges according to cluster assignments
-        edges_ = [(n0, n1) for n0, n1 in data['graph'][0].edges
+        edges_ = [(n0, n1) for n0, n1 in data['graph'].edges
                   if ((clst[n0] == clst[n1]))]
 
         if (probas is not None):
-            probas_ = probas[data['frame_idx'][0]]
+            # probas_ = probas[data['frame_idx'][0]]
+            probas_ = torch.cat([probas[f] for f in data['frame_idx']])
             edges_ = [(n0, n1) for n0, n1 in edges_
                       if abs(probas_[n0] - probas_[n1]) < drho]
 
@@ -58,7 +62,7 @@ def make_edges_ccl(model,
         edges_ = torch.from_numpy(edges_).T
 
         if (return_signed):
-            edges_neg = [(n0, n1) for n0, n1 in data['graph'][0].edges
+            edges_neg = [(n0, n1) for n0, n1 in data['graph'].edges
                          if (clst[n0] != clst[n1])]
             if (probas is not None):
                 edges_neg = [(n0, n1) for n0, n1 in edges_neg

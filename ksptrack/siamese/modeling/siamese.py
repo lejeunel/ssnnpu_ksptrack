@@ -41,7 +41,7 @@ class LocMotionAppearance(nn.Module):
         self.mixing_coeff = mixing_coeff
 
         in_dims = [[2 * d, 2 * d] for d in in_dims]
-        in_dims[0][0] = 34
+        in_dims[0][0] = 36
         for i, dims in enumerate(in_dims):
             # gcn_ = gnn.SAGEConv(in_channels=dims[0],
             #                     out_channels=dims[1],
@@ -56,11 +56,12 @@ class LocMotionAppearance(nn.Module):
         self.gcns = nn.ModuleList(self.gcns)
 
         self.bns = nn.ModuleList([
-            nn.BatchNorm1d(d[0] if i == 0 else 2 * d[0])
+            nn.BatchNorm1d(2 * d[1] if i == 0 else 2 * d[0])
             for i, d in enumerate(in_dims)
         ])
 
-        self.lin = nn.Linear(1024, 512)
+        self.lin_pw = nn.Linear(1024, 512)
+        self.bn_pw = nn.BatchNorm1d(1024)
 
     def make_coord_map(self, batch_size, w, h):
         xx_ones = torch.ones([1, 1, 1, w], dtype=torch.int32)
@@ -102,14 +103,16 @@ class LocMotionAppearance(nn.Module):
         n_samples = [torch.unique(l).numel() for l in data['labels']]
 
         x = sp_pool(autoenc_skips[0], data['labels'])
-        x = torch.cat((pooled_fx, pooled_fy, x), dim=1)
-        x = self.bns[0](x)
+        x = torch.cat((pooled_coords, pooled_fx, pooled_fy, x), dim=1)
         pos_edge_index = edges_nn[:, edges_nn[-1] != -1][:2]
         neg_edge_index = edges_nn[:, edges_nn[-1] == -1][:2]
-        in_c = x.shape[1]
-        x = F.relu(self.gcns[0](x,
-                                pos_edge_index=pos_edge_index,
-                                neg_edge_index=neg_edge_index))
+
+        x = self.gcns[0](x,
+                         pos_edge_index=pos_edge_index,
+                         neg_edge_index=neg_edge_index)
+        x = self.bns[0](x)
+        x = F.relu(x)
+        # x = F.normalize(x, dim=1)
         x_pos = x[:, x.shape[1] // 2:]
         x_neg = x[:, :x.shape[1] // 2]
 
@@ -118,17 +121,21 @@ class LocMotionAppearance(nn.Module):
             x_pos = torch.cat((x_pos, skip), dim=1)
             x_neg = torch.cat((x_neg, skip), dim=1)
             x = torch.cat((x_pos, x_neg), dim=1)
-            x = self.bns[i + 1](x)
-            x = F.relu(
-                g(x,
+            # x = F.normalize(x, dim=1)
+            x = g(x,
                   pos_edge_index=pos_edge_index,
-                  neg_edge_index=neg_edge_index))
+                  neg_edge_index=neg_edge_index)
+            x = self.bns[i + 1](x)
+            x = F.relu(x)
             x_pos = x[:, x.shape[1] // 2:]
             x_neg = x[:, :x.shape[1] // 2]
 
         x = torch.cat((x_pos, x_neg), dim=1)
-        x = self.lin(x)
-        x = F.normalize(x, p=2, dim=1)
+        # x = self.bn_pw(x)
+        x = F.relu(self.lin_pw(x))
+        # norm = x.norm(dim=1)
+        # print('norms min/max : {}/{}'.format(norm.min(), norm.max()))
+        # x = F.normalize(x, p=2, dim=1)
 
         return {'siam_feats': x}
 
@@ -193,6 +200,7 @@ class Siamese(nn.Module):
             res_siam = self.locmotionapp(data, res['skips'], edges_nn)
             res.update(res_siam)
 
-        res['rho_hat'] = sp_pool(res['output'], data['labels'])
+        res['rho_hat'] = res['output']
+        res['rho_hat_pooled'] = sp_pool(res['output'], data['labels'])
 
         return res
