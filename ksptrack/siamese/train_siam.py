@@ -76,41 +76,42 @@ def train_one_epoch(model,
             probas_ = torch.cat([probas[i] for i in data['frame_idx']])
             edges_ = edges_list[data['frame_idx'][0]].edge_index.to(
                 probas_.device)
-
-            res = model(data, edges_nn=edges_)
+            with torch.autograd.detect_anomaly():
+                res = model(data, edges_nn=edges_)
 
             loss = 0
 
             if (not cfg.fix_clst):
                 loss_clst = criterion_clst(res['clusters'],
                                            targets.to(res['clusters']))
-                loss += loss_clst
+                loss += cfg.alpha * loss_clst
 
             if (cfg.clf):
                 loss_obj_pred = criterion_obj_pred(
                     res['rho_hat_pooled'].squeeze(), (probas_ >= 0.5).float())
                 loss += cfg.lambda_ * loss_obj_pred
 
-            # loss_recons = criterion_recons(sigmoid(res['output']),
-            #                                data['image_noaug'])
-            # loss += cfg.gamma * loss_recons
+            loss_recons = criterion_recons(sigmoid(res['output']),
+                                           data['image_noaug'])
+            loss += cfg.gamma * loss_recons
 
             if (cfg.pw):
                 loss_pw = criterion_pw(res['siam_feats'], edges_)
                 loss += cfg.beta * loss_pw
 
-            loss.backward()
+            with torch.autograd.detect_anomaly():
+                loss.backward()
 
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 0.01)
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), 0.01)
 
             for k in optimizers.keys():
                 optimizers[k].step()
 
-            # for k in lr_sch.keys():
-            # lr_sch[k].step()
+            for k in lr_sch.keys():
+                lr_sch[k].step()
 
         running_loss += loss.cpu().detach().numpy()
-        # running_recons += loss_recons.cpu().detach().numpy()
+        running_recons += loss_recons.cpu().detach().numpy()
         if (not cfg.fix_clst):
             running_clst += loss_clst.cpu().detach().numpy()
         if (cfg.clf):
@@ -133,8 +134,8 @@ def train_one_epoch(model,
         'loss': loss_,
         'loss_pw': loss_pw,
         'loss_clst': loss_clst,
-        'loss_obj_pred': loss_obj_pred
-        # 'loss_recons': loss_recons
+        'loss_obj_pred': loss_obj_pred,
+        'loss_recons': loss_recons
     }
 
     return out
@@ -150,7 +151,7 @@ def train(cfg, model, device, dataloaders, run_path):
     print('loading checkpoint {}'.format(path_))
     state_dict = torch.load(path_, map_location=lambda storage, loc: storage)
     model.load_partial(state_dict)
-    model.dec.autoencoder.to_predictor()
+    # model.dec.autoencoder.to_predictor()
 
     check_cp_exist = pjoin(run_path, 'checkpoints', best_cp_fname)
     if (os.path.exists(check_cp_exist)):
@@ -209,36 +210,50 @@ def train(cfg, model, device, dataloaders, run_path):
         'feats':
         optim.Adam(params=[{
             'params': model.dec.autoencoder.parameters(),
-            'lr': cfg.lr_autoenc,
+            'lr': 1e-3,
         }],
-                   weight_decay=cfg.decay),
-        'locmotionapp':
+                   weight_decay=1e-5),
+        'gcns':
         optim.Adam(params=[{
             'params': model.locmotionapp.parameters(),
-            'lr': cfg.lr_autoenc,
+            'lr': 1e-3,
         }],
-                   weight_decay=cfg.decay),
+                   weight_decay=0),
+        'pred':
+        optim.Adam(params=[{
+            'params': model.rho_dec.parameters(),
+            'lr': 1e-3,
+        }],
+                   weight_decay=0),
         'assign':
         optim.Adam(params=[{
             'params': model.dec.assignment.parameters(),
-            'lr': cfg.lr_dist,
+            'lr': 1e-3,
         }],
-                   weight_decay=cfg.decay),
+                   weight_decay=0),
         'transform':
         optim.Adam(params=[{
             'params': model.dec.transform.parameters(),
-            'lr': cfg.lr_dist,
+            'lr': 1e-3,
         }],
-                   weight_decay=cfg.decay)
+                   weight_decay=0)
     }
 
     lr_sch = {
         'feats':
-        torch.optim.lr_scheduler.ExponentialLR(optimizers['feats'], 1.),
+        torch.optim.lr_scheduler.ExponentialLR(optimizers['feats'],
+                                               cfg.lr_power),
         'assign':
-        torch.optim.lr_scheduler.ExponentialLR(optimizers['assign'], 1.),
-        'locmotionapp':
-        torch.optim.lr_scheduler.ExponentialLR(optimizers['locmotionapp'],
+        torch.optim.lr_scheduler.ExponentialLR(optimizers['assign'],
+                                               cfg.lr_power),
+        'pred':
+        torch.optim.lr_scheduler.ExponentialLR(optimizers['pred'],
+                                               cfg.lr_power),
+        'transform':
+        torch.optim.lr_scheduler.ExponentialLR(optimizers['transform'],
+                                               cfg.lr_power),
+        'gcns':
+        torch.optim.lr_scheduler.ExponentialLR(optimizers['gcns'],
                                                cfg.lr_power)
     }
 

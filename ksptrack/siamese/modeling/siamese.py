@@ -7,8 +7,12 @@ import torch_geometric.nn as gnn
 import torch_geometric.utils as gutls
 from ksptrack.siamese.modeling.superpixPool.pytorch_superpixpool.suppixpool_layer import SupPixPool
 from ksptrack.siamese.losses import structured_negative_sampling
-from ksptrack.siamese.modeling.dil_unet import ConvolutionalEncoder, ResidualBlock, DilatedConvolutions, init_weights
+from ksptrack.siamese.modeling.dil_unet import ConvolutionalEncoder, ResidualBlock, DilatedConvolutions, init_weights, ConvolutionalDecoder
 from ksptrack.siamese.modeling.coordconv import CoordConv2d
+
+
+def num_nan_inf(t):
+    return torch.isnan(t).sum() + torch.isinf(t).sum()
 
 
 def sp_pool(feats, labels):
@@ -37,31 +41,41 @@ class LocMotionAppearance(nn.Module):
         """
         super(LocMotionAppearance, self).__init__()
         self.gcns = []
+        self.mergers_pos = []
+        self.mergers_neg = []
+        self.bns = []
         self.sigma = sigma
         self.mixing_coeff = mixing_coeff
 
-        in_dims = [[2 * d, 2 * d] for d in in_dims]
-        in_dims[0][0] = 36
-        for i, dims in enumerate(in_dims):
-            # gcn_ = gnn.SAGEConv(in_channels=dims[0],
-            #                     out_channels=dims[1],
-            #                     normalize=False)
-            # gcn_ = gnn.GCNConv(in_channels=dims[0], out_channels=dims[1])
-            gcn_ = gnn.SignedConv(in_channels=dims[0],
-                                  out_channels=dims[1],
+        in_dims[0] = 36
+        for i in range(len(in_dims) - 1):
+            gcn_ = gnn.SignedConv(in_channels=in_dims[i],
+                                  out_channels=in_dims[i + 1],
                                   first_aggr=True if i == 0 else False)
 
             self.gcns.append(gcn_)
 
+            merger_pos = nn.Conv1d(2 * in_dims[i + 1],
+                                   in_dims[i + 1],
+                                   kernel_size=1)
+            merger_neg = nn.Conv1d(2 * in_dims[i + 1],
+                                   in_dims[i + 1],
+                                   kernel_size=1)
+            self.mergers_pos.append(merger_pos)
+            self.mergers_neg.append(merger_neg)
+
+            bn = nn.BatchNorm1d(2 * in_dims[i + 1])
+            self.bns.append(bn)
+
+        self.bn_pre = nn.BatchNorm1d(in_dims[0])
         self.gcns = nn.ModuleList(self.gcns)
+        self.mergers_pos = nn.ModuleList(self.mergers_pos)
+        self.mergers_neg = nn.ModuleList(self.mergers_neg)
 
-        self.bns = nn.ModuleList([
-            nn.BatchNorm1d(2 * d[1] if i == 0 else 2 * d[0])
-            for i, d in enumerate(in_dims)
-        ])
+        self.bns = nn.ModuleList(self.bns)
 
-        self.lin_pw = nn.Linear(1024, 512)
-        self.bn_pw = nn.BatchNorm1d(1024)
+        self.lin_pw = nn.Linear(512, 256)
+        # self.bn_pw = nn.BatchNorm1d(1024)
 
     def make_coord_map(self, batch_size, w, h):
         xx_ones = torch.ones([1, 1, 1, w], dtype=torch.int32)
@@ -104,6 +118,10 @@ class LocMotionAppearance(nn.Module):
 
         x = sp_pool(autoenc_skips[0], data['labels'])
         x = torch.cat((pooled_coords, pooled_fx, pooled_fy, x), dim=1)
+        x = self.bn_pre(x)
+
+        # print('[LocMotionApp] lvl {} num. NaN feats: {}'.format(
+        # 'pre', num_nan_inf(x)))
         pos_edge_index = edges_nn[:, edges_nn[-1] != -1][:2]
         neg_edge_index = edges_nn[:, edges_nn[-1] == -1][:2]
 
@@ -112,6 +130,8 @@ class LocMotionAppearance(nn.Module):
                          neg_edge_index=neg_edge_index)
         x = self.bns[0](x)
         x = F.relu(x)
+        # print('[LocMotionApp] lvl {} num. NaN feats: {}'.format(
+        #     0, num_nan_inf(x)))
         # x = F.normalize(x, dim=1)
         x_pos = x[:, x.shape[1] // 2:]
         x_neg = x[:, :x.shape[1] // 2]
@@ -119,23 +139,28 @@ class LocMotionAppearance(nn.Module):
         for i, g in enumerate(self.gcns[1:]):
             skip = sp_pool(autoenc_skips[i + 1], data['labels'])
             x_pos = torch.cat((x_pos, skip), dim=1)
+            x_pos = self.mergers_pos[i](x_pos[..., None]).squeeze()
+            x_pos = F.relu(x_pos)
             x_neg = torch.cat((x_neg, skip), dim=1)
+            x_neg = self.mergers_neg[i](x_neg[..., None]).squeeze()
+            x_neg = F.relu(x_neg)
             x = torch.cat((x_pos, x_neg), dim=1)
             # x = F.normalize(x, dim=1)
             x = g(x,
                   pos_edge_index=pos_edge_index,
                   neg_edge_index=neg_edge_index)
+            # print('[LocMotionApp] lvl {} num. NaN feats: {}'.format(
+            #     i + 1, num_nan_inf(x)))
             x = self.bns[i + 1](x)
             x = F.relu(x)
             x_pos = x[:, x.shape[1] // 2:]
             x_neg = x[:, :x.shape[1] // 2]
 
         x = torch.cat((x_pos, x_neg), dim=1)
-        # x = self.bn_pw(x)
-        x = F.relu(self.lin_pw(x))
-        # norm = x.norm(dim=1)
-        # print('norms min/max : {}/{}'.format(norm.min(), norm.max()))
-        # x = F.normalize(x, p=2, dim=1)
+        x = self.lin_pw(x)
+        # print('[LocMotionApp] lvl {} num. NaN feats: {}'.format(
+        #     'last', num_nan_inf(x)))
+        x = F.relu(x)
 
         return {'siam_feats': x}
 
@@ -178,11 +203,22 @@ class Siamese(nn.Module):
 
         self.roi_pool = SupPixPool()
 
-        self.locmotionapp = LocMotionAppearance(
-            in_dims=self.dec.autoencoder.filts_dims,
-            dropout_min=0,
-            dropout_max=0.2,
-            mixing_coeff=0.5)
+        self.rho_dec = ConvolutionalDecoder(out_channels=1,
+                                            dropout_max=0.1,
+                                            start_filts=32,
+                                            skip_mode='conv',
+                                            depth=4)
+
+        in_dims = self.dec.autoencoder.filts_dims
+        if (self.dec.autoencoder.dilatedConvs is not None):
+            in_dims += [in_dims[-1]]
+        self.locmotionapp = LocMotionAppearance(in_dims=in_dims,
+                                                dropout_min=0,
+                                                dropout_max=0.2,
+                                                mixing_coeff=0.5)
+
+        self.rho_dec.apply(init_weights)
+        self.locmotionapp.apply(init_weights)
 
     def load_partial(self, state_dict):
         # filter out unnecessary keys
@@ -200,7 +236,7 @@ class Siamese(nn.Module):
             res_siam = self.locmotionapp(data, res['skips'], edges_nn)
             res.update(res_siam)
 
-        res['rho_hat'] = res['output']
-        res['rho_hat_pooled'] = sp_pool(res['output'], data['labels'])
+        res['rho_hat'] = self.rho_dec(res['feats'], res['skips'][:-2][::-1])
+        res['rho_hat_pooled'] = sp_pool(res['rho_hat'], data['labels'])
 
         return res

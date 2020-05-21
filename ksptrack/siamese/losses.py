@@ -440,10 +440,15 @@ class LSMLoss(nn.Module):
         return loss
 
 
+def num_nan_inf(t):
+    return torch.isnan(t).sum() + torch.isinf(t).sum()
+
+
 class RAGTripletLoss(nn.Module):
     def __init__(self):
         super(RAGTripletLoss, self).__init__()
         self.cs = nn.CosineSimilarity(dim=1)
+        # self.cs = nn.CosineSimilarity(dim=1, eps=1e-3)
         self.margin = 0.3
 
     def forward(self, feats, edges):
@@ -456,21 +461,28 @@ class RAGTripletLoss(nn.Module):
         edges = edges[:, edges[-1, :] != -1]
         tplts = sample_triplets(edges)
 
-        cs_ap = self.cs(feats[tplts[0]], feats[tplts[1]])
-        cs_an = self.cs(feats[tplts[0]], feats[tplts[2]])
+        xa = feats[tplts[0]]
+        xp = feats[tplts[1]]
+        xn = feats[tplts[2]]
+        # print('[RAGTripletLoss] num. NaN feats: {}'.format(
+        #     num_nan_inf(xa) + num_nan_inf(xp) + num_nan_inf(xn)))
+        cs_ap = self.cs(xa, xp)
+        cs_an = self.cs(xa, xn)
+        # print('[RAGTripletLoss] num. NaN cs: {}'.format(
+        #     num_nan_inf(cs_ap) + num_nan_inf(cs_an)))
         dap = 1 - cs_ap
         dan = 1 - cs_an
 
         # weight by clique size
-        bc = torch.bincount(edges[-1])
-        freq_weights = bc.float() / edges.shape[-1]
-        freq_smp_weights = freq_weights[edges[-1]]
+        # bc = torch.bincount(edges[-1])
+        # freq_weights = bc.float() / edges.shape[-1]
+        # freq_smp_weights = freq_weights[edges[-1]]
 
-        # loss = torch.log1p(dap - dan) * freq_smp_weights
+        # loss = torch.log1p(dap - dan)
         loss = torch.clamp(dap - dan + self.margin, min=0)
         loss = loss[loss > 0]
         loss = loss.mean()
-        # print(loss)
+        # print('[RAGTripletLoss] loss: {}'.format(loss))
 
         return loss
 

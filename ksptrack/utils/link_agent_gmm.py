@@ -131,7 +131,7 @@ class LinkAgentGMM(LinkAgentRadius):
             self.gmm = GaussianMixture(n_components=n_clusters,
                                        means_init=centroids,
                                        weights_init=weights,
-                                       reg_covar=1e-3,
+                                       reg_covar=1e-1,
                                        covariance_type='diag')
             self.gmm.fit(feats_)
         self.probas = [self.gmm.predict_proba(f) for f in self.feats]

@@ -182,15 +182,18 @@ class StackLoader(LocPriorDataset):
 
         self.hoof = pd.read_pickle(pjoin(root_path, 'precomp_desc', 'hoof.p'))
 
-        graphs_path = pjoin(
-            root_path, 'precomp_desc',
-            'siam_graphs_stack_depth_{}.npz'.format(self.depth))
+        graphs_path = pjoin(root_path, 'precomp_desc',
+                            'graphs_depth_{}.npz'.format(self.depth))
         if (not os.path.exists(graphs_path)):
             self.prepare_graphs()
-            np.savez(graphs_path, **{'graphs': self.graphs})
+            np.savez(graphs_path, **{
+                'centroids': self.centroids,
+                'graphs': self.graphs
+            })
         else:
             print('loading graphs at {}'.format(graphs_path))
             np_file = np.load(graphs_path, allow_pickle=True)
+            self.centroids = np_file['centroids']
             self.graphs = np_file['graphs']
 
         self.labels = np.load(pjoin(root_path, 'precomp_desc',
@@ -215,6 +218,7 @@ class StackLoader(LocPriorDataset):
 
     def prepare_graphs(self):
 
+        self.centroids = []
         self.graphs = []
 
         print('preparing graphs...')
@@ -225,6 +229,18 @@ class StackLoader(LocPriorDataset):
                 labels[..., d] += labels[..., d - 1].max() + 1
             graph = skg.RAG(label_image=labels)
             self.graphs.append(graph)
+
+            labels = self.labels[..., i:i + self.depth].copy()
+            centroids = []
+            for d in range(self.depth):
+                regions = measure.regionprops(labels[..., d] + 1)
+                centroids_ = np.array([
+                    (p['centroid'][1] / labels[..., d].shape[1],
+                     p['centroid'][0] / labels[..., d].shape[0])
+                    for p in regions
+                ])
+                centroids.append(centroids_)
+            self.centroids.append(np.concatenate(centroids))
             pbar.update(1)
         pbar.close()
 
@@ -248,7 +264,7 @@ class StackLoader(LocPriorDataset):
             fy = self.reshaper_img.augment_image(fy)
             samples[i]['fy'] = fy
 
-        return samples, self.graphs[idx]
+        return samples, self.centroids[idx], self.graphs[idx]
 
     def __len__(self):
         return len(self.imgs) - (self.depth - 1)
@@ -256,7 +272,8 @@ class StackLoader(LocPriorDataset):
 
     def collate_fn(self, samples):
         out = dict()
-        out['graph'] = samples[0][-1]
+        out['centroids'] = samples[0][1]
+        out['graph'] = samples[0][2]
         samples = samples[0][0]
         out_ = super(Loader, Loader).collate_fn(samples)
         out.update(out_)

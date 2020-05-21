@@ -101,7 +101,7 @@ class DEC(nn.Module):
                                     l2_normalize=True,
                                     coordconv=False,
                                     dropout_min=0,
-                                    dropout_max=0.2,
+                                    dropout_max=0,
                                     skip_mode='none')
         else:
             self.autoencoder = DeepLabv3Plus()

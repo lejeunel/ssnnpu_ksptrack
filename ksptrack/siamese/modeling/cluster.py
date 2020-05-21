@@ -25,15 +25,14 @@ class ClusterAssignment(nn.Module):
         self.cluster_number = cluster_number
         self.alpha = alpha
         if cluster_centers is None:
-            initial_cluster_centers = torch.zeros(
-                self.cluster_number,
-                self.embedding_dimension,
-                dtype=torch.float
-            )
+            initial_cluster_centers = torch.zeros(self.cluster_number,
+                                                  self.embedding_dimension,
+                                                  dtype=torch.float)
             nn.init.xavier_uniform_(initial_cluster_centers)
         else:
             initial_cluster_centers = cluster_centers
         self.cluster_centers = Parameter(initial_cluster_centers)
+        self.eps = 1e-3
 
     def forward(self, x):
         """
@@ -43,26 +42,10 @@ class ClusterAssignment(nn.Module):
 
         x = x.squeeze()
 
-        norm_squared = torch.sum((x.unsqueeze(1) - self.cluster_centers) ** 2, 2)
+        norm_squared = torch.sum((x.unsqueeze(1) - self.cluster_centers)**2, 2)
         numerator = 1.0 / (1.0 + (norm_squared / self.alpha))
         power = float(self.alpha + 1) / 2
         numerator = numerator**power
-        x = numerator / torch.sum(numerator, dim=1, keepdim=True)
+        x = numerator / torch.clamp(torch.sum(numerator, dim=1, keepdim=True),
+                                    min=self.eps)
         return x
-
-    def forward_sp_labels(self, x):
-        """
-        Compute the soft assignment for a batch of feature vectors, returning a batch of assignments
-        for each cluster.
-        """
-
-        X = []
-
-        for x_ in x:
-            norm_squared = torch.sum((x_.unsqueeze(1) - self.cluster_centers) ** 2, 2)
-            numerator = 1.0 / (1.0 + (norm_squared / self.alpha))
-            power = float(self.alpha + 1) / 2
-            numerator = numerator**power
-            X_ = numerator / torch.sum(numerator, dim=1, keepdim=True)
-            X.append(X_)
-        return X

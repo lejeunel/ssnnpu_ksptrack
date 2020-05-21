@@ -18,10 +18,15 @@ lr-assign: 1e-4
 decay : 2e-4
 lr-power : 0.99
 momentum: 0.9
+
+# foreground prediction
 lambda-: 1
-gamma: 10
+# image reconstruction
+gamma: 0
+# pairwise similarity
 beta: 1
-alpha: 1
+# clustering
+alpha: 10
 delta: 1000
 
 # batch

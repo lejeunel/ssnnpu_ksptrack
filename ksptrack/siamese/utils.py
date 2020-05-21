@@ -10,6 +10,7 @@ import networkx as nx
 from itertools import combinations
 from torch_geometric.data import Data
 import torch_geometric.utils as gutls
+from sklearn.neighbors import radius_neighbors_graph
 
 
 def make_edges_ccl(model,
@@ -17,6 +18,7 @@ def make_edges_ccl(model,
                    device,
                    probas=None,
                    drho=0.5,
+                   radius=None,
                    return_subgraphs=False,
                    add_self_loops=False,
                    return_pos_labels=False,
@@ -31,27 +33,37 @@ def make_edges_ccl(model,
 
     edges = []
     subgraphs = []
-    pos_labels = dict()
 
     for data in tqdm(dataloader):
 
         data = batch_to_device(data, device)
 
         with torch.no_grad():
-            clst = model(data)['clusters'].argmax(dim=1)
+            clst = model(data)['clusters'].argmax(dim=1).cpu().detach().numpy()
+
+        if (radius is not None):
+            graph = radius_neighbors_graph(data['centroids'], radius).tocoo()
+        else:
+            graph = nx.adjacency_matrix(data['graph'],
+                                        nodelist=sorted(data['graph'].nodes()))
+            graph = graph.tocoo()
+
+        row = graph.row
+        col = graph.col
+        all_edges = np.vstack((row, col))
 
         # get edges according to cluster assignments
-        edges_ = [(n0, n1) for n0, n1 in data['graph'].edges
-                  if ((clst[n0] == clst[n1]))]
+        edges_ = all_edges[:, clst[all_edges[0]] == clst[all_edges[1]]]
 
         if (probas is not None):
             # probas_ = probas[data['frame_idx'][0]]
             probas_ = torch.cat([probas[f] for f in data['frame_idx']])
-            edges_ = [(n0, n1) for n0, n1 in edges_
-                      if abs(probas_[n0] - probas_[n1]) < drho]
+            edges_ = edges_[:,
+                            abs(probas_[edges_[0]] -
+                                probas_[edges_[1]]) < drho]
 
         # create the induced subgraph of each component
-        g = nx.Graph(edges_)
+        g = nx.Graph(edges_.T.tolist())
         S = [g.subgraph(c).copy() for c in nx.connected_components(g)]
 
         # all connected components form a fully connected group
@@ -59,21 +71,22 @@ def make_edges_ccl(model,
                   for c, S_ in enumerate(S)]
         edges_ = [item for sublist in edges_ for item in sublist]
         edges_ = np.array(edges_)
-        edges_ = torch.from_numpy(edges_).T
+        edges_ = torch.from_numpy(edges_).T.long()
 
         if (return_signed):
-            edges_neg = [(n0, n1) for n0, n1 in data['graph'].edges
-                         if (clst[n0] != clst[n1])]
+            edges_neg = all_edges[:, clst[all_edges[0]] != clst[all_edges[1]]]
             if (probas is not None):
-                edges_neg = [(n0, n1) for n0, n1 in edges_neg
-                             if abs(probas_[n0] - probas_[n1]) >= drho]
-            edges_neg = [(n0, n1, -1) for n0, n1 in edges_neg]
-            edges_neg = np.array(edges_neg)
-            edges_neg = torch.from_numpy(edges_neg).T
+                edges_neg = edges_neg[:,
+                                      abs(probas_[edges_neg[0]] -
+                                          probas_[edges_neg[1]]) <= drho]
+            # edges_neg = np.array(edges_neg)
+            edges_neg = torch.from_numpy(edges_neg).long()
+            edges_neg = torch.cat(
+                (edges_neg, -torch.ones(1, edges_neg.shape[1]).long()), dim=0)
             edges_ = torch.cat((edges_, edges_neg), dim=1)
 
         data = Data(edge_index=edges_)
-        data.n_nodes = clst.numel()
+        data.n_nodes = clst.size
 
         edges.append(data)
 

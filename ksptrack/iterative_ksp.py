@@ -50,8 +50,8 @@ def make_link_agent(cfg):
             cfg_siam = Bunch(yaml.load(f, Loader=yaml.FullLoader))
         model = Siamese(cfg_siam.embedded_dims, cfg_siam.n_clusters,
                         cfg_siam.alpha, cfg_siam.backbone)
-        if (cfg.use_siam_pred):
-            model.dec.autoencoder.to_predictor()
+        # if (cfg.use_siam_pred):
+        # model.dec.autoencoder.to_predictor()
         print('loading checkpoint {}'.format(cfg.siam_path))
         state_dict = torch.load(cfg.siam_path,
                                 map_location=lambda storage, loc: storage)
