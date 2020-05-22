@@ -27,6 +27,27 @@ def sp_pool(feats, labels):
     return pooled_feats
 
 
+class SignedGCNBlock(nn.Module):
+    """
+
+    """
+    def __init__(self, in_dims, out_dims, first_aggr=False):
+        super(SignedGCNBlock, self).__init__()
+        self.gcn = gnn.SignedConv(in_channels=in_dims,
+                                  out_channels=out_dims,
+                                  first_aggr=first_aggr)
+        self.bn = nn.BatchNorm1d(2 * out_dims)
+        self.relu = nn.ReLU()
+
+    def forward(self, x, pos_edge_index, neg_edge_index):
+        x = self.gcn(x,
+                     pos_edge_index=pos_edge_index,
+                     neg_edge_index=neg_edge_index)
+        x = self.bn(x)
+        x = self.relu(x)
+        return x
+
+
 class LocMotionAppearance(nn.Module):
     """
 
@@ -43,36 +64,35 @@ class LocMotionAppearance(nn.Module):
         self.gcns = []
         self.mergers_pos = []
         self.mergers_neg = []
-        self.bns = []
         self.sigma = sigma
         self.mixing_coeff = mixing_coeff
 
         in_dims[0] = 36
         for i in range(len(in_dims) - 1):
-            gcn_ = gnn.SignedConv(in_channels=in_dims[i],
-                                  out_channels=in_dims[i + 1],
-                                  first_aggr=True if i == 0 else False)
-
-            self.gcns.append(gcn_)
-
-            merger_pos = nn.Conv1d(2 * in_dims[i + 1],
+            block = SignedGCNBlock(in_dims[i],
                                    in_dims[i + 1],
-                                   kernel_size=1)
-            merger_neg = nn.Conv1d(2 * in_dims[i + 1],
-                                   in_dims[i + 1],
-                                   kernel_size=1)
-            self.mergers_pos.append(merger_pos)
-            self.mergers_neg.append(merger_neg)
+                                   first_aggr=True if i == 0 else False)
 
-            bn = nn.BatchNorm1d(2 * in_dims[i + 1])
-            self.bns.append(bn)
+            self.gcns.append(block)
 
-        self.bn_pre = nn.BatchNorm1d(in_dims[0])
+            if (i > 0):
+                merger_pos = nn.Sequential(*[
+                    nn.Linear(2 * in_dims[i], in_dims[i]),
+                    nn.BatchNorm1d(in_dims[i]),
+                    nn.ReLU()
+                ])
+                merger_neg = nn.Sequential(*[
+                    nn.Linear(2 * in_dims[i], in_dims[i]),
+                    nn.BatchNorm1d(in_dims[i]),
+                    nn.ReLU()
+                ])
+                self.mergers_pos.append(merger_pos)
+                self.mergers_neg.append(merger_neg)
+
+        self.bn_pre = nn.BatchNorm1d(4)
         self.gcns = nn.ModuleList(self.gcns)
         self.mergers_pos = nn.ModuleList(self.mergers_pos)
         self.mergers_neg = nn.ModuleList(self.mergers_neg)
-
-        self.bns = nn.ModuleList(self.bns)
 
         self.lin_pw = nn.Linear(512, 256)
         # self.bn_pw = nn.BatchNorm1d(1024)
@@ -117,46 +137,39 @@ class LocMotionAppearance(nn.Module):
         n_samples = [torch.unique(l).numel() for l in data['labels']]
 
         x = sp_pool(autoenc_skips[0], data['labels'])
-        x = torch.cat((pooled_coords, pooled_fx, pooled_fy, x), dim=1)
+        x = torch.cat((pooled_coords, pooled_fx, pooled_fy), dim=1)
         x = self.bn_pre(x)
+        x = F.relu(x)
 
         # print('[LocMotionApp] lvl {} num. NaN feats: {}'.format(
         # 'pre', num_nan_inf(x)))
         pos_edge_index = edges_nn[:, edges_nn[-1] != -1][:2]
         neg_edge_index = edges_nn[:, edges_nn[-1] == -1][:2]
 
-        x = self.gcns[0](x,
-                         pos_edge_index=pos_edge_index,
-                         neg_edge_index=neg_edge_index)
-        x = self.bns[0](x)
-        x = F.relu(x)
         # print('[LocMotionApp] lvl {} num. NaN feats: {}'.format(
         #     0, num_nan_inf(x)))
         # x = F.normalize(x, dim=1)
-        x_pos = x[:, x.shape[1] // 2:]
-        x_neg = x[:, :x.shape[1] // 2]
 
-        for i, g in enumerate(self.gcns[1:]):
-            skip = sp_pool(autoenc_skips[i + 1], data['labels'])
-            x_pos = torch.cat((x_pos, skip), dim=1)
-            x_pos = self.mergers_pos[i](x_pos[..., None]).squeeze()
-            x_pos = F.relu(x_pos)
-            x_neg = torch.cat((x_neg, skip), dim=1)
-            x_neg = self.mergers_neg[i](x_neg[..., None]).squeeze()
-            x_neg = F.relu(x_neg)
-            x = torch.cat((x_pos, x_neg), dim=1)
-            # x = F.normalize(x, dim=1)
+        for i, g in enumerate(self.gcns):
+            skip = sp_pool(autoenc_skips[i], data['labels'])
+            # print('[LocMotionApp] lvl {} num. NaN feats: {}'.format(
+            #     i + 1, num_nan_inf(x)))
+            if (i > 0):
+                x_pos = x[:, x.shape[1] // 2:]
+                x_neg = x[:, :x.shape[1] // 2]
+                x_pos = torch.cat((x_pos, skip), dim=1)
+                x_pos = self.mergers_pos[i - 1](x_pos)
+                x_neg = torch.cat((x_neg, skip), dim=1)
+                x_neg = self.mergers_neg[i - 1](x_neg)
+                x = torch.cat((x_pos, x_neg), dim=1)
+            else:
+                x = torch.cat((x, skip), dim=1)
+
             x = g(x,
                   pos_edge_index=pos_edge_index,
                   neg_edge_index=neg_edge_index)
-            # print('[LocMotionApp] lvl {} num. NaN feats: {}'.format(
-            #     i + 1, num_nan_inf(x)))
-            x = self.bns[i + 1](x)
-            x = F.relu(x)
-            x_pos = x[:, x.shape[1] // 2:]
-            x_neg = x[:, :x.shape[1] // 2]
 
-        x = torch.cat((x_pos, x_neg), dim=1)
+        # x = torch.cat((x_pos, x_neg), dim=1)
         x = self.lin_pw(x)
         # print('[LocMotionApp] lvl {} num. NaN feats: {}'.format(
         #     'last', num_nan_inf(x)))
@@ -218,7 +231,7 @@ class Siamese(nn.Module):
                                                 mixing_coeff=0.5)
 
         self.rho_dec.apply(init_weights)
-        self.locmotionapp.apply(init_weights)
+        # self.locmotionapp.apply(init_weights)
 
     def load_partial(self, state_dict):
         # filter out unnecessary keys

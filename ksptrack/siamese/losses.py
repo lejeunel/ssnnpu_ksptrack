@@ -449,7 +449,7 @@ class RAGTripletLoss(nn.Module):
         super(RAGTripletLoss, self).__init__()
         self.cs = nn.CosineSimilarity(dim=1)
         # self.cs = nn.CosineSimilarity(dim=1, eps=1e-3)
-        self.margin = 0.3
+        self.margin = 0.5
 
     def forward(self, feats, edges):
         """

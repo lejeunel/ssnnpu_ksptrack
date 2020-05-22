@@ -1,7 +1,7 @@
 frames: []
 
 epochs-autoenc: 150
-epochs-pre-pred: 20
+epochs-pre-pred: 10
 epochs-dec: 100
 epochs-dist: 300
 
@@ -24,7 +24,7 @@ lambda-: 1
 # image reconstruction
 gamma: 0
 # pairwise similarity
-beta: 1
+beta: 10
 # clustering
 alpha: 10
 delta: 1000

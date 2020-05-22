@@ -212,11 +212,11 @@ def train(cfg, model, device, dataloaders, run_path):
             'params': model.dec.autoencoder.parameters(),
             'lr': 1e-3,
         }],
-                   weight_decay=1e-5),
+                   weight_decay=0),
         'gcns':
         optim.Adam(params=[{
             'params': model.locmotionapp.parameters(),
-            'lr': 1e-3,
+            'lr': 1e-1,
         }],
                    weight_decay=0),
         'pred':
@@ -364,7 +364,6 @@ def main(cfg):
     device = torch.device('cuda' if cfg.cuda else 'cpu')
     model = Siamese(embedded_dims=cfg.embedded_dims,
                     cluster_number=cfg.n_clusters,
-                    alpha=cfg.alpha,
                     backbone=cfg.backbone).to(device)
 
     transf = make_data_aug(cfg)
