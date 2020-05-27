@@ -224,7 +224,7 @@ class StackLoader(LocPriorDataset):
         print('preparing graphs...')
         pbar = tqdm(total=len(self.imgs) - (self.depth - 1))
         for i in range(self.labels.shape[-1] - self.depth + 1):
-            labels = self.labels[..., i:i + self.depth].copy()
+            labels = np.copy(self.labels[..., i:i + self.depth])
             for d in range(1, self.depth):
                 labels[..., d] += labels[..., d - 1].max() + 1
             graph = skg.RAG(label_image=labels)
@@ -251,6 +251,8 @@ class StackLoader(LocPriorDataset):
             for i in range(idx, idx + self.depth)
         ]
 
+        max_node = 0
+        clicked = []
         for i in range(self.depth):
             fnorm = self.fv[idx + i][..., None]
             fnorm = self.reshaper_img.augment_image(fnorm)
@@ -264,7 +266,12 @@ class StackLoader(LocPriorDataset):
             fy = self.reshaper_img.augment_image(fy)
             samples[i]['fy'] = fy
 
-        return samples, self.centroids[idx], self.graphs[idx]
+            clicked.append(np.array(samples[i]['labels_clicked']) + max_node)
+            max_node += samples[i]['labels'].max() + 1
+
+        clicked = np.concatenate(clicked)
+
+        return samples, self.centroids[idx], self.graphs[idx], clicked
 
     def __len__(self):
         return len(self.imgs) - (self.depth - 1)
@@ -274,6 +281,8 @@ class StackLoader(LocPriorDataset):
         out = dict()
         out['centroids'] = samples[0][1]
         out['graph'] = samples[0][2]
+        clicked = samples[0][3]
+
         samples = samples[0][0]
         out_ = super(Loader, Loader).collate_fn(samples)
         out.update(out_)
@@ -289,6 +298,8 @@ class StackLoader(LocPriorDataset):
         fy = [np.rollaxis(d['fy'], -1) for d in samples]
         fy = torch.stack([torch.from_numpy(f) for f in fy]).float()
         out['fy'] = fy
+
+        out['clicked'] = torch.from_numpy(clicked)
 
         return out
 

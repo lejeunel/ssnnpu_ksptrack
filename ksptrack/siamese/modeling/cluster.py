@@ -32,7 +32,7 @@ class ClusterAssignment(nn.Module):
         else:
             initial_cluster_centers = cluster_centers
         self.cluster_centers = Parameter(initial_cluster_centers)
-        self.eps = 1e-3
+        self.eps = 1e-8
 
     def forward(self, x):
         """
@@ -46,6 +46,5 @@ class ClusterAssignment(nn.Module):
         numerator = 1.0 / (1.0 + (norm_squared / self.alpha))
         power = float(self.alpha + 1) / 2
         numerator = numerator**power
-        x = numerator / torch.clamp(torch.sum(numerator, dim=1, keepdim=True),
-                                    min=self.eps)
+        x = numerator / torch.sum(numerator, dim=1, keepdim=True)
         return x

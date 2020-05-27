@@ -5,6 +5,7 @@ import tqdm
 from torch.utils.data import DataLoader
 
 from ksptrack.siamese import utils as utls
+from ksptrack.siamese.modeling.siamese import Siamese
 from ksptrack.siamese.clustering import get_features
 from ksptrack.siamese.loader import Loader, StackLoader
 from ksptrack.utils.link_agent_radius import LinkAgentRadius
@@ -44,20 +45,37 @@ class LinkAgentSiam(LinkAgentRadius):
     def __init__(self,
                  csv_path,
                  data_path,
-                 model,
+                 model_path,
+                 model_clst_path,
+                 embedded_dims,
+                 n_clusters,
                  entrance_radius=0.1,
                  cuda=False):
 
-        super().__init__(csv_path,
-                         data_path,
-                         model,
-                         entrance_radius=entrance_radius)
+        super().__init__(csv_path, data_path, entrance_radius=entrance_radius)
 
         self.device = torch.device('cuda' if cuda else 'cpu')
         self.data_path = data_path
 
-        self.model = model
+        self.model = Siamese(embedded_dims=embedded_dims,
+                             cluster_number=n_clusters,
+                             backbone='unet')
+        print('loading checkpoint {}'.format(model_path))
+        state_dict = torch.load(model_path,
+                                map_location=lambda storage, loc: storage)
+
+        self.model.load_state_dict(state_dict, strict=False)
         self.model.to(self.device)
+
+        self.model_clst = Siamese(embedded_dims=embedded_dims,
+                                  cluster_number=n_clusters,
+                                  backbone='unet')
+        print('loading checkpoint {}'.format(model_clst_path))
+        state_dict = torch.load(model_clst_path,
+                                map_location=lambda storage, loc: storage)
+
+        self.model_clst.load_state_dict(state_dict, strict=False)
+        self.model_clst.to(self.device)
 
         self.batch_to_device = lambda batch: {
             k: v.to(self.device) if (isinstance(v, torch.Tensor)) else v
@@ -83,7 +101,7 @@ class LinkAgentSiam(LinkAgentRadius):
         self.feats = dict()
         self.assignments = dict()
 
-        edges_list = utls.make_edges_ccl(self.model,
+        edges_list = utls.make_edges_ccl(self.model_clst,
                                          self.dl,
                                          self.device,
                                          return_signed=True)

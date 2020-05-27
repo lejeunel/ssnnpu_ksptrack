@@ -1,13 +1,13 @@
 frames: []
 
 epochs-autoenc: 150
-epochs-pre-pred: 10
+epochs-pre-pred: 0
 epochs-dec: 100
 epochs-dist: 300
 
 # generate previews every x epochs
 prev-period: 10
-tgt-update-period: 40
+tgt-update-period: 999
 proba-update-period: 999
 cp-period: 2
 
@@ -24,9 +24,9 @@ lambda-: 1
 # image reconstruction
 gamma: 0
 # pairwise similarity
-beta: 10
+beta: 0.1
 # clustering
-alpha: 10
+alpha: 0
 delta: 1000
 
 # batch

@@ -9,6 +9,8 @@ import torch
 import matplotlib.pyplot as plt
 from imgaug import augmenters as iaa
 import matplotlib.pyplot as plt
+from skimage.draw import circle
+from skimage import segmentation
 
 
 def make_1d_gauss(length, std, x0):
@@ -164,15 +166,23 @@ class LocPriorDataset(BaseDataset, data.Dataset):
 if __name__ == "__main__":
 
     dl = LocPriorDataset(
-        '/home/ubelix/lejeune/data/medical-labeling/Dataset00')
+        '/home/ubelix/lejeune/data/medical-labeling/Dataset30',
+        resize_shape=512)
     # sample = dl[10]
 
-    for sample in dl:
-        print(sample['loc_keypoints'])
-        plt.subplot(221)
-        plt.imshow(sample['image_unnormal'])
-        plt.subplot(222)
-        plt.imshow(sample['prior'][..., 0])
-        plt.subplot(223)
-        plt.imshow(sample['prior'][..., 0] > 0.5)
-        plt.show()
+    sample = dl[4]
+    im = sample['image_unnormal']
+    labels = sample['labels'][..., 0]
+    print(sample['labels_clicked'])
+    labels = np.array([labels == l
+                       for l in sample['labels_clicked']]).sum(axis=0)
+    labels_bnd = segmentation.find_boundaries(labels, mode='thick')
+    kp = sample['loc_keypoints'].keypoints[0]
+    i, j = kp.y, kp.x
+    w, h, _ = im.shape
+    rr, cc = circle(i, j, 7, shape=(h, w))
+    im[rr, cc, :] = (0, 255, 0)
+    im[labels_bnd] = (255, 0, 0)
+
+    plt.imshow(im)
+    plt.show()

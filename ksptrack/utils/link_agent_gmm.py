@@ -7,6 +7,7 @@ import tqdm
 from sklearn.mixture import GaussianMixture
 import matplotlib.pyplot as plt
 from ksptrack.siamese.loader import Loader
+from ksptrack.siamese.modeling.siamese import Siamese
 
 
 def make_clusters(labels, predictions):
@@ -52,7 +53,9 @@ class LinkAgentGMM(LinkAgentRadius):
     def __init__(self,
                  csv_path,
                  data_path,
-                 model,
+                 model_path,
+                 embedded_dims,
+                 n_clusters,
                  entrance_radius=0.1,
                  cuda=False):
 
@@ -61,7 +64,14 @@ class LinkAgentGMM(LinkAgentRadius):
         self.device = torch.device('cuda' if cuda else 'cpu')
         self.data_path = data_path
 
-        self.model = model
+        self.model = Siamese(embedded_dims=embedded_dims,
+                             cluster_number=n_clusters,
+                             backbone='unet')
+        print('loading checkpoint {}'.format(model_path))
+        state_dict = torch.load(model_path,
+                                map_location=lambda storage, loc: storage)
+
+        self.model.load_state_dict(state_dict, strict=False)
         self.model.to(self.device)
         self.model.eval()
 

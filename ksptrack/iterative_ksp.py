@@ -42,49 +42,43 @@ def merge_positives(sp_desc_df, pos_for, pos_back):
 
 def make_link_agent(cfg):
 
-    if (cfg.siam_path):
-        cfg_path = os.path.split(cfg.siam_path)[0]
-        cfg_path = os.path.split(cfg_path)[0]
-        cfg_path = pjoin(cfg_path, 'cfg.yml')
-        with open(cfg_path) as f:
-            cfg_siam = Bunch(yaml.load(f, Loader=yaml.FullLoader))
-        model = Siamese(cfg_siam.embedded_dims, cfg_siam.n_clusters,
-                        cfg_siam.alpha, cfg_siam.backbone)
-        # if (cfg.use_siam_pred):
-        # model.dec.autoencoder.to_predictor()
-        print('loading checkpoint {}'.format(cfg.siam_path))
-        state_dict = torch.load(cfg.siam_path,
-                                map_location=lambda storage, loc: storage)
-        model.load_state_dict(state_dict, strict=False)
+    cfg_path = os.path.split(cfg.siam_path)[0]
+    cfg_path = os.path.split(cfg_path)[0]
+    cfg_path = pjoin(cfg_path, 'cfg.yml')
+    with open(cfg_path) as f:
+        cfg_siam = Bunch(yaml.load(f, Loader=yaml.FullLoader))
 
-        if (cfg.use_siam_trans):
-            link_agent = LinkAgentSiam(csv_path=pjoin(cfg.in_path,
-                                                      cfg.locs_dir,
-                                                      cfg.csv_fname),
-                                       data_path=cfg.in_path,
-                                       model=model,
-                                       entrance_radius=cfg.norm_neighbor_in,
-                                       cuda=cfg.cuda)
-        else:
-            link_agent = LinkAgentGMM(csv_path=pjoin(cfg.in_path, cfg.locs_dir,
-                                                     cfg.csv_fname),
-                                      data_path=cfg.in_path,
-                                      model=model,
-                                      entrance_radius=cfg.norm_neighbor_in,
-                                      cuda=cfg.cuda)
-        # compute features
-        path_feats = pjoin(cfg.in_path, cfg.precomp_dir, 'sp_desc_siam.p')
-        path_centroids = pjoin(cfg.in_path, cfg.precomp_dir,
-                               'centroids_loc_df.p')
+    if (cfg.use_siam_trans):
+        link_agent = LinkAgentSiam(csv_path=pjoin(cfg.in_path, cfg.locs_dir,
+                                                  cfg.csv_fname),
+                                   data_path=cfg.in_path,
+                                   model_path=cfg.siam_path,
+                                   model_clst_path=cfg.siam_clst_path,
+                                   embedded_dims=cfg_siam.embedded_dims,
+                                   n_clusters=cfg_siam.n_clusters,
+                                   entrance_radius=cfg.norm_neighbor_in,
+                                   cuda=cfg.cuda)
+    else:
+        link_agent = LinkAgentGMM(csv_path=pjoin(cfg.in_path, cfg.locs_dir,
+                                                 cfg.csv_fname),
+                                  data_path=cfg.in_path,
+                                  model_path=cfg.siam_path,
+                                  embedded_dims=cfg_siam.embedded_dims,
+                                  n_clusters=cfg_siam.n_clusters,
+                                  entrance_radius=cfg.norm_neighbor_in,
+                                  cuda=cfg.cuda)
+    # compute features
+    path_feats = pjoin(cfg.in_path, cfg.precomp_dir, 'sp_desc_siam.p')
+    path_centroids = pjoin(cfg.in_path, cfg.precomp_dir, 'centroids_loc_df.p')
 
-        print('computing features to {}'.format(path_feats))
-        feats = [item for sublist in link_agent.feats for item in sublist]
-        centroids = pd.read_pickle(path_centroids)
-        feats = centroids.assign(desc=feats)
-        print('Saving features to {}'.format(path_feats))
-        feats.to_pickle(path_feats)
+    print('computing features to {}'.format(path_feats))
+    feats = [item for sublist in link_agent.feats for item in sublist]
+    centroids = pd.read_pickle(path_centroids)
+    feats = centroids.assign(desc=feats)
+    print('Saving features to {}'.format(path_feats))
+    feats.to_pickle(path_feats)
 
-        return link_agent, feats
+    return link_agent, feats
 
 
 def main(cfg):
@@ -288,6 +282,7 @@ if __name__ == "__main__":
     p.add('--out-path', required=True)
     p.add('--in-path', required=True)
     p.add('--siam-path', default='')
+    p.add('--siam-clst-path', default='')
     p.add('--use-siam-pred', default=False, action='store_true')
     p.add('--use-siam-trans', default=False, action='store_true')
 

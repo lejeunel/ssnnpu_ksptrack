@@ -18,7 +18,7 @@ from ksptrack.cfgs import params as params_ksp
 from ksptrack.siamese import utils as utls
 from ksptrack.siamese.distrib_buffer import DistribBuffer
 from ksptrack.siamese.loader import Loader, StackLoader, RandomBatchSampler
-from ksptrack.siamese.losses import RAGTripletLoss, PointLoss
+from ksptrack.siamese.losses import RAGTripletLoss, PointLoss, ClusterObj
 from ksptrack.siamese.modeling.siamese import Siamese
 from ksptrack.utils.bagging import calc_bagging
 from ksptrack.siamese.train_init_clst import train_kmeans
@@ -60,7 +60,7 @@ def train_one_epoch(model,
 
     criterion_clst = torch.nn.KLDivLoss(reduction='mean')
     criterion_pw = RAGTripletLoss()
-    criterion_obj_pred = torch.nn.BCEWithLogitsLoss()
+    criterion_obj_pred = ClusterObj()
     criterion_recons = torch.nn.MSELoss()
 
     pbar = tqdm(total=len(dataloaders['train']))
@@ -76,8 +76,8 @@ def train_one_epoch(model,
             probas_ = torch.cat([probas[i] for i in data['frame_idx']])
             edges_ = edges_list[data['frame_idx'][0]].edge_index.to(
                 probas_.device)
-            with torch.autograd.detect_anomaly():
-                res = model(data, edges_nn=edges_)
+            # with torch.autograd.detect_anomaly():
+            res = model(data, edges_nn=edges_)
 
             loss = 0
 
@@ -87,8 +87,9 @@ def train_one_epoch(model,
                 loss += cfg.alpha * loss_clst
 
             if (cfg.clf):
+
                 loss_obj_pred = criterion_obj_pred(
-                    res['rho_hat_pooled'].squeeze(), (probas_ >= 0.5).float())
+                    res['rho_hat_pooled'].squeeze(), edges_, data['clicked'])
                 loss += cfg.lambda_ * loss_obj_pred
 
             loss_recons = criterion_recons(sigmoid(res['output']),
@@ -99,8 +100,8 @@ def train_one_epoch(model,
                 loss_pw = criterion_pw(res['siam_feats'], edges_)
                 loss += cfg.beta * loss_pw
 
-            with torch.autograd.detect_anomaly():
-                loss.backward()
+            # with torch.autograd.detect_anomaly():
+            loss.backward()
 
             # torch.nn.utils.clip_grad_norm_(model.parameters(), 0.01)
 
@@ -188,6 +189,7 @@ def train(cfg, model, device, dataloaders, run_path):
     cfg_ksp.bag_t = 300
     cfg_ksp.bag_n_feats = cfg.bag_n_feats
     cfg_ksp.bag_max_depth = cfg.bag_max_depth
+    cfg_ksp.siam_clst_path = pjoin(run_path, 'checkpoints', 'init_dec.pth.tar')
     cfg_ksp.siam_path = pjoin(run_path, 'checkpoints', 'init_dec.pth.tar')
     cfg_ksp.use_siam_pred = False
     cfg_ksp.use_siam_trans = False
@@ -210,19 +212,19 @@ def train(cfg, model, device, dataloaders, run_path):
         'feats':
         optim.Adam(params=[{
             'params': model.dec.autoencoder.parameters(),
-            'lr': 1e-3,
+            'lr': 1e-2,
         }],
                    weight_decay=0),
         'gcns':
         optim.Adam(params=[{
             'params': model.locmotionapp.parameters(),
-            'lr': 1e-1,
+            'lr': 1e-4,
         }],
                    weight_decay=0),
         'pred':
         optim.Adam(params=[{
             'params': model.rho_dec.parameters(),
-            'lr': 1e-3,
+            'lr': 1e-2,
         }],
                    weight_decay=0),
         'assign':
@@ -297,16 +299,16 @@ def train(cfg, model, device, dataloaders, run_path):
                 cfg.fix_clst = False
                 cfg.clf_reg = True
                 cfg.pw = True
-                if ((epoch - cfg.epochs_pre_pred) %
-                        cfg.tgt_update_period == 0):
-                    print('Generating connected components graphs')
-                    edges_list = utls.make_edges_ccl(model,
-                                                     dataloaders['edges'],
-                                                     device,
-                                                     return_signed=True)
-                    print('Updating target distributions')
-                    distrib_buff.do_update(model, dataloaders['all_prev'],
-                                           device)
+                # if ((epoch - cfg.epochs_pre_pred) %
+                #         cfg.tgt_update_period == 0):
+                #     print('Generating connected components graphs')
+                # edges_list = utls.make_edges_ccl(model,
+                #                                  dataloaders['edges'],
+                #                                  device,
+                #                                  return_signed=True)
+                # print('Updating target distributions')
+                # distrib_buff.do_update(model, dataloaders['all_prev'],
+                #                        device)
 
         # save checkpoint
         if (epoch % cfg.cp_period == 0):

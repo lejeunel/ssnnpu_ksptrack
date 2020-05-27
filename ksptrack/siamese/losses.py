@@ -5,6 +5,8 @@ from ksptrack.siamese import utils as utls
 from ksptrack.siamese.modeling.superpixPool.pytorch_superpixpool.suppixpool_layer import SupPixPool
 import networkx as nx
 import itertools
+import random
+import torch.nn.functional as F
 
 
 def get_edges_probas(probas, edges_nn, thrs=[0.6, 0.8], clusters=None):
@@ -442,6 +444,51 @@ class LSMLoss(nn.Module):
 
 def num_nan_inf(t):
     return torch.isnan(t).sum() + torch.isinf(t).sum()
+
+
+class ClusterObj(nn.Module):
+    def __init__(self, gamma=0, alpha=1):
+        super(ClusterObj, self).__init__()
+        self.bce = nn.BCEWithLogitsLoss(reduction='none')
+        self.gamma = gamma
+        self.alpha = alpha
+
+    def forward(self, input, edges, keypoints):
+        """
+        """
+
+        edges_ = edges[:, edges[-1] != -1]
+        # get edges that corresponds to keypoints
+        cluster_clicked = torch.cat([
+            edges_[-1, (edges_[0, :] == l) + (edges_[1, :] == l)]
+            for l in keypoints
+        ])
+
+        pos_nodes = torch.cat([
+            torch.unique(edges_[:2, edges_[-1] == c])
+            for c in torch.unique(cluster_clicked)
+        ])
+        all_nodes = torch.unique(edges_[:2])
+
+        # negative nodes are the non-intersection
+        compareview = pos_nodes.repeat(all_nodes.shape[0], 1).T
+        neg_nodes = all_nodes[(compareview != all_nodes).T.prod(1) == 1]
+
+        pos_tgt = torch.ones(pos_nodes.numel()).float().to(edges.device)
+        neg_tgt = torch.zeros(neg_nodes.numel()).float().to(edges.device)
+        tgt = torch.cat((pos_tgt, neg_tgt))
+        # pos_weight = tgt.numel() / (2 * pos_nodes.numel())
+        # neg_weight = tgt.numel() / (2 * neg_nodes.numel())
+        # weights = torch.cat(
+        #     (pos_weight * torch.ones(pos_nodes.numel()),
+        #      neg_weight * torch.ones(neg_nodes.numel()))).to(edges.device)
+        input = torch.cat((input[pos_nodes], input[neg_nodes]))
+
+        loss = F.binary_cross_entropy_with_logits(input, tgt, reduce=False)
+        pt = torch.exp(-loss)
+        loss = self.alpha * (1 - pt)**self.gamma * loss
+
+        return loss.mean()
 
 
 class RAGTripletLoss(nn.Module):
