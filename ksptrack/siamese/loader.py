@@ -13,6 +13,33 @@ from skimage.future import graph as skg
 import random
 import networkx as nx
 from torch._six import int_classes as _int_classes
+import pickle
+
+
+def _add_edge_filter(values, g):
+    """Add an edge between first element in `values` and
+    all other elements of `values` in the graph `g`.
+    `values[0]` is expected to be the central value of
+    the footprint used.
+
+    Parameters
+    ----------
+    values : array
+        The array to process.
+    g : RAG
+        The graph to add edges in.
+
+    Returns
+    -------
+    0.0 : float
+        Always returns 0.
+
+    """
+    values = values.astype(int)
+    current = values[0]
+    for value in values[1:]:
+        g.add_edge(current, value)
+    return 0.0
 
 
 class RandomBatchSampler(Sampler):
@@ -183,18 +210,14 @@ class StackLoader(LocPriorDataset):
         self.hoof = pd.read_pickle(pjoin(root_path, 'precomp_desc', 'hoof.p'))
 
         graphs_path = pjoin(root_path, 'precomp_desc',
-                            'graphs_depth_{}.npz'.format(self.depth))
+                            'graphs_depth_{}.p'.format(self.depth))
         if (not os.path.exists(graphs_path)):
             self.prepare_graphs()
-            np.savez(graphs_path, **{
-                'centroids': self.centroids,
-                'graphs': self.graphs
-            })
+            pickle.dump(self.graphs, open(graphs_path, "wb"))
+
         else:
             print('loading graphs at {}'.format(graphs_path))
-            np_file = np.load(graphs_path, allow_pickle=True)
-            self.centroids = np_file['centroids']
-            self.graphs = np_file['graphs']
+            self.graphs = pickle.load(open(graphs_path, "rb"))
 
         self.labels = np.load(pjoin(root_path, 'precomp_desc',
                                     'sp_labels.npz'))['sp_labels']
@@ -218,29 +241,30 @@ class StackLoader(LocPriorDataset):
 
     def prepare_graphs(self):
 
-        self.centroids = []
+        from ilastikrag import rag
+        import vigra
+
         self.graphs = []
 
         print('preparing graphs...')
         pbar = tqdm(total=len(self.imgs) - (self.depth - 1))
-        for i in range(self.labels.shape[-1] - self.depth + 1):
-            labels = np.copy(self.labels[..., i:i + self.depth])
-            for d in range(1, self.depth):
-                labels[..., d] += labels[..., d - 1].max() + 1
-            graph = skg.RAG(label_image=labels)
-            self.graphs.append(graph)
-
-            labels = self.labels[..., i:i + self.depth].copy()
-            centroids = []
+        for i in range(super(StackLoader, self).__len__() - self.depth + 1):
+            labels = np.array([
+                super(StackLoader, self).__getitem__(i)['labels'].squeeze()
+                for i in range(i, i + self.depth)
+            ])
+            rags = []
+            max_node = 0
             for d in range(self.depth):
-                regions = measure.regionprops(labels[..., d] + 1)
-                centroids_ = np.array([
-                    (p['centroid'][1] / labels[..., d].shape[1],
-                     p['centroid'][0] / labels[..., d].shape[0])
-                    for p in regions
-                ])
-                centroids.append(centroids_)
-            self.centroids.append(np.concatenate(centroids))
+                labels[d] += max_node
+                max_node += labels[d].max() + 1
+
+            labels = np.rollaxis(labels, 0, 3)
+            labels = vigra.Volume(labels, dtype=np.uint32)
+            full_rag = rag.Rag(labels).edge_ids.T.astype(np.int32)
+
+            self.graphs.append(full_rag)
+
             pbar.update(1)
         pbar.close()
 
@@ -271,7 +295,7 @@ class StackLoader(LocPriorDataset):
 
         clicked = np.concatenate(clicked)
 
-        return samples, self.centroids[idx], self.graphs[idx], clicked
+        return samples, self.graphs[idx], clicked
 
     def __len__(self):
         return len(self.imgs) - (self.depth - 1)
@@ -279,9 +303,8 @@ class StackLoader(LocPriorDataset):
 
     def collate_fn(self, samples):
         out = dict()
-        out['centroids'] = samples[0][1]
-        out['graph'] = samples[0][2]
-        clicked = samples[0][3]
+        out['graph'] = samples[0][1]
+        clicked = samples[0][2]
 
         samples = samples[0][0]
         out_ = super(Loader, Loader).collate_fn(samples)
@@ -306,28 +329,16 @@ class StackLoader(LocPriorDataset):
 
 if __name__ == "__main__":
 
-    dset = StackLoader(root_path=pjoin(
+    dset = LocPriorDataset(root_path=pjoin(
         '/home/ubelix/artorg/lejeune/data/medical-labeling/Dataset30'),
-                       normalization='rescale',
-                       depth=2,
-                       resize_shape=512)
+                           normalization='rescale',
+                           depth=2,
+                           resize_shape=512)
 
-    device = torch.device('cuda')
-    model = Siamese(embedded_dims=15,
-                    cluster_number=15,
-                    alpha=1,
-                    backbone='unet').to(device)
-
-    dl = DataLoader(dset, collate_fn=dset.collate_fn)
-    labels_pos = dict()
-    n_labels = dict()
-    for s in dl:
-        for i, f in enumerate(s['frame_idx']):
-            labels_pos[f] = s['labels_clicked'][i]
-            n_labels[f] = torch.unique(s['labels'][i]).numel()
-
-    labels_pos_bool = []
-    for f in sorted(n_labels.keys()):
-        labels_pos_ = np.zeros(n_labels[f]).astype(bool)
-        labels_pos_[labels_pos[f]] = True
-        labels_pos_bool.append(labels_pos_)
+    frames = [10, 11]
+    label_stack = []
+    max_node = 0
+    for f in frames:
+        labels = dset[f]['labels']
+        label_stack.append(labels + max_node)
+        max_node += labels.max() + 1

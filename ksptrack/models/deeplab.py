@@ -18,10 +18,7 @@ from os.path import join as pjoin
 
 
 class DeepLabv3Plus(nn.Module):
-    def __init__(self,
-                 pretrained=False,
-                 do_skip=False,
-                 num_classes=3):
+    def __init__(self, pretrained=False, do_skip=False, num_classes=3):
 
         super(DeepLabv3Plus, self).__init__()
         self.do_skip = do_skip
@@ -35,27 +32,23 @@ class DeepLabv3Plus(nn.Module):
                                BatchNorm=nn.BatchNorm2d)
         self.feats_dims = [3, 16, 64, 256]
 
-        if(self.do_skip):
-            self.shortcut_conv = nn.Sequential(
-                            nn.Conv2d(256, 48, 1, 1,
-                                      padding=1//2,
-                                      bias=True),
-                            nn.BatchNorm2d(48),
-                            nn.ReLU(inplace=True))	
+        self.shortcut_conv = nn.Sequential(
+            nn.Conv2d(256, 48, 1, 1, padding=1 // 2, bias=True),
+            nn.BatchNorm2d(48), nn.ReLU(inplace=True))
 
-        self.decoder = Decoder(
-            num_classes=num_classes,
-            backbone='drn',
-            BatchNorm=nn.BatchNorm2d,
-            aspp_out_dims=256+48 if do_skip else 256)
+        self.decoder = Decoder(num_classes=num_classes,
+                               backbone='drn',
+                               BatchNorm=nn.BatchNorm2d,
+                               aspp_out_dims=256 + 48 if do_skip else 256)
 
         #init weights
-        if(not pretrained):
+        if (not pretrained):
             for m in self.modules():
                 if isinstance(m, nn.Conv2d):
-                    nn.init.kaiming_normal_(m.weight,
-                                            mode='fan_out',
-                                            nonlinearity='relu')
+                    # nn.init.kaiming_normal_(m.weight,
+                    #                         mode='fan_out',
+                    #                         nonlinearity='relu')
+                    nn.init.xavier_normal_(m.weight)
                 elif isinstance(m, nn.BatchNorm2d):
                     nn.init.constant_(m.weight, 1)
                     nn.init.constant_(m.bias, 0)
@@ -64,10 +57,9 @@ class DeepLabv3Plus(nn.Module):
         x, layers = self.encoder(input)
         aspp_feats = self.aspp(x)
 
-        if(self.do_skip):
+        if (self.do_skip):
             feature_shallow = self.shortcut_conv(layers[4])
-            feature_cat = torch.cat([aspp_feats,
-                                     feature_shallow],1)
+            feature_cat = torch.cat([aspp_feats, feature_shallow], 1)
             x = self.decoder(feature_cat)
         else:
             x = self.decoder(aspp_feats)

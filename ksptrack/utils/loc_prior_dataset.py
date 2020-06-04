@@ -11,6 +11,8 @@ from imgaug import augmenters as iaa
 import matplotlib.pyplot as plt
 from skimage.draw import circle
 from skimage import segmentation
+from scipy import ndimage as nd
+import networkx as nx
 
 
 def make_1d_gauss(length, std, x0):
@@ -163,26 +165,89 @@ class LocPriorDataset(BaseDataset, data.Dataset):
         return out
 
 
+def _add_edge_filter(values, g):
+    """Add an edge between first element in `values` and
+    all other elements of `values` in the graph `g`.
+    `values[0]` is expected to be the central value of
+    the footprint used.
+
+    Parameters
+    ----------
+    values : array
+        The array to process.
+    g : RAG
+        The graph to add edges in.
+
+    Returns
+    -------
+    0.0 : float
+        Always returns 0.
+
+    """
+    values = values.astype(int)
+    current = values[0]
+    for value in values[1:]:
+        g.add_edge(current, value)
+    return 0.0
+
+
 if __name__ == "__main__":
 
-    dl = LocPriorDataset(
-        '/home/ubelix/lejeune/data/medical-labeling/Dataset30',
-        resize_shape=512)
-    # sample = dl[10]
+    from ilastikrag import rag
+    import vigra
 
-    sample = dl[4]
-    im = sample['image_unnormal']
-    labels = sample['labels'][..., 0]
-    print(sample['labels_clicked'])
-    labels = np.array([labels == l
-                       for l in sample['labels_clicked']]).sum(axis=0)
-    labels_bnd = segmentation.find_boundaries(labels, mode='thick')
-    kp = sample['loc_keypoints'].keypoints[0]
-    i, j = kp.y, kp.x
-    w, h, _ = im.shape
-    rr, cc = circle(i, j, 7, shape=(h, w))
-    im[rr, cc, :] = (0, 255, 0)
-    im[labels_bnd] = (255, 0, 0)
+    dset = LocPriorDataset(root_path=pjoin(
+        '/home/ubelix/lejeune/data/medical-labeling/Dataset00'),
+                           normalization='rescale',
+                           resize_shape=512)
+    frames = [96, 97]
+    labels_comp = [
+        311, 312, 324, 332, 355, 361, 362, 370, 390, 397, 405, 407, 439, 461,
+        469, 1376, 1398, 1399, 1440, 1450, 1470, 1472, 1483, 1509, 1515, 1546,
+        1548, 1550
+    ]
+    all_labels = []
+    rags = []
+    max_node = 0
+    for f in frames:
+        labels = dset[f]['labels'] + max_node
+        all_labels.append(labels.squeeze())
+        max_node += labels.max() + 1
 
-    plt.imshow(im)
+    # all_labels = np.concatenate(all_labels, axis=-1)
+    # all_labels = vigra.Volume(all_labels, dtype=np.uint32)
+    # full_rag = rag.Rag(all_labels).edge_ids.T.astype(np.int32)
+
+    labels_on = [np.zeros_like(all_labels[0]) for l in all_labels]
+    for i in range(len(all_labels)):
+        for l in labels_comp:
+            labels_on[i][all_labels[i] == l] = True
+
+    plt.subplot(221)
+    plt.imshow(labels_on[0])
+    plt.subplot(222)
+    plt.imshow(all_labels[0])
+    plt.subplot(223)
+    plt.imshow(labels_on[1])
+    plt.subplot(224)
+    plt.imshow(all_labels[1])
     plt.show()
+
+# frames = [10, 11]
+# label_stack = []
+# max_node = 0
+# for f in frames:
+#     labels = dset[f]['labels']
+#     label_stack.append(labels + max_node)
+#     max_node += labels.max() + 1
+
+# labels_stack = np.concatenate(label_stack, axis=-1)
+
+# g = nx.Graph()
+
+# # run the add-edge filter on the regions
+# nd.generic_filter(labels_stack,
+#                   function=_add_edge_filter,
+#                   footprint=fp,
+#                   mode='nearest',
+#                   extra_arguments=(g, ))

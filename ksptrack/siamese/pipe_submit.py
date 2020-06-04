@@ -5,27 +5,24 @@ from os.path import join as pjoin
 
 def split_list(alist, wanted_parts=1):
     length = len(alist)
-    return [alist[i*length // wanted_parts: (i+1)*length // wanted_parts]
-            for i in range(wanted_parts)]
+    return [
+        alist[i * length // wanted_parts:(i + 1) * length // wanted_parts]
+        for i in range(wanted_parts)
+    ]
 
 
 seq_type = list(range(4))
 # seq_type = list(range(2))
-seqs_per_type = [[0, 1, 2, 3],
-                 [0, 1, 2, 3],
-                 [0, 1, 2, 3],
-                 [0, 1, 2, 3]]
+seqs_per_type = [[0, 1, 2, 3], [0, 1, 2, 3], [0, 1, 2, 3], [0, 1, 2, 3]]
 
-run_dirs = [['Dataset' + str(t) + str(n)
-             for n in seqs_per_type[t]]
+run_dirs = [['Dataset' + str(t) + str(n) for n in seqs_per_type[t]]
             for t in seq_type]
 
-train_dirs = [[str(t) + str(n) for n in seqs_per_type[t]]
-              for t in seq_type]
+train_dirs = [[str(t) + str(n) for n in seqs_per_type[t]] for t in seq_type]
 
 run_dirs = [item for sublist in run_dirs for item in sublist]
 
-n_jobs = min((len(run_dirs), 12))
+n_jobs = min((len(run_dirs), 3))
 run_dirs = split_list(run_dirs, n_jobs)
 
 train_dirs = [item for sublist in train_dirs for item in sublist]
@@ -67,7 +64,7 @@ export OMP_NUM_THREADS=1
 
 args="$flags --out-root $out_root --in-root $in_root --train-dirs $train_dirs --run-dirs $run_dirs"
 
-singularity exec --nv $$simg /bin/bash -c "source $$HOME/.bashrc && pyenv activate $$pyversion && cd $script_path && python $script_name $$args"
+singularity exec --nv $$simg /bin/bash -c "source $$HOME/.bashrc && conda activate my && cd $script_path && python $script_name $$args"
 
 """
 

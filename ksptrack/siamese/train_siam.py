@@ -18,7 +18,7 @@ from ksptrack.cfgs import params as params_ksp
 from ksptrack.siamese import utils as utls
 from ksptrack.siamese.distrib_buffer import DistribBuffer
 from ksptrack.siamese.loader import Loader, StackLoader, RandomBatchSampler
-from ksptrack.siamese.losses import RAGTripletLoss, PointLoss, ClusterObj
+from ksptrack.siamese.losses import RAGTripletLoss, PointLoss, ClusterObj, TripletLoss
 from ksptrack.siamese.modeling.siamese import Siamese
 from ksptrack.utils.bagging import calc_bagging
 from ksptrack.siamese.train_init_clst import train_kmeans
@@ -47,20 +47,26 @@ def train_one_epoch(model,
                     distrib_buff,
                     lr_sch,
                     cfg,
-                    probas=None,
+                    probas,
                     edges_list=None):
 
     model.train()
 
     running_loss = 0.0
     running_clst = 0.0
+    running_reg = 0.0
     running_recons = 0.0
     running_pw = 0.0
     running_obj_pred = 0.0
 
     criterion_clst = torch.nn.KLDivLoss(reduction='mean')
-    criterion_pw = RAGTripletLoss()
-    criterion_obj_pred = ClusterObj()
+    criterion_pw = TripletLoss()
+    all_probas = torch.cat(probas)
+    inv_pos_freq = all_probas.numel() / (all_probas >= 0.5).sum().float()
+    inv_neg_freq = all_probas.numel() / (all_probas < 0.5).sum().float()
+    criterion_obj_pred = ClusterObj(alpha=[inv_neg_freq, inv_pos_freq])
+    print('bg/fg weights: {}'.format(criterion_obj_pred.alpha))
+    # criterion_obj_pred = ClusterObj()
     criterion_recons = torch.nn.MSELoss()
 
     pbar = tqdm(total=len(dataloaders['train']))
@@ -76,7 +82,8 @@ def train_one_epoch(model,
             probas_ = torch.cat([probas[i] for i in data['frame_idx']])
             edges_ = edges_list[data['frame_idx'][0]].edge_index.to(
                 probas_.device)
-            # with torch.autograd.detect_anomaly():
+            # with torch.autograd.set_detect_anomaly(True):
+            # print(data['frame_idx'])
             res = model(data, edges_nn=edges_)
 
             loss = 0
@@ -89,7 +96,7 @@ def train_one_epoch(model,
             if (cfg.clf):
 
                 loss_obj_pred = criterion_obj_pred(
-                    res['rho_hat_pooled'].squeeze(), edges_, data['clicked'])
+                    res['rho_hat_pooled'].squeeze(), edges_, data)
                 loss += cfg.lambda_ * loss_obj_pred
 
             loss_recons = criterion_recons(sigmoid(res['output']),
@@ -97,10 +104,14 @@ def train_one_epoch(model,
             loss += cfg.gamma * loss_recons
 
             if (cfg.pw):
-                loss_pw = criterion_pw(res['siam_feats'], edges_)
+                loss_pw = criterion_pw(res['sim_ap'], res['sim_an'])
                 loss += cfg.beta * loss_pw
 
-            # with torch.autograd.detect_anomaly():
+                # regularize norms to be ~1
+                loss_reg = ((1 - res['siam_feats'].norm(dim=1))**2).mean()
+                loss += cfg.delta * loss_reg
+
+            # with torch.autograd.set_detect_anomaly(True):
             loss.backward()
 
             # torch.nn.utils.clip_grad_norm_(model.parameters(), 0.01)
@@ -119,6 +130,7 @@ def train_one_epoch(model,
             running_obj_pred += loss_obj_pred.cpu().detach().numpy()
         if (cfg.pw):
             running_pw += loss_pw.cpu().detach().numpy()
+            running_reg += loss_reg.cpu().detach().numpy()
         loss_ = running_loss / ((i + 1) * cfg.batch_size)
         pbar.set_description('lss {:.6e}'.format(loss_))
         pbar.update(1)
@@ -127,6 +139,7 @@ def train_one_epoch(model,
 
     # loss_recons = running_recons / (cfg.batch_size * len(dataloaders['train']))
     loss_pw = running_pw / (cfg.batch_size * len(dataloaders['train']))
+    loss_reg = running_reg / (cfg.batch_size * len(dataloaders['train']))
     loss_clst = running_clst / (cfg.batch_size * len(dataloaders['train']))
     loss_obj_pred = running_obj_pred / (cfg.batch_size *
                                         len(dataloaders['train']))
@@ -134,6 +147,7 @@ def train_one_epoch(model,
     out = {
         'loss': loss_,
         'loss_pw': loss_pw,
+        'loss_reg': loss_reg,
         'loss_clst': loss_clst,
         'loss_obj_pred': loss_obj_pred,
         'loss_recons': loss_recons
@@ -171,6 +185,15 @@ def train(cfg, model, device, dataloaders, run_path):
                           bag_n_feats=cfg.bag_n_feats,
                           n_jobs=1)
     probas = torch.from_numpy(probas).to(device)
+
+    # setting objectness prior (https://leimao.github.io/blog/Focal-Loss-Explained/)
+    # all conv layers must be initialized to zero mean
+    pos_freq = ((probas >= 0.5).sum().float() / probas.numel()).item()
+    # pos_freq = 0.1
+    prior = -np.log((1 - pos_freq) / pos_freq)
+    print('setting objectness prior to {}, p={}'.format(prior, pos_freq))
+    model.rho_dec.output_convolution[0].bias.data.fill_(prior)
+
     n_labels = [
         np.unique(s['labels']).size for s in dataloaders['all_prev'].dataset
     ]
@@ -197,11 +220,11 @@ def train(cfg, model, device, dataloaders, run_path):
     cfg_ksp.precomp_desc_path = pjoin(cfg_ksp.in_path, 'precomp_desc')
     cfg_ksp.fin = [s['frame_idx'] for s in dataloaders['prev'].dataset]
 
-    print('generating previews to {}'.format(rags_prevs_path))
+    # print('generating previews to {}'.format(rags_prevs_path))
     # prev_ims = prev_trans_costs.main(cfg_ksp)
     # io.imsave(pjoin(rags_prevs_path, 'ep_0000.png'), prev_ims)
 
-    writer = SummaryWriter(run_path)
+    writer = SummaryWriter(run_path, flush_secs=1)
 
     best_loss = float('inf')
     print('training for {} epochs'.format(cfg.epochs_dist))
@@ -210,35 +233,21 @@ def train(cfg, model, device, dataloaders, run_path):
 
     optimizers = {
         'feats':
-        optim.Adam(params=[{
-            'params': model.dec.autoencoder.parameters(),
-            'lr': 1e-2,
-        }],
+        optim.Adam(model.dec.autoencoder.parameters(), lr=1e-3,
                    weight_decay=0),
+        # momentum=cfg.momentum),
         'gcns':
-        optim.Adam(params=[{
-            'params': model.locmotionapp.parameters(),
-            'lr': 1e-4,
-        }],
-                   weight_decay=0),
+        optim.Adam(model.locmotionapp.parameters(), lr=1e-3, weight_decay=0),
+        # momentum=cfg.momentum),
         'pred':
-        optim.Adam(params=[{
-            'params': model.rho_dec.parameters(),
-            'lr': 1e-2,
-        }],
-                   weight_decay=0),
+        optim.Adam(model.rho_dec.parameters(), lr=1e-3, weight_decay=0),
+        # momentum=cfg.momentum),
         'assign':
-        optim.Adam(params=[{
-            'params': model.dec.assignment.parameters(),
-            'lr': 1e-3,
-        }],
-                   weight_decay=0),
+        optim.Adam(model.dec.assignment.parameters(), lr=1e-3, weight_decay=0),
+        # momentum=cfg.momentum),
         'transform':
-        optim.Adam(params=[{
-            'params': model.dec.transform.parameters(),
-            'lr': 1e-3,
-        }],
-                   weight_decay=0)
+        optim.Adam(model.dec.transform.parameters(), weight_decay=0, lr=1e-3)
+        # momentum=cfg.momentum)
     }
 
     lr_sch = {
@@ -263,11 +272,14 @@ def train(cfg, model, device, dataloaders, run_path):
                                  thr_assign=cfg.thr_assign)
     distrib_buff.maybe_update(model, dataloaders['all_prev'], device)
     print('Generating connected components graphs')
-    edges_list = utls.make_edges_ccl(model,
-                                     dataloaders['edges'],
-                                     device,
-                                     return_signed=True,
-                                     add_self_loops=True)
+    edges_list = utls.make_edges_ccl(
+        model,
+        dataloaders['edges'],
+        device,
+        return_signed=True,
+        # radius=0.02,
+        fully_connected=True,
+        add_self_loops=True)
 
     for epoch in range(cfg.epochs_dist):
 
@@ -299,16 +311,18 @@ def train(cfg, model, device, dataloaders, run_path):
                 cfg.fix_clst = False
                 cfg.clf_reg = True
                 cfg.pw = True
-                # if ((epoch - cfg.epochs_pre_pred) %
-                #         cfg.tgt_update_period == 0):
-                #     print('Generating connected components graphs')
-                # edges_list = utls.make_edges_ccl(model,
-                #                                  dataloaders['edges'],
-                #                                  device,
-                #                                  return_signed=True)
-                # print('Updating target distributions')
-                # distrib_buff.do_update(model, dataloaders['all_prev'],
-                #                        device)
+                if ((epoch - cfg.epochs_pre_pred) %
+                        cfg.tgt_update_period == 0):
+                    print('Generating connected components graphs')
+                edges_list = utls.make_edges_ccl(
+                    model,
+                    dataloaders['edges'],
+                    device,
+                    # radius=0.02,
+                    fully_connected=True,
+                    return_signed=True)
+                print('Updating target distributions')
+                distrib_buff.do_update(model, dataloaders['all_prev'], device)
 
         # save checkpoint
         if (epoch % cfg.cp_period == 0):

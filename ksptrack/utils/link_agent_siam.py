@@ -97,13 +97,14 @@ class LinkAgentSiam(LinkAgentRadius):
         print('preparing features for linkAgent')
         # form initial cluster centres
         self.obj_preds = dict()
-        self.feats_csml = dict()
+        self.feats_ml = dict()
         self.feats = dict()
         self.assignments = dict()
 
         edges_list = utls.make_edges_ccl(self.model_clst,
                                          self.dl,
                                          self.device,
+                                         fully_connected=True,
                                          return_signed=True)
 
         print('getting features')
@@ -120,7 +121,7 @@ class LinkAgentSiam(LinkAgentRadius):
                 end = start + torch.unique(data['labels'][i]).numel()
                 self.obj_preds[f] = self.sigmoid(
                     res['rho_hat_pooled'][start:end]).detach().cpu().numpy()
-                self.feats_csml[f] = res['siam_feats'][start:end]
+                self.feats_ml[f] = res['siam_feats'][start:end]
                 self.assignments[f] = res['clusters'][start:end].argmax(
                     dim=1).detach().cpu().numpy()
                 self.feats[f] = res['proj_pooled_feats'][start:end].detach(
@@ -133,8 +134,8 @@ class LinkAgentSiam(LinkAgentRadius):
         self.obj_preds = [
             self.obj_preds[k] for k in sorted(self.obj_preds.keys())
         ]
-        self.feats_csml = [
-            self.feats_csml[k] for k in sorted(self.feats_csml.keys())
+        self.feats_ml = [
+            self.feats_ml[k] for k in sorted(self.feats_ml.keys())
         ]
         self.feats = [self.feats[k] for k in sorted(self.feats.keys())]
         self.assignments = [
@@ -165,9 +166,10 @@ class LinkAgentSiam(LinkAgentRadius):
 
     def get_proba(self, f0, l0, f1, l1, *args):
 
-        f0 = self.feats_csml[f0][l0]
-        f1 = self.feats_csml[f1][l1]
+        f0 = self.feats_ml[f0][l0]
+        f1 = self.feats_ml[f1][l1]
 
-        p = self.cs(f0, f1).detach().cpu().numpy()
+        p = self.cs(f0, f1)
+        p = p.detach().cpu().numpy()
 
         return p

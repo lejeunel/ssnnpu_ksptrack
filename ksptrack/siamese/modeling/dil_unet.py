@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from ksptrack.siamese.modeling.coordconv import CoordConv2d
+from ksptrack.models.aspp import ASPP
 
 
 @torch.no_grad()
@@ -10,7 +11,7 @@ def init_weights(m):
     if type(m) == nn.Linear:
         m.weight.fill_(1.0)
     if (type(m) == nn.Conv2d or type(m) == CoordConv2d):
-        nn.init.xavier_uniform_(m.weight)
+        nn.init.xavier_normal_(m.weight)
 
 
 class ResidualBlock(nn.Module):
@@ -299,21 +300,22 @@ class UNet(nn.Module):
     """
     U-Net model with dynamic number of layers, Residual Blocks, Dilated Convolutions, Dropout and Group Normalization
     """
-    def __init__(self,
-                 in_channels=3,
-                 out_channels=3,
-                 depth=5,
-                 start_filts=32,
-                 n_resblocks=1,
-                 num_dilated_convs=3,
-                 dropout_min=0,
-                 dropout_max=0,
-                 coordconv=True,
-                 padding=1,
-                 skip_mode='conv',
-                 kernel_size=3,
-                 l2_normalize=False,
-                 group_norm=32):
+    def __init__(
+            self,
+            in_channels=3,
+            out_channels=3,
+            depth=5,
+            start_filts=32,
+            n_resblocks=1,
+            # num_dilated_convs=3,
+            dropout_min=0,
+            dropout_max=0,
+            coordconv=True,
+            padding=1,
+            skip_mode='conv',
+            kernel_size=3,
+            l2_normalize=False,
+            group_norm=32):
         """
         initialize the model
         Args:
@@ -321,7 +323,6 @@ class UNet(nn.Module):
             out_channels (int): number of output channels (n_classes)
             num_hidden_features (list(int)): number of hidden features for each layer (the number of layer is the lenght of this list)
             n_resblocks (int): number of residual blocks at each layer 
-            num_dilated_convs (int): number of dilated convolutions at the last layer
             dropout (float): float in [0,1]: dropout probability
             padding (int): padding for the convolutions
             kernel_size (int): kernel size for the convolutions
@@ -355,13 +356,9 @@ class UNet(nn.Module):
                                             blockObject=ResidualBlock,
                                             convObject=self.convObject,
                                             batchNormObject=batchNormObject)
-        if num_dilated_convs > 0:
-            self.dilatedConvs = DilatedConvolutions(self.filts_dims[-1],
-                                                    num_dilated_convs,
-                                                    dropout_max,
-                                                    convObject=self.convObject)
-        else:
-            self.dilatedConvs = None
+        self.aspp = ASPP(self.last_feats_dims,
+                         output_stride=8,
+                         BatchNorm=batchNormObject)
         self.decoder = ConvolutionalDecoder(out_channels=out_channels,
                                             start_filts=start_filts,
                                             kernel_size=kernel_size,
@@ -381,11 +378,7 @@ class UNet(nn.Module):
         in_shape = x.shape
         x, skips = self.encoder(x)
 
-        if self.dilatedConvs is not None:
-            x, dilated_skips = self.dilatedConvs(x)
-            for d in dilated_skips:
-                x += d
-            x += skips[-1]
+        x = self.aspp(x)
 
         feats = x
 

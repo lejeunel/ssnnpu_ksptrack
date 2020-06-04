@@ -20,6 +20,7 @@ def make_edges_ccl(model,
                    drho=0.5,
                    radius=None,
                    return_subgraphs=False,
+                   fully_connected=False,
                    add_self_loops=False,
                    return_pos_labels=False,
                    return_signed=False):
@@ -41,16 +42,7 @@ def make_edges_ccl(model,
         with torch.no_grad():
             clst = model(data)['clusters'].argmax(dim=1).cpu().detach().numpy()
 
-        if (radius is not None):
-            graph = radius_neighbors_graph(data['centroids'], radius).tocoo()
-        else:
-            graph = nx.adjacency_matrix(data['graph'],
-                                        nodelist=sorted(data['graph'].nodes()))
-            graph = graph.tocoo()
-
-        row = graph.row
-        col = graph.col
-        all_edges = np.vstack((row, col))
+        all_edges = data['graph']
 
         # get edges according to cluster assignments
         edges_ = all_edges[:, clst[all_edges[0]] == clst[all_edges[1]]]
@@ -66,9 +58,13 @@ def make_edges_ccl(model,
         g = nx.Graph(edges_.T.tolist())
         S = [g.subgraph(c).copy() for c in nx.connected_components(g)]
 
-        # all connected components form a fully connected group
-        edges_ = [[(n0, n1, c) for n0, n1 in S_.edges]
-                  for c, S_ in enumerate(S)]
+        if (fully_connected):
+            edges_ = [combinations(S_.nodes, 2) for S_ in S]
+            edges_ = [[(n0, n1, c) for n0, n1 in edges__]
+                      for c, edges__ in enumerate(edges_)]
+        else:
+            edges_ = [[(n0, n1, c) for n0, n1 in S_.edges]
+                      for c, S_ in enumerate(S)]
         edges_ = [item for sublist in edges_ for item in sublist]
         edges_ = np.array(edges_)
         edges_ = torch.from_numpy(edges_).T.long()

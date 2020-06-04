@@ -7,6 +7,7 @@ import networkx as nx
 import itertools
 import random
 import torch.nn.functional as F
+from skimage import io
 
 
 def get_edges_probas(probas, edges_nn, thrs=[0.6, 0.8], clusters=None):
@@ -446,17 +447,42 @@ def num_nan_inf(t):
     return torch.isnan(t).sum() + torch.isinf(t).sum()
 
 
+def do_previews(labels, pos_nodes, neg_nodes):
+    max_node = 0
+    pos_maps = []
+    neg_maps = []
+    for lab in labels:
+        lab = lab.squeeze().detach().cpu().numpy()
+        pos_map = np.zeros_like(lab)
+        neg_map = np.zeros_like(lab)
+        for n in pos_nodes:
+            pos_map[lab == n.item() - max_node] = True
+        for n in neg_nodes:
+            neg_map[lab == n.item() - max_node] = True
+
+        max_node += lab.max() + 1
+
+        pos_maps.append(pos_map)
+        neg_maps.append(neg_map)
+
+    pos_maps = np.concatenate(pos_maps, axis=0)
+    neg_maps = np.concatenate(neg_maps, axis=0)
+    maps = np.concatenate((pos_maps, neg_maps), axis=1)
+    return maps
+
+
 class ClusterObj(nn.Module):
-    def __init__(self, gamma=0, alpha=1):
+    def __init__(self, gamma=2, alpha=0.5):
         super(ClusterObj, self).__init__()
         self.bce = nn.BCEWithLogitsLoss(reduction='none')
         self.gamma = gamma
         self.alpha = alpha
 
-    def forward(self, input, edges, keypoints):
+    def forward(self, input, edges, data):
         """
         """
 
+        keypoints = data['clicked']
         edges_ = edges[:, edges[-1] != -1]
         # get edges that corresponds to keypoints
         cluster_clicked = torch.cat([
@@ -468,27 +494,48 @@ class ClusterObj(nn.Module):
             torch.unique(edges_[:2, edges_[-1] == c])
             for c in torch.unique(cluster_clicked)
         ])
-        all_nodes = torch.unique(edges_[:2])
+        all_nodes = torch.arange(0, input.numel()).to(input.device)
 
+        # select random negative cluster
+        all_clusters = torch.unique(edges_[-1])
+        compareview = cluster_clicked.repeat(all_clusters.shape[0], 1).T
+        neg_clusters = all_clusters[(
+            compareview != all_clusters).T.prod(1) == 1]
+        neg_cluster = neg_clusters[torch.randint(neg_clusters.numel(), (1, ))]
+        neg_nodes = torch.unique(edges_[:2, edges_[-1] == neg_cluster])
+
+        # take all in non-intersection
         # negative nodes are the non-intersection
-        compareview = pos_nodes.repeat(all_nodes.shape[0], 1).T
-        neg_nodes = all_nodes[(compareview != all_nodes).T.prod(1) == 1]
+        # compareview = pos_nodes.repeat(all_nodes.shape[0], 1).T
+        # neg_nodes = all_nodes[(compareview != all_nodes).T.prod(1) == 1]
+
+        # maps = do_previews(data['labels'], pos_nodes, neg_nodes)
+        # io.imsave('/home/ubelix/artorg/lejeune/runs/maps.png', maps)
 
         pos_tgt = torch.ones(pos_nodes.numel()).float().to(edges.device)
         neg_tgt = torch.zeros(neg_nodes.numel()).float().to(edges.device)
-        tgt = torch.cat((pos_tgt, neg_tgt))
-        # pos_weight = tgt.numel() / (2 * pos_nodes.numel())
-        # neg_weight = tgt.numel() / (2 * neg_nodes.numel())
-        # weights = torch.cat(
-        #     (pos_weight * torch.ones(pos_nodes.numel()),
-        #      neg_weight * torch.ones(neg_nodes.numel()))).to(edges.device)
-        input = torch.cat((input[pos_nodes], input[neg_nodes]))
+        tgt = torch.cat((neg_tgt, pos_tgt))
+        input = torch.cat((input[neg_nodes], input[pos_nodes]))
 
-        loss = F.binary_cross_entropy_with_logits(input, tgt, reduce=False)
-        pt = torch.exp(-loss)
-        loss = self.alpha * (1 - pt)**self.gamma * loss
+        # if (self.alpha is None):
+        #     pos_weight = tgt.numel() / (2 * pos_nodes.numel())
+        #     neg_weight = tgt.numel() / (2 * neg_nodes.numel())
+        #     weights = torch.cat(
+        #         (neg_weight * torch.ones(neg_nodes.numel()),
+        #          pos_weight * torch.ones(pos_nodes.numel()))).to(edges.device)
+        # else:
+        #     weights = torch.cat(
+        #         (self.alpha[0] * torch.ones(neg_nodes.numel()), self.alpha[1] *
+        #          torch.ones(pos_nodes.numel()))).to(edges.device)
 
-        return loss.mean()
+        p = input.sigmoid()
+        pt = p * tgt + (1 - p) * (1 - tgt)  # pt = p if t > 0 else 1-p
+        w = self.alpha * tgt + (1 - self.alpha) * (1 - tgt)
+        w = w * (1 - pt).pow(self.gamma)
+        w = w.detach()
+        loss = F.binary_cross_entropy_with_logits(input, tgt, w)
+
+        return loss
 
 
 class RAGTripletLoss(nn.Module):
@@ -537,32 +584,23 @@ class RAGTripletLoss(nn.Module):
 class TripletLoss(nn.Module):
     def __init__(self):
         super(TripletLoss, self).__init__()
-        self.cs = nn.CosineSimilarity(dim=1)
-        self.thr = 0.2
-        self.max_tplts = 2000
+        self.margin = 0.5
 
-    def forward(self, feats, edges_nn):
+    def forward(self, sim_ap, sim_an):
         """Computes the triplet loss between positive node pairs and sampled
         non-node pairs.
-
         """
 
-        _, _, neg = structured_negative_sampling(edges_nn)
-        cs_ap = self.cs(feats[edges_nn[0]], feats[edges_nn[1]])
-        cs_an = self.cs(feats[edges_nn[0]], feats[neg])
-        dap = 1 - cs_ap
-        dan = 1 - cs_an
+        dap = 1 - sim_ap
+        dan = 1 - sim_an
 
-        idx = dap > self.thr
-        dap = dap[idx]
-        dan = dan[idx]
+        loss = torch.clamp(dap - dan + self.margin, min=0)
+        # print('[TripletLoss] ratio loss items > 0: {}'.format(
+        #     (loss > 0).sum().float().item() / loss.numel()))
+        loss = loss[loss > 0]
+        loss = loss.mean()
+        # print('[RAGTripletLoss] loss: {}'.format(loss))
 
-        if (dap.numel() > self.max_tplts):
-            idx = torch.randperm(dap.numel())[:self.max_tplts]
-            dap = dap[idx]
-            dan = dan[idx]
-
-        loss = torch.log1p(torch.exp(dap - dan)).mean()
         return loss
 
 

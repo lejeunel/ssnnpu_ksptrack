@@ -10,7 +10,7 @@ def main(cfg):
 
     # train_dec.main(cfg)
 
-    train_siam.main(cfg)
+    # train_siam.main(cfg)
 
 
 if __name__ == "__main__":

@@ -7,8 +7,25 @@ import torch_geometric.nn as gnn
 import torch_geometric.utils as gutls
 from ksptrack.siamese.modeling.superpixPool.pytorch_superpixpool.suppixpool_layer import SupPixPool
 from ksptrack.siamese.losses import structured_negative_sampling
-from ksptrack.siamese.modeling.dil_unet import ConvolutionalEncoder, ResidualBlock, DilatedConvolutions, init_weights, ConvolutionalDecoder
+from ksptrack.siamese.modeling.dil_unet import ConvolutionalEncoder, ResidualBlock, DilatedConvolutions, ConvolutionalDecoder
 from ksptrack.siamese.modeling.coordconv import CoordConv2d
+from ksptrack.siamese.losses import sample_triplets
+
+
+@torch.no_grad()
+def init_weights_xavier_normal(m):
+    if type(m) == nn.Linear:
+        m.weight.fill_(1.0)
+    if (type(m) == nn.Conv2d or type(m) == CoordConv2d):
+        nn.init.xavier_normal_(m.weight)
+
+
+@torch.no_grad()
+def init_weights_xavier_uniform(m):
+    if type(m) == nn.Linear:
+        m.weight.fill_(1.0)
+    if (type(m) == nn.Conv2d or type(m) == CoordConv2d):
+        nn.init.xavier_uniform_(m.weight)
 
 
 def make_coord_map(batch_size, w, h):
@@ -104,6 +121,7 @@ class LocMotionAppearanceSigned(nn.Module):
                  dropout_min=0.,
                  dropout_max=0.2,
                  mixing_coeff=0.,
+                 pos_components=4,
                  sigma=0.05):
         """
         """
@@ -114,32 +132,38 @@ class LocMotionAppearanceSigned(nn.Module):
         self.sigma = sigma
         self.mixing_coeff = mixing_coeff
 
-        in_dims[0] = 36
+        self.pre_merger = nn.Sequential(*[
+            nn.Linear(in_dims[0] + pos_components, in_dims[0]),
+            nn.BatchNorm1d(in_dims[0]),
+            nn.ReLU()
+        ])
+
         for i in range(len(in_dims) - 1):
-            block = GCNBlock(in_dims[i], in_dims[i + 1])
+            block = SignedGCNBlock(in_dims[i],
+                                   in_dims[i + 1],
+                                   first_aggr=True if (i == 0) else False)
 
             self.gcns.append(block)
 
             if (i > 0):
                 merger_pos = nn.Sequential(*[
-                    nn.Linear(2 * in_dims[i], in_dims[i]),
+                    nn.Linear(2 * in_dims[i] + pos_components, in_dims[i]),
                     nn.BatchNorm1d(in_dims[i]),
                     nn.ReLU()
                 ])
                 merger_neg = nn.Sequential(*[
-                    nn.Linear(2 * in_dims[i], in_dims[i]),
+                    nn.Linear(2 * in_dims[i] + pos_components, in_dims[i]),
                     nn.BatchNorm1d(in_dims[i]),
                     nn.ReLU()
                 ])
                 self.mergers_pos.append(merger_pos)
                 self.mergers_neg.append(merger_neg)
 
-        self.bn_pre = nn.BatchNorm1d(4)
         self.gcns = nn.ModuleList(self.gcns)
         self.mergers_pos = nn.ModuleList(self.mergers_pos)
         self.mergers_neg = nn.ModuleList(self.mergers_neg)
 
-        self.lin_pw = nn.Linear(512, 256)
+        self.lin_reduc = nn.Linear(512, 256)
         # self.bn_pw = nn.BatchNorm1d(1024)
 
     def forward(self, data, autoenc_skips, edges_nn):
@@ -155,10 +179,7 @@ class LocMotionAppearanceSigned(nn.Module):
 
         n_samples = [torch.unique(l).numel() for l in data['labels']]
 
-        x = sp_pool(autoenc_skips[0], data['labels'])
-        x = torch.cat((pooled_coords, pooled_fx, pooled_fy), dim=1)
-        x = self.bn_pre(x)
-        x = F.relu(x)
+        coords = torch.cat((pooled_coords, pooled_fx, pooled_fy), dim=1)
 
         # print('[LocMotionApp] lvl {} num. NaN feats: {}'.format(
         # 'pre', num_nan_inf(x)))
@@ -171,25 +192,26 @@ class LocMotionAppearanceSigned(nn.Module):
 
         for i, g in enumerate(self.gcns):
             skip = sp_pool(autoenc_skips[i], data['labels'])
-            # print('[LocMotionApp] lvl {} num. NaN feats: {}'.format(
-            #     i + 1, num_nan_inf(x)))
             if (i > 0):
                 x_pos = x[:, x.shape[1] // 2:]
                 x_neg = x[:, :x.shape[1] // 2]
-                x_pos = torch.cat((x_pos, skip), dim=1)
+
+                x_pos = torch.cat((x_pos, skip, coords), dim=1)
                 x_pos = self.mergers_pos[i - 1](x_pos)
-                x_neg = torch.cat((x_neg, skip), dim=1)
+
+                x_neg = torch.cat((x_neg, skip, coords), dim=1)
                 x_neg = self.mergers_neg[i - 1](x_neg)
                 x = torch.cat((x_pos, x_neg), dim=1)
             else:
-                x = torch.cat((x, skip), dim=1)
+                x = torch.cat((skip, coords), dim=1)
+                x = self.pre_merger(x)
 
             x = g(x,
                   pos_edge_index=pos_edge_index,
                   neg_edge_index=neg_edge_index)
 
         # x = torch.cat((x_pos, x_neg), dim=1)
-        x = self.lin_pw(x)
+        x = self.lin_reduc(x)
         # print('[LocMotionApp] lvl {} num. NaN feats: {}'.format(
         #     'last', num_nan_inf(x)))
         x = F.relu(x)
@@ -236,7 +258,7 @@ class LocMotionAppearance(nn.Module):
         self.gcns = nn.ModuleList(self.gcns)
         self.mergers = nn.ModuleList(self.mergers)
 
-        self.lin_pw = nn.Linear(256, 128)
+        self.lin_reduc = nn.Linear(256, 128)
 
     def forward(self, data, autoenc_skips, edges_nn):
 
@@ -273,10 +295,10 @@ class LocMotionAppearance(nn.Module):
 
         x = torch.cat((x, coords), dim=1)
         x = self.mergers[-1](x)
-        pw = self.lin_pw(x)
-        pw = F.relu(pw)
+        x = self.lin_reduc(x)
+        x = F.relu(x)
 
-        return {'siam_feats': pw}
+        return {'siam_feats': x}
 
 
 class Siamese(nn.Module):
@@ -299,6 +321,7 @@ class Siamese(nn.Module):
                  cluster_number: int = 30,
                  alpha: float = 1.0,
                  backbone='drn',
+                 max_triplets=10000,
                  out_channels=3):
         """
         Arguments:
@@ -313,6 +336,8 @@ class Siamese(nn.Module):
                        backbone=backbone,
                        out_channels=out_channels)
 
+        self.max_triplets = max_triplets
+
         self.sigmoid = nn.Sigmoid()
 
         self.roi_pool = SupPixPool()
@@ -324,13 +349,15 @@ class Siamese(nn.Module):
                                             depth=4)
 
         in_dims = self.dec.autoencoder.filts_dims
-        if (self.dec.autoencoder.dilatedConvs is not None):
-            in_dims += [in_dims[-1]]
-        self.locmotionapp = LocMotionAppearance(in_dims=in_dims)
+        in_dims += [in_dims[-1]]
+        self.locmotionapp = LocMotionAppearanceSigned(in_dims=in_dims)
 
-        self.rho_dec.apply(init_weights)
-        # self.locmotionapp.apply(init_weights)
-        self.obj_clf = nn.Linear(256, 1)
+        self.cs = nn.CosineSimilarity()
+
+        # initialize weights
+        # self.locmotionapp.apply(init_weights_xavier_normal)
+        # self.dec.autoencoder.encoder.apply(init_weights_xavier_normal)
+        self.rho_dec.apply(init_weights_xavier_uniform)
 
     def load_partial(self, state_dict):
         # filter out unnecessary keys
@@ -347,10 +374,20 @@ class Siamese(nn.Module):
         if (edges_nn is not None):
             res_siam = self.locmotionapp(data, res['skips'], edges_nn)
             res.update(res_siam)
-            # res['rho_hat_pooled'] = self.obj_clf(res['graph_feats'])
-        # else:
-        # res['rho_hat_pooled'] = torch.zeros(res['clusters'].shape[0]).to(
-        # res['clusters'].device)
+            f = res['siam_feats']
+            edges_ = edges_nn[:, edges_nn[-1, :] != -1]
+            tplts = sample_triplets(edges_)
+            idx = torch.randint(tplts.shape[-1], (self.max_triplets, ))
+            tplts = tplts[:, idx]
+
+            fa = f[tplts[0]]
+            fp = f[tplts[1]]
+            fn = f[tplts[2]]
+
+            sim_ap = self.cs(fa, fp)
+            sim_an = self.cs(fa, fn)
+            res['sim_ap'] = sim_ap
+            res['sim_an'] = sim_an
 
         res['rho_hat'] = self.rho_dec(res['feats'], res['skips'][:-2][::-1])
         res['rho_hat_pooled'] = sp_pool(res['rho_hat'], data['labels'])

@@ -4,7 +4,7 @@ from os.path import join as pjoin
 from ksptrack import iterative_ksp
 from ksptrack.cfgs import params as params_ksp
 from ksptrack.siamese import (params, train_autoencoder, train_init_clst,
-                              train_siam)
+                              train_siam, train_all)
 
 
 def retrain_kmeans(cfg, in_cp_path, cp_path):
@@ -81,67 +81,76 @@ if __name__ == "__main__":
     for run_dir, train_dir in zip(cfg.run_dirs, cfg.train_dirs):
         cfg.run_dir = run_dir
         cfg.train_dir = train_dir
+        cfg.clf = True
+        cfg.pw = True
+        cfg.exp_name = 'gcn'
 
-        train_autoencoder.main(cfg)
+        train_all.main(cfg)
+        cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
+                                  'cp_gcn.pth.tar')
+        cfg_ksp.exp_name = 'gcn'
+        cfg_ksp.use_siam_pred = True
+        cfg_ksp.use_siam_trans = True
+        iterative_ksp.main(cfg_ksp)
 
-        cfg_ksp.out_path = pjoin(
-            os.path.split(cfg.out_root)[0], 'ksptrack', cfg.run_dir)
-        cfg_ksp.in_path = pjoin(cfg.in_root, 'Dataset' + cfg.train_dir)
-        cfg_ksp.cuda = True
+        # cfg_ksp.out_path = pjoin(
+        #     os.path.split(cfg.out_root)[0], 'ksptrack', cfg.run_dir)
+        # cfg_ksp.in_path = pjoin(cfg.in_root, 'Dataset' + cfg.train_dir)
+        # cfg_ksp.cuda = True
 
         # ksp/gmm
-        train_init_clst.main(cfg)
-        cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
-                                  'init_dec.pth.tar')
-        cfg_ksp.exp_name = 'gmm'
-        iterative_ksp.main(cfg_ksp)
+        # train_init_clst.main(cfg)
+        # cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
+        #                           'init_dec.pth.tar')
+        # cfg_ksp.exp_name = 'gmm'
+        # iterative_ksp.main(cfg_ksp)
 
         # train predictor only and retrain k-means
-        cfg.clf = True
-        cfg.fix_clst = True
-        cfg.exp_name = 'pred'
-        train_siam.main(cfg)
-        cp_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
-                        'cp_pred.pth.tar')
-        retrain_kmeans(cfg, cp_path, cp_path)
-        cfg_ksp.siam_path = cp_path
-        cfg_ksp.exp_name = cfg.exp_name
-        cfg_ksp.use_siam_pred = True
-        iterative_ksp.main(cfg_ksp)
+        # cfg.clf = True
+        # cfg.fix_clst = True
+        # cfg.exp_name = 'pred'
+        # train_siam.main(cfg)
+        # cp_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
+        #                 'cp_pred.pth.tar')
+        # retrain_kmeans(cfg, cp_path, cp_path)
+        # cfg_ksp.siam_path = cp_path
+        # cfg_ksp.exp_name = cfg.exp_name
+        # cfg_ksp.use_siam_pred = True
+        # iterative_ksp.main(cfg_ksp)
 
         # run with DEC (bagging foreground)
-        cfg.clf = False
-        cfg.fix_clst = False
-        cfg.exp_name = 'dec'
-        train_siam.main(cfg)
-        cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
-                                  'cp_{}.pth.tar'.format(cfg.exp_name))
-        cfg_ksp.exp_name = cfg.exp_name
-        iterative_ksp.main(cfg_ksp)
+        # cfg.clf = False
+        # cfg.fix_clst = False
+        # cfg.exp_name = 'dec'
+        # train_siam.main(cfg)
+        # cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
+        #                           'cp_{}.pth.tar'.format(cfg.exp_name))
+        # cfg_ksp.exp_name = cfg.exp_name
+        # iterative_ksp.main(cfg_ksp)
 
         # run with DEC (DL foreground)
-        cfg.clf = True
-        cfg.fix_clst = False
-        cfg.exp_name = 'dec_pred'
-        train_siam.main(cfg)
-        cfg_ksp.use_siam_pred = True
-        cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
-                                  'cp_{}.pth.tar'.format(cfg.exp_name))
-        cfg_ksp.exp_name = cfg.exp_name
-        cfg_ksp.use_siam_pred = True
-        iterative_ksp.main(cfg_ksp)
+        # cfg.clf = True
+        # cfg.fix_clst = False
+        # cfg.exp_name = 'dec_pred'
+        # train_siam.main(cfg)
+        # cfg_ksp.use_siam_pred = True
+        # cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
+        #                           'cp_{}.pth.tar'.format(cfg.exp_name))
+        # cfg_ksp.exp_name = cfg.exp_name
+        # cfg_ksp.use_siam_pred = True
+        # iterative_ksp.main(cfg_ksp)
 
         # run with DEC (DL foreground + reg)
-        cfg.clf = True
-        cfg.fix_clst = False
-        cfg.clf_reg = True
-        cfg.exp_name = 'dec_pred_reg'
-        train_siam.main(cfg)
-        cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
-                                  'cp_{}.pth.tar'.format(cfg.exp_name))
-        cfg_ksp.exp_name = cfg.exp_name
-        cfg_ksp.use_siam_pred = True
-        iterative_ksp.main(cfg_ksp)
+        # cfg.clf = True
+        # cfg.fix_clst = False
+        # cfg.clf_reg = True
+        # cfg.exp_name = 'dec_pred_reg'
+        # train_siam.main(cfg)
+        # cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
+        #                           'cp_{}.pth.tar'.format(cfg.exp_name))
+        # cfg_ksp.exp_name = cfg.exp_name
+        # cfg_ksp.use_siam_pred = True
+        # iterative_ksp.main(cfg_ksp)
 
         # run with gcn (DL foreground + reg)
         # cfg.clf = True

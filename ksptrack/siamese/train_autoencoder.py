@@ -284,10 +284,10 @@ def main(cfg):
         params=[
             {
                 'params': model.parameters(),
-                'lr': cfg.lr_autoenc
+                'lr': 1e-3
             },
         ],
-        weight_decay=cfg.decay,
+        weight_decay=1e-5,
     )
 
     print('run_path: {}'.format(run_path))
