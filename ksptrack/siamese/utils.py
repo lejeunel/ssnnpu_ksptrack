@@ -11,6 +11,7 @@ from itertools import combinations
 from torch_geometric.data import Data
 import torch_geometric.utils as gutls
 from sklearn.neighbors import radius_neighbors_graph
+import im_utils as iutls
 
 
 def make_edges_ccl(model,
@@ -21,7 +22,6 @@ def make_edges_ccl(model,
                    radius=None,
                    return_subgraphs=False,
                    fully_connected=False,
-                   add_self_loops=False,
                    return_pos_labels=False,
                    return_signed=False):
     """Computes for each graph in dataloader its
@@ -34,16 +34,34 @@ def make_edges_ccl(model,
 
     edges = []
     subgraphs = []
+    from skimage import io
 
+    model.eval()
     for data in tqdm(dataloader):
 
         data = batch_to_device(data, device)
 
         with torch.no_grad():
-            clst = model(data)['clusters'].argmax(dim=1).cpu().detach().numpy()
+            clst = model(data)['clusters'].cpu().detach().numpy()
 
         all_edges = data['graph']
 
+        # ims = np.concatenate(
+        #     [(255 * np.rollaxis(data['image'][i, ...].detach().cpu().numpy(),
+        #                         0, 3)).astype(np.uint8)
+        #      for i in range(data['image'].shape[0])],
+        #     axis=0)
+        # labels = [
+        #     data['labels'][i, ...].detach().cpu().numpy().squeeze()
+        #     for i in range(data['labels'].shape[0])
+        # ]
+        # chunks = [np.unique(l).size for l in labels]
+        # clst = [clst[:chunks[0]], clst[chunks[0]:]]
+        # clst_maps = np.concatenate(
+        #     [iutls.make_clusters(l, c) for l, c in zip(labels, clst)], axis=0)
+
+        # all_ = np.concatenate((ims, clst_maps), axis=1)
+        clst = clst.argmax(axis=1)
         # get edges according to cluster assignments
         edges_ = all_edges[:, clst[all_edges[0]] == clst[all_edges[1]]]
 

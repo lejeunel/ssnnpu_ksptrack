@@ -42,40 +42,6 @@ def _add_edge_filter(values, g):
     return 0.0
 
 
-class RandomBatchSampler(Sampler):
-    r"""Wraps another sampler to yield a mini-batch of indices.
-
-    Args:
-        sampler (Sampler): Base sampler.
-        batch_size (int): Size of mini-batch.
-        drop_last (bool): If ``True``, the sampler will drop the last batch if
-            its size would be less than ``batch_size``
-    """
-    def __init__(self, size, batch_size, shuffle=False):
-        if not isinstance(batch_size, _int_classes) or isinstance(batch_size, bool) or \
-                batch_size <= 0:
-            raise ValueError("batch_size should be a positive integer value, "
-                             "but got batch_size={}".format(batch_size))
-        self.batch_size = batch_size
-        self.size = size
-        self.shuffle = shuffle
-
-    def __iter__(self):
-        batch = []
-        starts = list(range(self.size - (self.batch_size - 1)))
-        if self.shuffle:
-            random.shuffle(starts)
-
-        for start in starts:
-            for i in range(self.batch_size):
-                batch.append(start + i)
-            yield batch
-            batch = []
-
-    def __len__(self):
-        return self.size
-
-
 class Loader(LocPriorDataset):
     def __init__(self,
                  root_path,
@@ -253,15 +219,21 @@ class StackLoader(LocPriorDataset):
                 super(StackLoader, self).__getitem__(i)['labels'].squeeze()
                 for i in range(i, i + self.depth)
             ])
-            rags = []
             max_node = 0
             for d in range(self.depth):
                 labels[d] += max_node
                 max_node += labels[d].max() + 1
 
-            labels = np.rollaxis(labels, 0, 3)
-            labels = vigra.Volume(labels, dtype=np.uint32)
-            full_rag = rag.Rag(labels).edge_ids.T.astype(np.int32)
+            labels_rag = np.rollaxis(labels, 0, 3)
+            labels_rag = vigra.Volume(labels_rag, dtype=np.uint32)
+            full_rag = rag.Rag(labels_rag)
+            full_rag = full_rag.edge_ids.T.astype(np.int32)
+
+            # add self loops
+            loop_index = np.arange(0, labels.max())
+            loop_index = loop_index[None, ...].repeat(2, axis=0)
+
+            full_rag = np.concatenate([full_rag, loop_index], axis=1)
 
             self.graphs.append(full_rag)
 

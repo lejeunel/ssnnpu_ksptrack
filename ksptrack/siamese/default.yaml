@@ -6,7 +6,7 @@ epochs-dec: 100
 epochs-dist: 50
 
 # generate previews every x epochs
-prev-period: 2
+prev-period: 10
 tgt-update-period: 999
 proba-update-period: 999
 cp-period: 2

@@ -7,7 +7,7 @@ import torch.optim as optim
 import yaml
 from skimage import io
 from tensorboardX import SummaryWriter
-from torch.nn.functional import sigmoid
+from torch import sigmoid
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -17,7 +17,7 @@ from ksptrack import prev_trans_costs
 from ksptrack.cfgs import params as params_ksp
 from ksptrack.siamese import utils as utls
 from ksptrack.siamese.distrib_buffer import DistribBuffer
-from ksptrack.siamese.loader import Loader, StackLoader, RandomBatchSampler
+from ksptrack.siamese.loader import Loader, StackLoader
 from ksptrack.siamese.losses import RAGTripletLoss, PointLoss, ClusterObj, TripletLoss
 from ksptrack.siamese.modeling.siamese import Siamese
 from ksptrack.utils.bagging import calc_bagging
@@ -62,10 +62,10 @@ def train_one_epoch(model,
     criterion_clst = torch.nn.KLDivLoss(reduction='mean')
     criterion_pw = TripletLoss()
     all_probas = torch.cat(probas)
-    inv_pos_freq = all_probas.numel() / (all_probas >= 0.5).sum().float()
-    inv_neg_freq = all_probas.numel() / (all_probas < 0.5).sum().float()
+    inv_pos_freq = all_probas.numel() / (2 * (all_probas >= 0.5).sum().float())
+    inv_neg_freq = all_probas.numel() / (2 * (all_probas < 0.5).sum().float())
     criterion_obj_pred = ClusterObj(alpha=[inv_neg_freq, inv_pos_freq])
-    print('bg/fg weights: {}'.format(criterion_obj_pred.alpha))
+    # print('bg/fg weights: {}'.format(criterion_obj_pred.alpha))
     # criterion_obj_pred = ClusterObj()
     criterion_recons = torch.nn.MSELoss()
 
@@ -165,7 +165,8 @@ def train(cfg, model, device, dataloaders, run_path):
     path_ = pjoin(run_path, 'checkpoints', 'init_dec.pth.tar')
     print('loading checkpoint {}'.format(path_))
     state_dict = torch.load(path_, map_location=lambda storage, loc: storage)
-    model.load_partial(state_dict)
+    # model.load_partial(state_dict)
+    model.load_state_dict(state_dict)
     # model.dec.autoencoder.to_predictor()
 
     check_cp_exist = pjoin(run_path, 'checkpoints', best_cp_fname)
@@ -210,6 +211,7 @@ def train(cfg, model, device, dataloaders, run_path):
     p_ksp.add('--fin', nargs='+')
     cfg_ksp = p_ksp.parse_known_args(env_vars=None)[0]
     cfg_ksp.bag_t = 300
+    cfg_ksp.pm_thr = 0.5
     cfg_ksp.bag_n_feats = cfg.bag_n_feats
     cfg_ksp.bag_max_depth = cfg.bag_max_depth
     cfg_ksp.siam_clst_path = pjoin(run_path, 'checkpoints', 'init_dec.pth.tar')
@@ -221,8 +223,8 @@ def train(cfg, model, device, dataloaders, run_path):
     cfg_ksp.fin = [s['frame_idx'] for s in dataloaders['prev'].dataset]
 
     # print('generating previews to {}'.format(rags_prevs_path))
-    # prev_ims = prev_trans_costs.main(cfg_ksp)
-    # io.imsave(pjoin(rags_prevs_path, 'ep_0000.png'), prev_ims)
+    prev_ims = prev_trans_costs.main(cfg_ksp)
+    io.imsave(pjoin(rags_prevs_path, 'ep_0000.png'), prev_ims)
 
     writer = SummaryWriter(run_path, flush_secs=1)
 
@@ -233,14 +235,16 @@ def train(cfg, model, device, dataloaders, run_path):
 
     optimizers = {
         'feats':
-        optim.Adam(model.dec.autoencoder.parameters(), lr=1e-3,
-                   weight_decay=0),
+        optim.Adam(model.dec.autoencoder.parameters(),
+                   lr=1e-3,
+                   weight_decay=cfg.decay),
         # momentum=cfg.momentum),
         'gcns':
         optim.Adam(model.locmotionapp.parameters(), lr=1e-3, weight_decay=0),
         # momentum=cfg.momentum),
         'pred':
-        optim.Adam(model.rho_dec.parameters(), lr=1e-3, weight_decay=0),
+        optim.Adam(model.rho_dec.parameters(), lr=1e-3,
+                   weight_decay=cfg.decay),
         # momentum=cfg.momentum),
         'assign':
         optim.Adam(model.dec.assignment.parameters(), lr=1e-3, weight_decay=0),
@@ -272,14 +276,11 @@ def train(cfg, model, device, dataloaders, run_path):
                                  thr_assign=cfg.thr_assign)
     distrib_buff.maybe_update(model, dataloaders['all_prev'], device)
     print('Generating connected components graphs')
-    edges_list = utls.make_edges_ccl(
-        model,
-        dataloaders['edges'],
-        device,
-        return_signed=True,
-        # radius=0.02,
-        fully_connected=True,
-        add_self_loops=True)
+    edges_list = utls.make_edges_ccl(model,
+                                     dataloaders['edges'],
+                                     device,
+                                     return_signed=True,
+                                     fully_connected=True)
 
     for epoch in range(cfg.epochs_dist):
 
@@ -291,38 +292,38 @@ def train(cfg, model, device, dataloaders, run_path):
             cfg.pw = False
         else:
             if (epoch >= cfg.epochs_pre_pred):
-                if epoch == cfg.epochs_pre_pred:
-                    print('training k-means')
-                    init_clusters, preds, L, feats, labels = train_kmeans(
-                        model,
-                        dataloaders['all_prev'],
-                        device,
-                        cfg.n_clusters,
-                        embedded_dims=cfg.embedded_dims,
-                        reduc_method='pca')
-                    L = torch.tensor(L).float().to(device)
-                    init_clusters = torch.tensor(init_clusters,
-                                                 dtype=torch.float).to(device)
+                # if epoch == cfg.epochs_pre_pred:
+                #     print('training k-means')
+                #     init_clusters, preds, L, feats, labels = train_kmeans(
+                #         model,
+                #         dataloaders['all_prev'],
+                #         device,
+                #         cfg.n_clusters,
+                #         embedded_dims=cfg.embedded_dims,
+                #         reduc_method='pca')
+                #     L = torch.tensor(L).float().to(device)
+                #     init_clusters = torch.tensor(init_clusters,
+                #                                  dtype=torch.float).to(device)
 
-                    print('Setting dim reduction and init. clusters')
-                    model.dec.set_clusters(init_clusters)
-                    model.dec.set_transform(L.T)
+                #     print('Setting dim reduction and init. clusters')
+                #     model.dec.set_clusters(init_clusters)
+                #     model.dec.set_transform(L.T)
                 mode = 'siam'
                 cfg.fix_clst = False
                 cfg.clf_reg = True
                 cfg.pw = True
-                if ((epoch - cfg.epochs_pre_pred) %
-                        cfg.tgt_update_period == 0):
-                    print('Generating connected components graphs')
-                edges_list = utls.make_edges_ccl(
-                    model,
-                    dataloaders['edges'],
-                    device,
-                    # radius=0.02,
-                    fully_connected=True,
-                    return_signed=True)
-                print('Updating target distributions')
-                distrib_buff.do_update(model, dataloaders['all_prev'], device)
+                # if ((epoch - cfg.epochs_pre_pred) %
+                #         cfg.tgt_update_period == 0):
+                #     print('Generating connected components graphs')
+                # edges_list = utls.make_edges_ccl(
+                #     model,
+                #     dataloaders['edges'],
+                #     device,
+                #     # radius=0.02,
+                #     fully_connected=True,
+                #     return_signed=True)
+                # print('Updating target distributions')
+                # distrib_buff.do_update(model, dataloaders['all_prev'], device)
 
         # save checkpoint
         if (epoch % cfg.cp_period == 0):
@@ -382,13 +383,14 @@ def main(cfg):
                     cluster_number=cfg.n_clusters,
                     backbone=cfg.backbone).to(device)
 
-    transf = make_data_aug(cfg)
+    # transf = make_data_aug(cfg)
 
-    dl_train = StackLoader(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
-                           depth=2,
-                           normalization='rescale',
-                           augmentations=transf,
-                           resize_shape=cfg.in_shape)
+    dl_train = StackLoader(
+        pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
+        depth=2,
+        normalization='rescale',
+        # augmentations=transf,
+        resize_shape=cfg.in_shape)
 
     dl_prev = Loader(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
                      normalization='rescale',

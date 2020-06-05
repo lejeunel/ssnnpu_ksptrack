@@ -65,8 +65,12 @@ def train_kmeans(model,
                  down_thr=0.2,
                  reduc_method='pls'):
 
+    import pdb
+    pdb.set_trace()  ## DEBUG ##
     features, pos_masks = clst.get_features(model, dataloader, device)
 
+    import pdb
+    pdb.set_trace()  ## DEBUG ##
     cat_features = np.concatenate(features)
     cat_pos_mask = np.concatenate(pos_masks)
 
@@ -139,7 +143,7 @@ def train(cfg, model, device, dataloaders, run_path=None):
     preds = np.load(init_clusters_path, allow_pickle=True)['preds']
     init_clusters = np.load(init_clusters_path, allow_pickle=True)['clusters']
     L = np.load(init_clusters_path, allow_pickle=True)['L']
-    prev_ims = clst.do_prev_clusters_init(dataloaders['prev'], preds)
+    prev_ims = clst.do_prev_clusters_init(dataloaders['all_prev'], preds)
 
     # save initial clusterings to disk
     if (not os.path.exists(init_clusters_prev_path)):
@@ -184,7 +188,6 @@ def main(cfg):
 
     model = Siamese(embedded_dims=cfg.embedded_dims,
                     cluster_number=cfg.n_clusters,
-                    alpha=cfg.alpha,
                     backbone=cfg.backbone)
     path_cp = pjoin(run_path, 'checkpoints', 'cp_autoenc.pth.tar')
     if (os.path.exists(path_cp)):
@@ -208,6 +211,7 @@ def main(cfg):
 
     dataloader_prev = DataLoader(torch.utils.data.Subset(dl, frames_tnsr_brd),
                                  collate_fn=dl.collate_fn)
+    dataloader_all_prev = DataLoader(dl, collate_fn=dl.collate_fn)
     dataloader_train = DataLoader(dl,
                                   batch_size=cfg.batch_size,
                                   shuffle=True,
@@ -221,7 +225,8 @@ def main(cfg):
     dataloaders = {
         'train': dataloader_train,
         'buff': dataloader_buff,
-        'prev': dataloader_prev
+        'prev': dataloader_prev,
+        'all_prev': dataloader_all_prev
     }
 
     # Save cfg

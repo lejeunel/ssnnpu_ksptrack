@@ -91,6 +91,88 @@ class GCNBlock(nn.Module):
         return x
 
 
+class LocMotionAppearance(nn.Module):
+    """
+
+    """
+    def __init__(self, in_dims):
+        """
+        """
+        super(LocMotionAppearance, self).__init__()
+        self.gcns = []
+        self.mergers = []
+
+        # in_dims[0] = 32
+        for i in range(len(in_dims) - 1):
+            block = GCNBlock(in_dims[i], in_dims[i + 1])
+
+            self.gcns.append(block)
+
+            if (i > 0):
+                merger = nn.Sequential(*[
+                    # nn.Conv1d(2 * in_dims[i], in_dims[i], kernel_size=1),
+                    nn.Linear(2 * in_dims[i], in_dims[i]),
+                    nn.BatchNorm1d(in_dims[i])
+                    # nn.ReLU()
+                ])
+                self.mergers.append(merger)
+
+        # merge last gcn features with coords
+        self.bn_pre = nn.BatchNorm1d(4)
+
+        merger = nn.Sequential(*[
+            nn.Linear(in_dims[-1] + 4, in_dims[-1]),
+            nn.BatchNorm1d(in_dims[-1])
+            # nn.ReLU()
+        ])
+        self.mergers.append(merger)
+
+        self.gcns = nn.ModuleList(self.gcns)
+        self.mergers = nn.ModuleList(self.mergers)
+
+        self.lin_reduc = nn.Linear(256, 128)
+
+    def forward(self, data, autoenc_skips, edges_nn):
+
+        # make location/motion input tensor
+        batch_size, _, w, h = data['labels'].shape
+
+        coord_maps = make_coord_map(batch_size, w, h).to(data['labels'].device)
+
+        pooled_coords = sp_pool(coord_maps, data['labels'])
+        pooled_fx = sp_pool(data['fx'], data['labels'])[..., None]
+        pooled_fy = sp_pool(data['fy'], data['labels'])[..., None]
+
+        pos_edge_index = edges_nn[:, edges_nn[-1] != -1][:2]
+        neg_edge_index = edges_nn[:, edges_nn[-1] == -1][:2]
+
+        coords = torch.cat((pooled_coords, pooled_fx, pooled_fy), dim=1)
+        coords = self.bn_pre(coords)
+        coords = F.relu(coords)
+
+        for i, g in enumerate(self.gcns):
+            skip = sp_pool(autoenc_skips[i], data['labels'])
+            # print('[LocMotionApp] lvl {} num. NaN feats: {}'.format(
+            #     i + 1, num_nan_inf(x)))
+            if (i == 0):
+                x = skip
+            else:
+                x = torch.cat((x, skip), dim=1)
+                x = self.mergers[i - 1](x)
+                # x = self.mergers[i - 1](x[..., None]).squeeze()
+
+            x = g(x,
+                  pos_edge_index=pos_edge_index,
+                  neg_edge_index=neg_edge_index)
+
+        x = torch.cat((x, coords), dim=1)
+        x = self.mergers[-1](x)
+        x = self.lin_reduc(x)
+        x = F.relu(x)
+
+        return {'siam_feats': x}
+
+
 class SignedGCNBlock(nn.Module):
     """
 
@@ -219,88 +301,6 @@ class LocMotionAppearanceSigned(nn.Module):
         return {'siam_feats': x}
 
 
-class LocMotionAppearance(nn.Module):
-    """
-
-    """
-    def __init__(self, in_dims):
-        """
-        """
-        super(LocMotionAppearance, self).__init__()
-        self.gcns = []
-        self.mergers = []
-
-        # in_dims[0] = 32
-        for i in range(len(in_dims) - 1):
-            block = GCNBlock(in_dims[i], in_dims[i + 1])
-
-            self.gcns.append(block)
-
-            if (i > 0):
-                merger = nn.Sequential(*[
-                    # nn.Conv1d(2 * in_dims[i], in_dims[i], kernel_size=1),
-                    nn.Linear(2 * in_dims[i], in_dims[i]),
-                    nn.BatchNorm1d(in_dims[i])
-                    # nn.ReLU()
-                ])
-                self.mergers.append(merger)
-
-        # merge last gcn features with coords
-        self.bn_pre = nn.BatchNorm1d(4)
-
-        merger = nn.Sequential(*[
-            nn.Linear(in_dims[-1] + 4, in_dims[-1]),
-            nn.BatchNorm1d(in_dims[-1])
-            # nn.ReLU()
-        ])
-        self.mergers.append(merger)
-
-        self.gcns = nn.ModuleList(self.gcns)
-        self.mergers = nn.ModuleList(self.mergers)
-
-        self.lin_reduc = nn.Linear(256, 128)
-
-    def forward(self, data, autoenc_skips, edges_nn):
-
-        # make location/motion input tensor
-        batch_size, _, w, h = data['labels'].shape
-
-        coord_maps = make_coord_map(batch_size, w, h).to(data['labels'].device)
-
-        pooled_coords = sp_pool(coord_maps, data['labels'])
-        pooled_fx = sp_pool(data['fx'], data['labels'])[..., None]
-        pooled_fy = sp_pool(data['fy'], data['labels'])[..., None]
-
-        pos_edge_index = edges_nn[:, edges_nn[-1] != -1][:2]
-        neg_edge_index = edges_nn[:, edges_nn[-1] == -1][:2]
-
-        coords = torch.cat((pooled_coords, pooled_fx, pooled_fy), dim=1)
-        coords = self.bn_pre(coords)
-        coords = F.relu(coords)
-
-        for i, g in enumerate(self.gcns):
-            skip = sp_pool(autoenc_skips[i], data['labels'])
-            # print('[LocMotionApp] lvl {} num. NaN feats: {}'.format(
-            #     i + 1, num_nan_inf(x)))
-            if (i == 0):
-                x = skip
-            else:
-                x = torch.cat((x, skip), dim=1)
-                x = self.mergers[i - 1](x)
-                # x = self.mergers[i - 1](x[..., None]).squeeze()
-
-            x = g(x,
-                  pos_edge_index=pos_edge_index,
-                  neg_edge_index=neg_edge_index)
-
-        x = torch.cat((x, coords), dim=1)
-        x = self.mergers[-1](x)
-        x = self.lin_reduc(x)
-        x = F.relu(x)
-
-        return {'siam_feats': x}
-
-
 class Siamese(nn.Module):
     """
 
@@ -343,7 +343,7 @@ class Siamese(nn.Module):
         self.roi_pool = SupPixPool()
 
         self.rho_dec = ConvolutionalDecoder(out_channels=1,
-                                            dropout_max=0,
+                                            dropout_max=0.1,
                                             start_filts=32,
                                             skip_mode='conv',
                                             depth=4)

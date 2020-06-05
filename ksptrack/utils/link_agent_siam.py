@@ -107,6 +107,8 @@ class LinkAgentSiam(LinkAgentRadius):
                                          fully_connected=True,
                                          return_signed=True)
 
+        self.model.eval()
+
         print('getting features')
         pbar = tqdm.tqdm(total=len(self.dl))
         for index, data in enumerate(self.dl):

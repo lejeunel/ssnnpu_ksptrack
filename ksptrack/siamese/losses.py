@@ -8,6 +8,7 @@ import itertools
 import random
 import torch.nn.functional as F
 from skimage import io
+import os
 
 
 def get_edges_probas(probas, edges_nn, thrs=[0.6, 0.8], clusters=None):
@@ -472,9 +473,9 @@ def do_previews(labels, pos_nodes, neg_nodes):
 
 
 class ClusterObj(nn.Module):
-    def __init__(self, gamma=2, alpha=0.5):
+    def __init__(self, gamma=0.5, alpha=[1, 1]):
         super(ClusterObj, self).__init__()
-        self.bce = nn.BCEWithLogitsLoss(reduction='none')
+        # self.bce = nn.BCEWithLogitsLoss(reduction='none')
         self.gamma = gamma
         self.alpha = alpha
 
@@ -497,20 +498,23 @@ class ClusterObj(nn.Module):
         all_nodes = torch.arange(0, input.numel()).to(input.device)
 
         # select random negative cluster
-        all_clusters = torch.unique(edges_[-1])
-        compareview = cluster_clicked.repeat(all_clusters.shape[0], 1).T
-        neg_clusters = all_clusters[(
-            compareview != all_clusters).T.prod(1) == 1]
-        neg_cluster = neg_clusters[torch.randint(neg_clusters.numel(), (1, ))]
-        neg_nodes = torch.unique(edges_[:2, edges_[-1] == neg_cluster])
+        # all_clusters = torch.unique(edges_[-1])
+        # compareview = cluster_clicked.repeat(all_clusters.shape[0], 1).T
+        # neg_clusters = all_clusters[(
+        #     compareview != all_clusters).T.prod(1) == 1]
+        # neg_cluster = neg_clusters[torch.randint(neg_clusters.numel(), (1, ))]
+        # neg_nodes = torch.unique(edges_[:2, edges_[-1] == neg_cluster])
 
         # take all in non-intersection
         # negative nodes are the non-intersection
-        # compareview = pos_nodes.repeat(all_nodes.shape[0], 1).T
-        # neg_nodes = all_nodes[(compareview != all_nodes).T.prod(1) == 1]
+        compareview = pos_nodes.repeat(all_nodes.shape[0], 1).T
+        neg_nodes = all_nodes[(compareview != all_nodes).T.prod(1) == 1]
 
-        # maps = do_previews(data['labels'], pos_nodes, neg_nodes)
-        # io.imsave('/home/ubelix/artorg/lejeune/runs/maps.png', maps)
+        # path = '/home/ubelix/artorg/lejeune/runs/maps_{:04d}.png'.format(
+        #     data['frame_idx'][0])
+        # if (not os.path.exists(path)):
+        #     maps = do_previews(data['labels'], pos_nodes, neg_nodes)
+        #     io.imsave(path, maps)
 
         pos_tgt = torch.ones(pos_nodes.numel()).float().to(edges.device)
         neg_tgt = torch.zeros(neg_nodes.numel()).float().to(edges.device)
@@ -530,7 +534,7 @@ class ClusterObj(nn.Module):
 
         p = input.sigmoid()
         pt = p * tgt + (1 - p) * (1 - tgt)  # pt = p if t > 0 else 1-p
-        w = self.alpha * tgt + (1 - self.alpha) * (1 - tgt)
+        w = self.alpha[1] * tgt + self.alpha[0] * (1 - tgt)
         w = w * (1 - pt).pow(self.gamma)
         w = w.detach()
         loss = F.binary_cross_entropy_with_logits(input, tgt, w)
@@ -582,9 +586,9 @@ class RAGTripletLoss(nn.Module):
 
 
 class TripletLoss(nn.Module):
-    def __init__(self):
+    def __init__(self, margin=0.5):
         super(TripletLoss, self).__init__()
-        self.margin = 0.5
+        self.margin = margin
 
     def forward(self, sim_ap, sim_an):
         """Computes the triplet loss between positive node pairs and sampled
@@ -595,11 +599,8 @@ class TripletLoss(nn.Module):
         dan = 1 - sim_an
 
         loss = torch.clamp(dap - dan + self.margin, min=0)
-        # print('[TripletLoss] ratio loss items > 0: {}'.format(
-        #     (loss > 0).sum().float().item() / loss.numel()))
         loss = loss[loss > 0]
         loss = loss.mean()
-        # print('[RAGTripletLoss] loss: {}'.format(loss))
 
         return loss
 
