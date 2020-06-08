@@ -510,11 +510,11 @@ class ClusterObj(nn.Module):
         compareview = pos_nodes.repeat(all_nodes.shape[0], 1).T
         neg_nodes = all_nodes[(compareview != all_nodes).T.prod(1) == 1]
 
-        # path = '/home/ubelix/artorg/lejeune/runs/maps_{:04d}.png'.format(
-        #     data['frame_idx'][0])
-        # if (not os.path.exists(path)):
-        #     maps = do_previews(data['labels'], pos_nodes, neg_nodes)
-        #     io.imsave(path, maps)
+        path = '/home/ubelix/artorg/lejeune/runs/maps_{:04d}.png'.format(
+            data['frame_idx'][0])
+        if (not os.path.exists(path)):
+            maps = do_previews(data['labels'], pos_nodes, neg_nodes)
+            io.imsave(path, maps)
 
         pos_tgt = torch.ones(pos_nodes.numel()).float().to(edges.device)
         neg_tgt = torch.zeros(neg_nodes.numel()).float().to(edges.device)

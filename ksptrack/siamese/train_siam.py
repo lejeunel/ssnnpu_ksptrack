@@ -62,9 +62,9 @@ def train_one_epoch(model,
     criterion_clst = torch.nn.KLDivLoss(reduction='mean')
     criterion_pw = TripletLoss()
     all_probas = torch.cat(probas)
-    inv_pos_freq = all_probas.numel() / (2 * (all_probas >= 0.5).sum().float())
-    inv_neg_freq = all_probas.numel() / (2 * (all_probas < 0.5).sum().float())
-    criterion_obj_pred = ClusterObj(alpha=[inv_neg_freq, inv_pos_freq])
+    pos_freq = (all_probas >= 0.5).sum().float() / all_probas.numel()
+    # criterion_obj_pred = ClusterObj(alpha=[inv_neg_freq, inv_pos_freq])
+    criterion_obj_pred = ClusterObj(alpha=[pos_freq, 1 - pos_freq])
     # print('bg/fg weights: {}'.format(criterion_obj_pred.alpha))
     # criterion_obj_pred = ClusterObj()
     criterion_recons = torch.nn.MSELoss()
@@ -223,8 +223,8 @@ def train(cfg, model, device, dataloaders, run_path):
     cfg_ksp.fin = [s['frame_idx'] for s in dataloaders['prev'].dataset]
 
     # print('generating previews to {}'.format(rags_prevs_path))
-    prev_ims = prev_trans_costs.main(cfg_ksp)
-    io.imsave(pjoin(rags_prevs_path, 'ep_0000.png'), prev_ims)
+    # prev_ims = prev_trans_costs.main(cfg_ksp)
+    # io.imsave(pjoin(rags_prevs_path, 'ep_0000.png'), prev_ims)
 
     writer = SummaryWriter(run_path, flush_secs=1)
 
@@ -237,14 +237,14 @@ def train(cfg, model, device, dataloaders, run_path):
         'feats':
         optim.Adam(model.dec.autoencoder.parameters(),
                    lr=1e-3,
-                   weight_decay=cfg.decay),
+                   weight_decay=0),
         # momentum=cfg.momentum),
         'gcns':
-        optim.Adam(model.locmotionapp.parameters(), lr=1e-3, weight_decay=0),
+        optim.Adam(model.locmotionapp.parameters(), lr=1e-3, weight_decay=cfg.decay),
         # momentum=cfg.momentum),
         'pred':
         optim.Adam(model.rho_dec.parameters(), lr=1e-3,
-                   weight_decay=cfg.decay),
+                   weight_decay=0),
         # momentum=cfg.momentum),
         'assign':
         optim.Adam(model.dec.assignment.parameters(), lr=1e-3, weight_decay=0),

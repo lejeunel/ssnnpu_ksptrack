@@ -343,7 +343,7 @@ class Siamese(nn.Module):
         self.roi_pool = SupPixPool()
 
         self.rho_dec = ConvolutionalDecoder(out_channels=1,
-                                            dropout_max=0.1,
+                                            dropout_max=0.2,
                                             start_filts=32,
                                             skip_mode='conv',
                                             depth=4)

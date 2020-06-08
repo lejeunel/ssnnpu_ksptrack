@@ -61,6 +61,7 @@ def make_edges_ccl(model,
         #     [iutls.make_clusters(l, c) for l, c in zip(labels, clst)], axis=0)
 
         # all_ = np.concatenate((ims, clst_maps), axis=1)
+
         clst = clst.argmax(axis=1)
         # get edges according to cluster assignments
         edges_ = all_edges[:, clst[all_edges[0]] == clst[all_edges[1]]]
