@@ -11,7 +11,7 @@ import numpy as np
 types = ['Tweezer', 'Cochlea', 'Slitlamp', 'Brain']
 root_path = pjoin('/home/ubelix/lejeune/runs/ksptrack')
 out_path = '/home/laurent/Documents/reports/rs_meetings/tables/results.tex'
-exp_names = ['gmm', 'dec', 'dec_pred', 'dec_pred_reg']
+exp_names = ['gcn', 'gmm', 'dec', 'dec_pred', 'dec_pred_reg']
 
 path_18 = pjoin(root_path, 'plots_results', 'all_self.csv')
 df_18 = pd.read_csv(path_18)
@@ -69,6 +69,7 @@ df_all = df_all.round(decimals=2)
 
 # Methods
 order = {
+    'gcn': 'KSPTrack/SiamGCN',
     'dec_pred_reg': 'KSPTrack/DEC/pred/reg',
     'dec_pred': 'KSPTrack/DEC/pred',
     'dec': 'KSPTrack/DEC/PU',
@@ -122,6 +123,7 @@ df_all = df_all.reindex([v for v in order.values()])
 df_all = df_all[['F1']]
 
 df_all.columns = df_all.columns.droplevel()
+print(df_all)
 
 caption = """
 Quantitative results on all datasets. We report the F1 scores and standard deviations.

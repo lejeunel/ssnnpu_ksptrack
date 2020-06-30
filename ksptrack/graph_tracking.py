@@ -80,11 +80,10 @@ class GraphTracking:
             bar.update(1)
 
             proba = sp_pm['proba'][i]
-            if (proba > 1 - self.thr): proba = 1 - self.thr
-            if (proba < self.thr): proba = self.thr
 
-            #if (self.direction is not 'forward'):
-            if (proba > thresh):
+            proba = np.clip(proba, a_min=self.thr, a_max=1 - self.thr)
+
+            if (proba >= thresh):
                 blocked = False
                 n_unblocked += 1
             else:
@@ -259,6 +258,7 @@ class GraphTracking:
 
                 proba = self.link_agent.get_proba_entrance(tl_loc, sp_desc)
 
+                proba = np.clip(proba, a_min=self.thr, a_max=1 - self.thr)
                 w = -np.log(proba / (1 - proba))
                 self.g.add_edge(*this_e, weight=w, id_=-1)
                 added += 1
@@ -282,6 +282,7 @@ class GraphTracking:
 
                 proba = self.link_agent.get_proba_inter_frame(
                     tl, linkable_tl, sp_desc)
+                proba = np.clip(proba, a_min=self.thr, a_max=1 - self.thr)
                 w = -np.log(proba / (1 - proba))
                 this_e = (tl.out_id, linkable_tl.in_id)
                 self.g.add_edge(*this_e, weight=w, id_=-1)

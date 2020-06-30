@@ -32,6 +32,8 @@ def get_params(path='.'):
     p.add('--proba-update-period', type=int)
     p.add('--cp-period', type=int)
     p.add('--tgt-update-period', type=int)
+    p.add('--cc-update-period', type=int)
+    p.add('--neg-mode', type=str)
 
     p.add('--n-frames-epoch', type=int)
     p.add('--momentum', type=float)
@@ -93,6 +95,7 @@ def get_params(path='.'):
 
     p.add('--linkage', type=str)
     p.add('--backbone', type=str)
+    p.add('--siamese', type=str)
 
     p.add('--beta', type=float)
     p.add('--delta', type=float)

@@ -76,12 +76,27 @@ class RoIPooling(nn.Module):
         return X
 
 
+def sp_pool(feats, labels):
+    roi_pool = SupPixPool()
+    upsamp = nn.UpsamplingBilinear2d(labels.size()[-2:])
+    pooled_feats = []
+    max_node = 0
+    for b in range(labels.shape[0]):
+        labels_ = labels[b] - max_node
+        pooled_feats_ = roi_pool(upsamp(feats[b].unsqueeze(0)),
+                                 labels_).squeeze().T
+        pooled_feats.append(pooled_feats_)
+        max_node += labels_.max().item() + 1
+    return torch.cat(pooled_feats)
+
+
 class DEC(nn.Module):
     def __init__(self,
                  embedding_dims,
                  cluster_number: int = 30,
                  alpha: float = 1.0,
-                 backbone='drn',
+                 backbone='unet',
+                 skip_mode='aspp',
                  out_channels=3):
         """
         Module which holds all the moving parts of the DEC algorithm, as described in
@@ -96,13 +111,11 @@ class DEC(nn.Module):
 
         super(DEC, self).__init__()
         if (backbone == 'unet'):
-            self.autoencoder = UNet(depth=4,
+            self.autoencoder = UNet(depth=5,
                                     out_channels=out_channels,
-                                    l2_normalize=True,
-                                    coordconv=False,
                                     dropout_min=0,
                                     dropout_max=0,
-                                    skip_mode='none')
+                                    skip_mode=skip_mode)
         else:
             self.autoencoder = DeepLabv3Plus()
 
@@ -154,14 +167,7 @@ class DEC(nn.Module):
         res = self.autoencoder(image)
         feats = res['feats']
 
-        upsamp = nn.UpsamplingBilinear2d(labels.size()[2:])
-        feats = upsamp(feats)
-        pooled_feats = [
-            self.roi_pool(feats[b].unsqueeze(0),
-                          labels[b].unsqueeze(0)).squeeze().T
-            for b in range(labels.shape[0])
-        ]
-        pooled_feats = torch.cat(pooled_feats)
+        pooled_feats = sp_pool(feats, labels)
         # pooled_feats = F.normalize(pooled_feats, p=2, dim=1)
         res.update({'pooled_feats': pooled_feats})
 

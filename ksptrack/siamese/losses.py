@@ -1,14 +1,13 @@
 from torch import nn
 import numpy as np
 import torch
-from ksptrack.siamese import utils as utls
-from ksptrack.siamese.modeling.superpixPool.pytorch_superpixpool.suppixpool_layer import SupPixPool
 import networkx as nx
 import itertools
 import random
 import torch.nn.functional as F
 from skimage import io
 import os
+from ksptrack.SegLoss.losses_pytorch.dice_loss import SoftDiceLoss
 
 
 def get_edges_probas(probas, edges_nn, thrs=[0.6, 0.8], clusters=None):
@@ -74,8 +73,8 @@ def get_edges_keypoint_probas(probas, data, edges_nn, thrs=[0.6, 0.8]):
                 edges['sim'].append(edges_sim)
 
                 # get edges with nodes with proba < thr
-                edges_mask_disim = edges_mask * probas[
-                    edges_nn[:, 0]] <= thrs[0]
+                edges_mask_disim = edges_mask * probas[edges_nn[:,
+                                                                0]] <= thrs[0]
                 edges_mask_disim *= probas[edges_nn[:, 1]] <= thrs[0]
                 edges_disim = edges_nn[edges_mask_disim, :]
                 edges['disim'].append(edges_disim)
@@ -160,10 +159,13 @@ class LabelKLPairwiseLoss(nn.Module):
             (clusters[edges['sim'][0][:, 0]], clusters[edges['sim'][0][:, 1]]))
         tgt_sim = torch.stack(
             (targets[edges['sim'][0][:, 0]], targets[edges['sim'][0][:, 1]]))
-        clst_disim = torch.stack((clusters[edges['disim'][0][:, 0]],
-                                  clusters[edges['disim'][0][:, 1]]))
-        tgt_disim = torch.stack((targets[edges['disim'][0][:, 0]],
-                                 targets[edges['disim'][0][:, 1]]))
+        clst_disim = torch.stack(
+            (clusters[edges['disim'][0][:,
+                                        0]], clusters[edges['disim'][0][:,
+                                                                        1]]))
+        tgt_disim = torch.stack(
+            (targets[edges['disim'][0][:, 0]], targets[edges['disim'][0][:,
+                                                                         1]]))
 
         n_pos = edges['sim'][0].shape[0]
         n_neg = edges['disim'][0].shape[0]
@@ -338,49 +340,6 @@ def make_coord_map(batch_size, w, h):
     return out
 
 
-def sp_pool(f, labels):
-    roi_pool = SupPixPool()
-    upsamp = nn.UpsamplingBilinear2d(labels.size()[2:])
-    pooled = [
-        roi_pool(upsamp(f[b].unsqueeze(0)), labels[b].unsqueeze(0)).squeeze().T
-        for b in range(labels.shape[0])
-    ]
-    pooled = torch.cat(pooled)
-    return pooled
-
-
-class PWClusteringLoss(nn.Module):
-    def __init__(self, sigma=1e-3):
-        super(PWClusteringLoss, self).__init__()
-        self.sigma = sigma
-        self.kl = nn.KLDivLoss(reduction='none')
-
-    def forward(self, inputs, targets, edges=None, labels=None):
-
-        if (edges is not None):
-            b, _, w, h = labels.shape
-            coords = make_coord_map(b, w, h).to(labels.device)
-            locations = sp_pool(coords, labels)
-
-            weights_dist = torch.exp(
-                -(locations[edges[0]] - locations[edges[1]]).norm(dim=1)**2 /
-                self.sigma)
-
-            loss = self.kl((inputs[edges[0]] + 1e-8).log(),
-                           targets[edges[1]]).sum(dim=1)
-            loss += self.kl((inputs[edges[1]] + 1e-8).log(),
-                            targets[edges[0]]).sum(dim=1)
-            loss = loss / 2
-            bc = torch.bincount(targets[edges[0]].argmax(dim=1))
-            freq_weights = bc.max() / bc.float()
-            freq_smp_weights = freq_weights[targets[edges[0]].argmax(dim=1)]
-            loss = (freq_smp_weights * weights_dist * loss).mean()
-        else:
-            loss = self.kl(inputs, targets).mean()
-
-        return loss
-
-
 def sample_triplets(edges):
 
     # for each clique, generate a mask
@@ -448,98 +407,145 @@ def num_nan_inf(t):
     return torch.isnan(t).sum() + torch.isinf(t).sum()
 
 
-def do_previews(labels, pos_nodes, neg_nodes):
+def do_previews(images, labels, pos_nodes, neg_nodes):
+    import matplotlib.pyplot as plt
+
     max_node = 0
-    pos_maps = []
-    neg_maps = []
-    for lab in labels:
-        lab = lab.squeeze().detach().cpu().numpy()
-        pos_map = np.zeros_like(lab)
-        neg_map = np.zeros_like(lab)
-        for n in pos_nodes:
-            pos_map[lab == n.item() - max_node] = True
-        for n in neg_nodes:
-            neg_map[lab == n.item() - max_node] = True
+    ims = []
+    for im in images:
+        im = (255 *
+              np.rollaxis(im.squeeze().detach().cpu().numpy(), 0, 3)).astype(
+                  np.uint8)
+        ims.append(im)
 
-        max_node += lab.max() + 1
+    labels = labels.squeeze().detach().cpu().numpy()
+    pos_map = np.zeros_like(labels)
+    neg_map = np.zeros_like(labels)
 
-        pos_maps.append(pos_map)
-        neg_maps.append(neg_map)
+    for n in pos_nodes:
+        pos_map[labels == n.item()] = True
+    for n in neg_nodes:
+        neg_map[labels == n.item()] = True
 
-    pos_maps = np.concatenate(pos_maps, axis=0)
-    neg_maps = np.concatenate(neg_maps, axis=0)
-    maps = np.concatenate((pos_maps, neg_maps), axis=1)
-    return maps
+    pos_map = np.concatenate([a for a in pos_map], axis=0)
+    neg_map = np.concatenate([a for a in neg_map], axis=0)
+    maps = np.concatenate((pos_map, neg_map), axis=1)
+    ims = np.concatenate(ims, axis=0)
+
+    cmap = plt.get_cmap('viridis')
+    maps = (cmap(
+        (maps * 255).astype(np.uint8))[..., :3] * 255).astype(np.uint8)
+
+    all_ = np.concatenate((ims, maps), axis=1)
+
+    return all_
 
 
-class ClusterObj(nn.Module):
-    def __init__(self, gamma=0.5, alpha=[1, 1]):
-        super(ClusterObj, self).__init__()
-        # self.bce = nn.BCEWithLogitsLoss(reduction='none')
-        self.gamma = gamma
-        self.alpha = alpha
+def get_pos_negs(keypoints, nodes, input, mode='all'):
+    # edges_ = edges[:, edges[-1] != -1]
+
+    # print('keypoints: {}'.format(keypoints))
+    # print('frames: {}'.format(data['frame_idx']))
+    # print('sum(edges_[0] == k): {}'.format(
+    #     torch.cat([edges_[0] == l for l in keypoints]).sum()))
+    # print('sum(edges_[1] == k): {}'.format(
+    #     torch.cat([edges_[0] == l for l in keypoints]).sum()))
+    # get edges that corresponds to keypoints
+    #
+    assert mode in ['all', 'rand_weighted',
+                    'rand_uniform'], print('mode should be either all or rand')
+    all_clusters = torch.unique(nodes[-1])
+
+    if (len(keypoints) > 0):
+        cluster_clicked = torch.cat(
+            [nodes[-1, (nodes[0, :] == l)] for l in keypoints])
+
+        pos_nodes = torch.cat([
+            torch.unique(nodes[0, nodes[-1] == c])
+            for c in torch.unique(cluster_clicked)
+        ])
+
+        if ('rand' in mode):
+            compareview = cluster_clicked.repeat(all_clusters.shape[0], 1).T
+            neg_clusters = all_clusters[(
+                compareview != all_clusters).T.prod(1) == 1]
+
+            neg_nodes = [
+                torch.unique(nodes[0, nodes[-1] == c]) for c in neg_clusters
+            ]
+            if ('weighted' in mode):
+                weights = torch.tensor([len(n) for n in neg_nodes
+                                        ]).to(all_clusters.device)
+                weights = weights.max().float() / weights.float()
+            else:
+                weights = torch.ones(len(neg_nodes)).to(all_clusters.device)
+
+            neg_cluster_idx = torch.multinomial(weights, 1, replacement=True)
+            neg_cluster = neg_clusters[neg_cluster_idx]
+            neg_nodes = torch.unique(nodes[:2, nodes[-1] == neg_cluster])
+        else:
+            neg_nodes = random.choice(neg_nodes)
+
+        pos_tgt = torch.ones(pos_nodes.numel()).float().to(nodes.device)
+        neg_tgt = torch.zeros(neg_nodes.numel()).float().to(nodes.device)
+        tgt = torch.cat((neg_tgt, pos_tgt))
+        input = torch.cat((input[neg_nodes], input[pos_nodes]))
+    else:
+        tgt = torch.zeros(input.numel()).to(nodes.device)
+
+    # path = '/home/ubelix/artorg/lejeune/runs/maps_{:04d}.png'.format(
+    #     data['frame_idx'][0])
+    # if (not os.path.exists(path)):
+    #     maps = do_previews(data['image'], data['labels'], pos_nodes,
+    #                        neg_nodes)
+    #     io.imsave(path, maps)
+
+    return input, tgt
+
+
+class ClusterDiceLoss(nn.Module):
+    def __init__(self, smooth=1., square=False):
+        super(ClusterDiceLoss, self).__init__()
+        self.loss = SoftDiceLoss(smooth=smooth, square=square)
 
     def forward(self, input, edges, data):
         """
         """
 
-        keypoints = data['clicked']
-        edges_ = edges[:, edges[-1] != -1]
-        # get edges that corresponds to keypoints
-        cluster_clicked = torch.cat([
-            edges_[-1, (edges_[0, :] == l) + (edges_[1, :] == l)]
-            for l in keypoints
-        ])
+        input, tgt = get_pos_negs(data['clicked'], edges, input)
+        input = input[None, None, ..., None]
+        tgt = tgt[None, None, ..., None]
 
-        pos_nodes = torch.cat([
-            torch.unique(edges_[:2, edges_[-1] == c])
-            for c in torch.unique(cluster_clicked)
-        ])
-        all_nodes = torch.arange(0, input.numel()).to(input.device)
+        return self.loss(input.sigmoid(), tgt)
 
-        # select random negative cluster
-        # all_clusters = torch.unique(edges_[-1])
-        # compareview = cluster_clicked.repeat(all_clusters.shape[0], 1).T
-        # neg_clusters = all_clusters[(
-        #     compareview != all_clusters).T.prod(1) == 1]
-        # neg_cluster = neg_clusters[torch.randint(neg_clusters.numel(), (1, ))]
-        # neg_nodes = torch.unique(edges_[:2, edges_[-1] == neg_cluster])
 
-        # take all in non-intersection
-        # negative nodes are the non-intersection
-        compareview = pos_nodes.repeat(all_nodes.shape[0], 1).T
-        neg_nodes = all_nodes[(compareview != all_nodes).T.prod(1) == 1]
+class ClusterFocalLoss(nn.Module):
+    def __init__(self, gamma=0.5, alpha=0.25, mode='all'):
+        super(ClusterFocalLoss, self).__init__()
+        self.gamma = gamma
+        self.alpha = alpha
+        self.eps = 1e-6
+        self.mode = mode
 
-        path = '/home/ubelix/artorg/lejeune/runs/maps_{:04d}.png'.format(
-            data['frame_idx'][0])
-        if (not os.path.exists(path)):
-            maps = do_previews(data['labels'], pos_nodes, neg_nodes)
-            io.imsave(path, maps)
+    def forward(self, input, nodes, data, override_alpha=None):
+        """
+        """
 
-        pos_tgt = torch.ones(pos_nodes.numel()).float().to(edges.device)
-        neg_tgt = torch.zeros(neg_nodes.numel()).float().to(edges.device)
-        tgt = torch.cat((neg_tgt, pos_tgt))
-        input = torch.cat((input[neg_nodes], input[pos_nodes]))
+        if (override_alpha is None):
+            alpha = self.alpha
+        else:
+            alpha = override_alpha
 
-        # if (self.alpha is None):
-        #     pos_weight = tgt.numel() / (2 * pos_nodes.numel())
-        #     neg_weight = tgt.numel() / (2 * neg_nodes.numel())
-        #     weights = torch.cat(
-        #         (neg_weight * torch.ones(neg_nodes.numel()),
-        #          pos_weight * torch.ones(pos_nodes.numel()))).to(edges.device)
-        # else:
-        #     weights = torch.cat(
-        #         (self.alpha[0] * torch.ones(neg_nodes.numel()), self.alpha[1] *
-        #          torch.ones(pos_nodes.numel()))).to(edges.device)
+        input, tgt = get_pos_negs(data['clicked'], nodes, input, self.mode)
 
-        p = input.sigmoid()
-        pt = p * tgt + (1 - p) * (1 - tgt)  # pt = p if t > 0 else 1-p
-        w = self.alpha[1] * tgt + self.alpha[0] * (1 - tgt)
-        w = w * (1 - pt).pow(self.gamma)
-        w = w.detach()
-        loss = F.binary_cross_entropy_with_logits(input, tgt, w)
+        logit = input.sigmoid().clamp(self.eps, 1 - self.eps)
+        pt0 = 1 - logit[tgt == 0]
+        pt1 = logit[tgt == 1]
+        loss = F.binary_cross_entropy_with_logits(input, tgt, reduction='none')
+        loss[tgt == 1] = loss[tgt == 1] * alpha * (1 - pt1)**self.gamma
+        loss[tgt == 0] = loss[tgt == 0] * (1 - alpha) * (1 - pt0)**self.gamma
 
-        return loss
+        return loss.mean()
 
 
 class RAGTripletLoss(nn.Module):
@@ -585,12 +591,45 @@ class RAGTripletLoss(nn.Module):
         return loss
 
 
+def cosine_distance_torch(x1, x2=None, eps=1e-8):
+    x2 = x1 if x2 is None else x2
+    w1 = x1.norm(p=2, dim=1, keepdim=True)
+    w2 = w1 if x2 is x1 else x2.norm(p=2, dim=1, keepdim=True)
+    return 1 - torch.mm(x1, x2.t()) / (w1 * w2.t()).clamp(min=eps)
+
+
+class BatchHardTripletSelector(object):
+    '''
+    a selector to generate hard batch embeddings from the embedded batch
+    '''
+    def __init__(self, *args, **kwargs):
+        super(BatchHardTripletSelector, self).__init__()
+
+    def __call__(self, embeds, labels):
+        dist_mtx = cosine_distance_torch(embeds, embeds).detach().cpu().numpy()
+        labels = labels.contiguous().cpu().numpy().reshape((-1, 1))
+        num = labels.shape[0]
+        dia_inds = np.diag_indices(num)
+        lb_eqs = labels == labels.T
+        lb_eqs[dia_inds] = False
+        dist_same = dist_mtx.copy()
+        dist_same[lb_eqs == False] = -np.inf
+        pos_idxs = np.argmax(dist_same, axis=1)
+        dist_diff = dist_mtx.copy()
+        lb_eqs[dia_inds] = True
+        dist_diff[lb_eqs == True] = np.inf
+        neg_idxs = np.argmin(dist_diff, axis=1)
+        pos = embeds[pos_idxs].contiguous().view(num, -1)
+        neg = embeds[neg_idxs].contiguous().view(num, -1)
+        return embeds, pos, neg
+
+
 class TripletLoss(nn.Module):
-    def __init__(self, margin=0.5):
+    def __init__(self, margin=0.7):
         super(TripletLoss, self).__init__()
         self.margin = margin
 
-    def forward(self, sim_ap, sim_an):
+    def forward(self, sim_ap, sim_an, dr_an=None):
         """Computes the triplet loss between positive node pairs and sampled
         non-node pairs.
         """
@@ -606,38 +645,21 @@ class TripletLoss(nn.Module):
 
 
 if __name__ == "__main__":
-    from ksptrack.models.my_augmenters import Normalize
-    from torch.utils.data import DataLoader
-    from ksptrack.siamese.modeling.siamese import Siamese
-    from loader import Loader
-    from os.path import join as pjoin
-    from ksptrack.siamese import utils as utls
-    from ksptrack.siamese.distrib_buffer import DistribBuffer
+    N = 1000
+    eps = 1e-8
+    alpha = 0.9
+    gamma = 0.2
+    input = torch.randn(N)
+    tgt = torch.randint(0, 2, size=(N, ))
 
-    device = torch.device('cuda')
+    logit = input.sigmoid()
+    logit = logit.clamp(eps, 1. - eps)
+    pt0 = logit[tgt == 0]
+    pt1 = 1 - logit[tgt == 1]
+    loss0 = -alpha * (1 - pt1)**gamma * torch.log(pt1)
+    loss0 = loss0.mean()
+    loss1 = -(1 - alpha) * (1 - pt0)**gamma * torch.log(pt0)
+    loss1 = loss1.mean()
+    loss = loss0 + loss1
 
-    dl = Loader(pjoin('/home/ubelix/artorg/lejeune/data/medical-labeling',
-                      'Dataset30'),
-                normalization='rescale',
-                resize_shape=512)
-    dl = DataLoader(dl, collate_fn=dl.collate_fn, batch_size=2, shuffle=True)
-
-    model = Siamese(15, 15, backbone='unet')
-
-    run_path = '/home/ubelix/artorg/lejeune/runs/siamese_dec/Dataset20'
-    cp_path = pjoin(run_path, 'checkpoints', 'init_dec.pth.tar')
-    state_dict = torch.load(cp_path, map_location=lambda storage, loc: storage)
-    model.load_state_dict(state_dict)
-    model.to(device)
-    model.train()
-    criterion = TripletLoss()
-
-    distrib_buff = DistribBuffer(10, thr_assign=0.0001)
-    distrib_buff.maybe_update(model, dl, device)
-
-    for data in dl:
-        data = utls.batch_to_device(data, device)
-
-        _, targets = distrib_buff[data['frame_idx']]
-        res = model(data)
-        loss = criterion(res['proj_pooled_feats'], targets, data['graph'])
+    print(loss.mean())

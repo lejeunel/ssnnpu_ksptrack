@@ -1,5 +1,5 @@
 import numpy as np
-from skimage.draw import circle
+from skimage.draw import disk
 from ksptrack.utils.lfda import myLFDA
 from ksptrack.utils.link_agent import LinkAgent
 from ksptrack.utils import my_utils as utls
@@ -24,7 +24,7 @@ class LinkAgentRadius(LinkAgent):
         sps = []
 
         for f in range(self.labels.shape[-1]):
-            if(f in self.locs['frame'].to_numpy()):
+            if (f in self.locs['frame'].to_numpy()):
                 for i, loc in self.locs[self.locs['frame'] == f].iterrows():
                     i, j = self.get_i_j(loc)
                     label = self.labels[i, j, f]
@@ -39,10 +39,9 @@ class LinkAgentRadius(LinkAgent):
             for _, loc in self.locs[self.locs['frame'] == frame].iterrows()
         ]
         for loc in all_locs:
-            rr, cc = circle(loc[0],
-                            loc[1],
-                            self.shape[0] * self.entrance_radius,
-                            shape=self.shape)
+            rr, cc = disk((loc[0], loc[1]),
+                          self.shape[0] * self.entrance_radius,
+                          shape=self.shape)
             mask[rr, cc] = True
         return mask
 
@@ -50,12 +49,10 @@ class LinkAgentRadius(LinkAgent):
 
         label_user = self.get_closest_label(sp)
 
-        if(label_user is not None):
+        if (label_user is not None):
 
-            return self.get_proba(sp['frame'], label_user,
-                                  sp['frame'],
-                                  sp['label'],
-                                  sp_desc)
+            return self.get_proba(sp['frame'], label_user, sp['frame'],
+                                  sp['label'], sp_desc)
         else:
             return self.thr_clip
 
@@ -74,10 +71,10 @@ class LinkAgentRadius(LinkAgent):
         return proba
 
     def get_distance(self, sp_desc, f1, l1, f2, l2, p=2):
-        d1 = sp_desc.loc[(sp_desc['frame'] == f1) &
-                         (sp_desc['label'] == l1), 'desc'].values[0][None, ...]
-        d2 = sp_desc.loc[(sp_desc['frame'] == f2) &
-                         (sp_desc['label'] == l2), 'desc'].values[0][None, ...]
+        d1 = sp_desc.loc[(sp_desc['frame'] == f1) & (sp_desc['label'] == l1),
+                         'desc'].values[0][None, ...]
+        d2 = sp_desc.loc[(sp_desc['frame'] == f2) & (sp_desc['label'] == l2),
+                         'desc'].values[0][None, ...]
         d1 = self.trans_transform.transform(d1)
         d2 = self.trans_transform.transform(d2)
 
@@ -109,5 +106,4 @@ class LinkAgentRadius(LinkAgent):
                                       n_components_prestage=n_dims,
                                       k=None,
                                       embedding_type=embedding_type)
-        self.trans_transform.fit(features, probas, threshs,
-                                 n_samps)
+        self.trans_transform.fit(features, probas, threshs, n_samps)

@@ -46,10 +46,11 @@ class LinkAgentSiam(LinkAgentRadius):
                  csv_path,
                  data_path,
                  model_path,
-                 model_clst_path,
+                 model_path_clst,
                  embedded_dims,
                  n_clusters,
                  entrance_radius=0.1,
+                 siamese='gcn',
                  cuda=False):
 
         super().__init__(csv_path, data_path, entrance_radius=entrance_radius)
@@ -59,7 +60,12 @@ class LinkAgentSiam(LinkAgentRadius):
 
         self.model = Siamese(embedded_dims=embedded_dims,
                              cluster_number=n_clusters,
-                             backbone='unet')
+                             backbone='unet',
+                             siamese=siamese)
+        self.model_clst = Siamese(embedded_dims=embedded_dims,
+                                  cluster_number=n_clusters,
+                                  backbone='unet',
+                                  siamese=siamese)
         print('loading checkpoint {}'.format(model_path))
         state_dict = torch.load(model_path,
                                 map_location=lambda storage, loc: storage)
@@ -67,11 +73,8 @@ class LinkAgentSiam(LinkAgentRadius):
         self.model.load_state_dict(state_dict, strict=False)
         self.model.to(self.device)
 
-        self.model_clst = Siamese(embedded_dims=embedded_dims,
-                                  cluster_number=n_clusters,
-                                  backbone='unet')
-        print('loading checkpoint {}'.format(model_clst_path))
-        state_dict = torch.load(model_clst_path,
+        print('loading cluster checkpoint {}'.format(model_path_clst))
+        state_dict = torch.load(model_path_clst,
                                 map_location=lambda storage, loc: storage)
 
         self.model_clst.load_state_dict(state_dict, strict=False)
@@ -90,16 +93,11 @@ class LinkAgentSiam(LinkAgentRadius):
         self.dl = DataLoader(self.dset, collate_fn=self.dset.collate_fn)
 
         self.sigmoid = torch.nn.Sigmoid()
-        self.prepare_all()
         self.cs = torch.nn.CosineSimilarity(dim=0)
+        self.prepare_all()
 
     def prepare_all(self, all_edges_nn=None, feat_field='pooled_feats'):
-        print('preparing features for linkAgent')
-        # form initial cluster centres
-        self.obj_preds = dict()
-        self.feats_ml = dict()
-        self.feats = dict()
-        self.assignments = dict()
+        print('preparing features for linkAgentSiam')
 
         edges_list = utls.make_edges_ccl(self.model_clst,
                                          self.dl,
@@ -107,42 +105,14 @@ class LinkAgentSiam(LinkAgentRadius):
                                          fully_connected=True,
                                          return_signed=True)
 
-        self.model.eval()
-
-        print('getting features')
-        pbar = tqdm.tqdm(total=len(self.dl))
-        for index, data in enumerate(self.dl):
-            data = utls.batch_to_device(data, self.device)
-            edges_ = edges_list[data['frame_idx'][0]].edge_index
-
-            with torch.no_grad():
-                res = self.model(data, edges_nn=edges_.to(self.device))
-
-            start = 0
-            for i, f in enumerate(data['frame_idx']):
-                end = start + torch.unique(data['labels'][i]).numel()
-                self.obj_preds[f] = self.sigmoid(
-                    res['rho_hat_pooled'][start:end]).detach().cpu().numpy()
-                self.feats_ml[f] = res['siam_feats'][start:end]
-                self.assignments[f] = res['clusters'][start:end].argmax(
-                    dim=1).detach().cpu().numpy()
-                self.feats[f] = res['proj_pooled_feats'][start:end].detach(
-                ).cpu().numpy().squeeze()
-                start += end
-
-            pbar.update(1)
-        pbar.close()
-
-        self.obj_preds = [
-            self.obj_preds[k] for k in sorted(self.obj_preds.keys())
-        ]
-        self.feats_ml = [
-            self.feats_ml[k] for k in sorted(self.feats_ml.keys())
-        ]
-        self.feats = [self.feats[k] for k in sorted(self.feats.keys())]
-        self.assignments = [
-            self.assignments[k] for k in sorted(self.assignments.keys())
-        ]
+        self.feats, self.labels_pos, self.assignments, self.obj_preds = get_features(
+            self.model,
+            self.dl,
+            self.device,
+            edges_list=edges_list,
+            return_distribs=True,
+            return_obj_preds=True,
+            feat_fields=['pooled_feats', 'proj_pooled_feats', 'siam_feats'])
 
         self.model.train()
 
@@ -154,8 +124,15 @@ class LinkAgentSiam(LinkAgentRadius):
         labels_pos = dict()
         n_labels = dict()
         for s in self.dl:
+            offsets = [
+                s['labels'][i].max().int().item()
+                for i in range(s['labels'].shape[0])
+            ]
             for i, f in enumerate(s['frame_idx']):
-                labels_pos[f] = s['labels_clicked'][i]
+                if (i > 0):
+                    labels_pos[f] = s['clicked'][i] - (offsets[i - 1] + 1)
+                else:
+                    labels_pos[f] = s['clicked'][i]
                 n_labels[f] = torch.unique(s['labels'][i]).numel()
 
         labels_pos_bool = []
@@ -168,8 +145,8 @@ class LinkAgentSiam(LinkAgentRadius):
 
     def get_proba(self, f0, l0, f1, l1, *args):
 
-        f0 = self.feats_ml[f0][l0]
-        f1 = self.feats_ml[f1][l1]
+        f0 = torch.tensor(self.feats['siam_feats'][f0][l0])
+        f1 = torch.tensor(self.feats['siam_feats'][f1][l1])
 
         p = self.cs(f0, f1)
         p = p.detach().cpu().numpy()

@@ -61,24 +61,24 @@ def train_kmeans(model,
                  bag_t=300,
                  bag_max_depth=64,
                  bag_n_feats=0.02,
-                 up_thr=0.8,
-                 down_thr=0.2,
-                 reduc_method='pls'):
+                 comp_probas='pu'):
 
-    import pdb
-    pdb.set_trace()  ## DEBUG ##
-    features, pos_masks = clst.get_features(model, dataloader, device)
+    assert comp_probas in [
+        'pu', 'obj_pred', 'none'
+    ], 'comp_probas should be pu, obj_pred, or none (default)'
 
-    import pdb
-    pdb.set_trace()  ## DEBUG ##
-    cat_features = np.concatenate(features)
+    if (comp_probas == 'pu'):
+        features, pos_masks = clst.get_features(model, dataloader, device)
+    elif (comp_probas == 'obj_pred'):
+        features, pos_masks, obj_pred = clst.get_features(
+            model, dataloader, device, return_obj_preds=True)
+
+    cat_features = np.concatenate(features['pooled_feats'])
     cat_pos_mask = np.concatenate(pos_masks)
 
-    if (reduc_method == 'pca'):
-        print('PCA: computing transform matrix')
-        L = get_pca_transform(cat_features, embedded_dims)
-    elif ((reduc_method == 'lfda') or (reduc_method == 'pls')):
-        print('PLS/LFDA: computing probability map')
+    L = get_pca_transform(cat_features, embedded_dims)
+
+    if (comp_probas == 'pu'):
         probas = calc_bagging(cat_features,
                               cat_pos_mask,
                               bag_t,
@@ -86,28 +86,24 @@ def train_kmeans(model,
                               bag_n_feats,
                               bag_max_samples=500,
                               n_jobs=1)
-        if (reduc_method == 'lfda'):
-
-            print('LFDA: computing transform matrix')
-            L = get_lfda_transform(cat_features, probas, [down_thr, up_thr],
-                                   6000, embedded_dims)
-        else:
-            print('PLS: computing transform matrix')
-            L = get_pls_transform(cat_features, probas, [0.8, 0.5], 2000,
-                                  embedded_dims)
+    elif (comp_probas == 'obj_pred'):
+        probas = np.concatenate(obj_pred)
+    else:
+        probas = None
 
     print('fitting {} clusters with kmeans'.format(n_clusters))
 
     clf = KMeans(n_clusters=n_clusters, n_init=30)
-    preds = clf.fit_predict(np.dot(cat_features, L))
+    preds = clf.fit_predict(np.dot(cat_features, L), sample_weight=probas)
     # preds = clf.fit_predict(cat_features)
     init_clusters = clf.cluster_centers_
 
     predictions = [utls.to_onehot(p, n_clusters).ravel() for p in preds]
 
     # split predictions by frame
-    predictions = np.split(predictions,
-                           np.cumsum([len(f) for f in features]))[:-1]
+    predictions = np.split(
+        predictions,
+        np.cumsum([len(f) for f in features['pooled_feats']]))[:-1]
     return init_clusters, predictions, L, cat_features, cat_pos_mask
 
 
@@ -130,12 +126,10 @@ def train(cfg, model, device, dataloaders, run_path=None):
             device,
             cfg.n_clusters,
             embedded_dims=cfg.embedded_dims,
-            reduc_method=cfg.reduc_method,
             bag_t=cfg.bag_t,
             bag_n_feats=cfg.bag_n_feats,
             bag_max_depth=cfg.bag_max_depth,
-            up_thr=cfg.ml_up_thr,
-            down_thr=cfg.ml_down_thr)
+            comp_probas='pu')
         data = {'clusters': init_clusters, 'preds': preds, 'L': L}
 
         np.savez(init_clusters_path, **data)
@@ -164,15 +158,11 @@ def train(cfg, model, device, dataloaders, run_path=None):
 
     model.dec.set_clusters(init_clusters)
     model.dec.set_transform(L.T)
-    path = pjoin(run_path, 'checkpoints')
+    path = pjoin(run_path, 'checkpoints',
+                 'init_dec_{}.pth.tar'.format(cfg.siamese))
+
     print('saving DEC with initial parameters to {}'.format(path))
-    utls.save_checkpoint({
-        'epoch': -1,
-        'model': model
-    },
-                         False,
-                         fname_cp='init_dec.pth.tar',
-                         path=path)
+    utls.save_checkpoint({'epoch': -1, 'model': model}, path)
 
     return model
 
@@ -188,13 +178,15 @@ def main(cfg):
 
     model = Siamese(embedded_dims=cfg.embedded_dims,
                     cluster_number=cfg.n_clusters,
-                    backbone=cfg.backbone)
+                    backbone=cfg.backbone,
+                    siamese=cfg.siamese,
+                    skip_mode='none')
     path_cp = pjoin(run_path, 'checkpoints', 'cp_autoenc.pth.tar')
     if (os.path.exists(path_cp)):
         print('loading checkpoint {}'.format(path_cp))
         state_dict = torch.load(path_cp,
                                 map_location=lambda storage, loc: storage)
-        model.dec.autoencoder.load_state_dict(state_dict)
+        model.dec.autoencoder.load_state_dict(state_dict, strict=False)
     else:
         print(
             'checkpoint {} not found. Train autoencoder first'.format(path_cp))

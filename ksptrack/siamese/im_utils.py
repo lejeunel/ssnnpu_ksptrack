@@ -46,8 +46,9 @@ def show_sampled_edges(image, labels, graph, edges_pw):
 def make_grid_samples(batch, edges_pw, n_clusters):
     res = []
     for i in range(len(batch['graph'])):
-        im = batch['image_unnormal'][i].cpu().detach().numpy()
-        im = np.rollaxis(im, 0, 3).astype(np.uint8)
+        im = batch['image'][i].cpu().detach().numpy()
+        im = (255 * im).astype(np.uint8)
+        im = np.rollaxis(im, 0, 3)
         labels = batch['labels'][i].squeeze().cpu().detach().numpy()
         graph = batch['graph'][i]
         predictions = np.array(
@@ -296,8 +297,8 @@ def center_crop(x, center_crop_size):
     assert x.ndim == 3
     centerw, centerh = x.shape[1] // 2, x.shape[2] // 2
     halfw, halfh = center_crop_size[0] // 2, center_crop_size[1] // 2
-    return x[:, centerw - halfw:centerw + halfw, centerh - halfh:centerh +
-             halfh]
+    return x[:, centerw - halfw:centerw + halfw,
+             centerh - halfh:centerh + halfh]
 
 
 def to_np_array(x):

@@ -67,7 +67,7 @@ def main(cfg):
 
             truth = dl[fin]['label/segmentation'][..., 0]
             truth_ct = segmentation.find_boundaries(truth, mode='thick')
-            im1 = dl[fin]['image_unnormal']
+            im1 = (255 * dl[fin]['image']).astype(np.uint8)
             rr, cc = draw.circle_perimeter(i_in,
                                            j_in,
                                            int(cfg.norm_neighbor_in *
@@ -136,6 +136,7 @@ if __name__ == "__main__":
     p = params.get_params()
     p.add('--in-path', required=True)
     p.add('--siam-path', default='')
+    p.add('--siam-path-clst', default='')
     p.add('--use-siam-pred', default=False, action='store_true')
     p.add('--use-siam-trans', default=False, action='store_true')
     p.add('--fin', nargs='+', type=int, default=[0])

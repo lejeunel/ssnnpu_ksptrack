@@ -13,6 +13,34 @@ from ksptrack.models.my_augmenters import Normalize, rescale_augmenter
 np.random.bit_generator = np.random._bit_generator
 
 
+def make_normalizer(arg, imgs):
+    normalizer = iaa.Noop()
+
+    if (isinstance(arg, iaa.Augmenter)):
+        normalizer = arg
+    elif (isinstance(arg, str)):
+        # check for right parameters in list
+        if arg not in ['rescale', 'std']:
+            raise ValueError("Invalid value for 'normalization': %s "
+                             "'normalization' should be in "
+                             "['rescale', 'std']" % arg)
+        if (arg == 'std'):
+
+            im_flat = np.array(imgs).reshape((-1, 3)) / 255
+            mean = im_flat.mean(axis=0)
+            std = im_flat.std(axis=0)
+            normalizer = iaa.Sequential(
+                [rescale_augmenter,
+                 Normalize(mean=mean, std=std)])
+        else:
+            im_flat = np.array(imgs).reshape((-1, 3)) / 255
+            min_ = im_flat.min(axis=0)
+            max_ = im_flat.max(axis=0)
+            normalizer = iaa.Sequential([Rescale(min_, max_)])
+
+    return normalizer
+
+
 def imread(path, scale=True):
     im = io.imread(path)
 
@@ -70,36 +98,16 @@ class BaseDataset(data.Dataset):
                 (self.imgs[0].shape[0], self.imgs[0].shape[1],
                  len(self.imgs))).astype(int)
 
-        self.augmentations = augmentations
+        self._normalization = make_normalizer(normalization, self.imgs)
 
-        if (isinstance(normalization, iaa.Augmenter)):
-            self.normalization = normalization
-        elif (isinstance(normalization, str)):
-            # check for right parameters in list
-            if normalization not in ['rescale', 'std']:
-                raise ValueError("Invalid value for 'normalization': %s "
-                                 "'normalization' should be in "
-                                 "['rescale', 'std']" % normalization)
-            if (normalization == 'std'):
+        self._reshaper = iaa.Noop()
+        self._augmentations = iaa.Noop()
 
-                im_flat = np.array(self.imgs).reshape((-1, 3)) / 255
-                mean = im_flat.mean(axis=0)
-                std = im_flat.std(axis=0)
-                self.normalization = iaa.Sequential(
-                    [rescale_augmenter,
-                     Normalize(mean=mean, std=std)])
-            else:
-                im_flat = np.array(self.imgs).reshape((-1, 3)) / 255
-                min_ = im_flat.min(axis=0)
-                max_ = im_flat.max(axis=0)
-                self.normalization = iaa.Sequential([Rescale(min_, max_)])
-
-        self.reshaper_img = iaa.Noop()
-        self.reshaper_seg = iaa.Noop()
+        if (augmentations is not None):
+            self._augmentations = augmentations
 
         if (resize_shape is not None):
-            self.reshaper_img = iaa.size.Resize(resize_shape)
-            self.reshaper_seg = iaa.size.Resize(resize_shape, 'nearest')
+            self._reshaper = iaa.size.Resize(resize_shape)
 
     def __len__(self):
         return len(self.imgs)
@@ -116,7 +124,6 @@ class BaseDataset(data.Dataset):
         # we apply a threshold to get back to binary
 
         im = self.imgs[idx]
-        im = self.reshaper_img.augment_image(im)
 
         shape = im.shape
 
@@ -134,36 +141,21 @@ class BaseDataset(data.Dataset):
         else:
             truth = np.zeros(im.shape[:2]).astype(np.uint8)
 
-        # Apply data augmentation
-        if (self.augmentations is not None):
-            aug_det = self.augmentations.to_deterministic()
-        else:
-            aug_det = iaa.Noop()
-
-        im_aug = aug_det.augment_images([im])[0]
-        im_unnormal = im_aug.copy()
+        aug = iaa.Sequential(
+            [self._reshaper, self._augmentations, self._normalization])
+        aug_det = aug.to_deterministic()
 
         truth = ia.SegmentationMapsOnImage(truth, shape=truth.shape)
-        labels = ia.SegmentationMapsOnImage(self.labels[..., idx].astype(
-            np.int16),
+        labels = ia.SegmentationMapsOnImage(self.labels[...,
+                                                        idx].astype(np.int16),
                                             shape=self.labels[..., idx].shape)
 
-        if (self.normalization is not None):
-            im = self.normalization.augment_image(im)
-            im_aug = self.normalization.augment_image(im_aug)
-
-        truth = truth.get_arr()[..., np.newaxis]
-        labels = labels.get_arr()[..., np.newaxis]
-
-        im_aug = self.reshaper_img.augment_image(im_aug)
-        im_unnormal = self.reshaper_img.augment_image(im_unnormal)
-        truth = self.reshaper_seg.augment_image(truth)
-        labels = self.reshaper_seg.augment_image(labels)
+        im = aug_det(image=im)
+        truth = aug_det(segmentation_maps=truth).get_arr()[..., None]
+        labels = aug_det(segmentation_maps=labels).get_arr()[..., None]
 
         return {
-            'image': im_aug,
-            'image_noaug': im,
-            'image_unnormal': im_unnormal,
+            'image': im,
             'frame_name': os.path.split(self.img_paths[idx])[-1],
             'labels': labels,
             'frame_idx': idx,
@@ -177,12 +169,6 @@ class BaseDataset(data.Dataset):
         im = [np.rollaxis(d['image'], -1) for d in data]
         im = torch.stack([torch.from_numpy(i).float() for i in im])
 
-        im_unnormal = [np.rollaxis(d['image_unnormal'], -1) for d in data]
-        im_unnormal = torch.stack(
-            [torch.from_numpy(i).float() for i in im_unnormal])
-        im_noaug = [np.rollaxis(d['image_noaug'], -1) for d in data]
-        im_noaug = torch.stack([torch.from_numpy(i).float() for i in im_noaug])
-
         truth = [np.rollaxis(d['label/segmentation'], -1) for d in data]
         truth = torch.stack([torch.from_numpy(i) for i in truth]).float()
 
@@ -191,8 +177,6 @@ class BaseDataset(data.Dataset):
 
         return {
             'image': im,
-            'image_noaug': im_noaug,
-            'image_unnormal': im_unnormal,
             'frame_name': [d['frame_name'] for d in data],
             'frame_idx': [d['frame_idx'] for d in data],
             'n_frames': [d['n_frames'] for d in data],

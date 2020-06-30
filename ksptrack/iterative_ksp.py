@@ -53,10 +53,11 @@ def make_link_agent(cfg):
                                                   cfg.csv_fname),
                                    data_path=cfg.in_path,
                                    model_path=cfg.siam_path,
-                                   model_clst_path=cfg.siam_clst_path,
+                                   model_path_clst=cfg.siam_path_clst,
                                    embedded_dims=cfg_siam.embedded_dims,
                                    n_clusters=cfg_siam.n_clusters,
                                    entrance_radius=cfg.norm_neighbor_in,
+                                   siamese=cfg_siam.siamese,
                                    cuda=cfg.cuda)
     else:
         link_agent = LinkAgentGMM(csv_path=pjoin(cfg.in_path, cfg.locs_dir,
@@ -72,8 +73,10 @@ def make_link_agent(cfg):
     path_centroids = pjoin(cfg.in_path, cfg.precomp_dir, 'centroids_loc_df.p')
 
     print('computing features to {}'.format(path_feats))
-    feats = [item for sublist in link_agent.feats for item in sublist]
     centroids = pd.read_pickle(path_centroids)
+    feats = link_agent.feats['pooled_feats']
+    feats = [f.tolist() for f in feats]
+    feats = [item for sublist in feats for item in sublist]
     feats = centroids.assign(desc=feats)
     print('Saving features to {}'.format(path_feats))
     feats.to_pickle(path_feats)
@@ -129,8 +132,10 @@ def main(cfg):
     desc_df['positive'] = locs2d_sps
 
     if (cfg.use_siam_pred):
+        logger.info('Using foreground model from siamese model')
         pm = utls.probas_to_df(link_agent.labels, link_agent.obj_preds)
     else:
+        logger.info('Using foreground model from bagging model')
         pm = utls.calc_pm(desc_df, desc_df['positive'], cfg.bag_n_feats,
                           cfg.bag_t, cfg.bag_max_depth, cfg.bag_max_samples,
                           cfg.bag_jobs)
@@ -282,7 +287,7 @@ if __name__ == "__main__":
     p.add('--out-path', required=True)
     p.add('--in-path', required=True)
     p.add('--siam-path', default='')
-    p.add('--siam-clst-path', default='')
+    p.add('--siam-path-clst', default='')
     p.add('--use-siam-pred', default=False, action='store_true')
     p.add('--use-siam-trans', default=False, action='store_true')
 

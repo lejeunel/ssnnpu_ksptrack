@@ -6,15 +6,8 @@ np.random.bit_generator = np.random._bit_generator
 
 
 class Normalize(Augmenter):
-    def __init__(self,
-                 mean,
-                 std,
-                 name=None,
-                 deterministic=False,
-                 random_state=None):
-        super(Normalize, self).__init__(name=name,
-                                        deterministic=deterministic,
-                                        random_state=random_state)
+    def __init__(self, mean, std, name=None, random_state=None):
+        super(Normalize, self).__init__(name=name, random_state=random_state)
         self.mean = mean
         self.std = std
         self.n_chans = len(self.mean)
@@ -43,15 +36,8 @@ class Normalize(Augmenter):
 
 
 class Rescale(Augmenter):
-    def __init__(self,
-                 min_,
-                 max_,
-                 name=None,
-                 deterministic=False,
-                 random_state=None):
-        super(Rescale, self).__init__(name=name,
-                                      deterministic=deterministic,
-                                      random_state=random_state)
+    def __init__(self, min_, max_, name=None, random_state=None):
+        super(Rescale, self).__init__(name=name, random_state=random_state)
         self.min_ = min_
         self.max_ = max_
         self.n_chans = len(self.min_)
@@ -78,7 +64,7 @@ class Rescale(Augmenter):
         return heatmaps
 
     def get_parameters(self):
-        return [self.mean, self.std]
+        return [self.min_, self.max_]
 
 
 def rescale_images(images, random_state, parents, hooks):

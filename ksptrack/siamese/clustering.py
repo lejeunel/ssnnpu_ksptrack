@@ -15,7 +15,7 @@ def do_prev_clusters_init(dataloader, predictions, probas=None):
     pbar = tqdm(total=len(dataloader))
     for data in dataloader.dataset:
         labels = data['labels']
-        im = data['image_unnormal']
+        im = (data['image'] * 255).astype(np.uint8)
         truth = data['label/segmentation']
         truth_cntr = segmentation.find_boundaries(np.squeeze(truth))
         im[truth_cntr, ...] = (255, 0, 0)
@@ -53,7 +53,8 @@ def do_prev_rags(model, device, dataloader, couple_graphs):
             res = model(data, torch.tensor(edges_rag))
 
         probas = res['probas_preds'].detach().cpu().squeeze().numpy()
-        im = data['image_unnormal'].cpu().squeeze().numpy().astype(np.uint8)
+        im = data['image'].cpu().squeeze().numpy().astype(np.uint8)
+        im = (255 * im).astype(np.uint8)
         im = np.rollaxis(im, 0, 3)
         truth = data['label/segmentation'].cpu().squeeze().numpy()
         labels = data['labels'].cpu().squeeze().numpy()
@@ -89,8 +90,9 @@ def do_prev_clusters(model, device, dataloader, *args):
         with torch.no_grad():
             res = model(data, *args)
 
-        im = data['image_unnormal'].cpu().squeeze().numpy()
-        im = np.rollaxis(im, 0, 3).astype(np.uint8)
+        im = data['image'].cpu().squeeze().numpy()
+        im = (255 * im).astype(np.uint8)
+        im = np.rollaxis(im, 0, 3)
         truth = data['label/segmentation'].cpu().squeeze().numpy()
         truth_cntr = segmentation.find_boundaries(truth)
         im[truth_cntr, ...] = (255, 0, 0)
@@ -108,48 +110,71 @@ def do_prev_clusters(model, device, dataloader, *args):
 def get_features(model,
                  dataloader,
                  device,
-                 return_assign=False,
+                 return_distribs=False,
                  return_obj_preds=False,
-                 feat_field='pooled_feats'):
+                 edges_list=None,
+                 feat_fields=['pooled_feats', 'proj_pooled_feats']):
+
+    if (isinstance(feat_fields, str)):
+        feat_fields = [feat_fields]
+
     # form initial cluster centres
-    labels_pos_mask = []
-    assignments = []
-    features = []
-    obj_preds = []
+    labels_pos_mask = dict()
+    distribs = dict()
+    features = {k: dict() for k in feat_fields}
+    obj_preds = dict()
 
     sigmoid = torch.nn.Sigmoid()
     model.eval()
     model.to(device)
-    print('getting features')
+
     pbar = tqdm(total=len(dataloader))
     for index, data in enumerate(dataloader):
         data = utls.batch_to_device(data, device)
+        edges_nn = None
+        if (edges_list is not None):
+            edges_nn = edges_list[data['frame_idx'][0]].edge_index.to(device)
         with torch.no_grad():
-            res = model(data)
+            res = model(data, edges_nn=edges_nn)
 
-        if (return_assign):
-            assignments.append(res['clusters'].argmax(dim=1).cpu().numpy())
+        start = 0
+        for i, f in enumerate(data['frame_idx']):
+            end = start + torch.unique(data['labels'][i]).numel()
+            obj_preds[f] = sigmoid(
+                res['rho_hat_pooled'][start:end]).detach().cpu().numpy()
+            for k in feat_fields:
+                features[k][f] = res[k][start:end].detach().cpu().numpy()
+            distribs[f] = res['clusters'][start:end].detach().cpu().numpy()
 
-        if (return_obj_preds):
-            obj_preds.append(sigmoid(res['rho_hat_pooled']).cpu().numpy())
+            clicked_labels = [
+                c - start for c in data['clicked']
+                if ((c >= start) and (c < end))
+            ]
+            to_add = np.zeros(
+                np.unique(
+                    data['labels'][i].cpu().numpy()).shape[0]).astype(bool)
+            to_add[clicked_labels] = True
+            labels_pos_mask[f] = to_add
 
-        clicked_labels = [
-            item for sublist in data['labels_clicked'] for item in sublist
-        ]
+            start += end
 
-        to_add = np.zeros(np.unique(
-            data['labels'].cpu().numpy()).shape[0]).astype(bool)
-        to_add[clicked_labels] = True
-        labels_pos_mask.append(to_add)
-
-        features.append(res[feat_field].detach().cpu().numpy().squeeze())
         pbar.update(1)
     pbar.close()
 
+    obj_preds = [obj_preds[k] for k in sorted(obj_preds.keys())]
+    features = {
+        k: [features[k][i] for i in sorted(features[k].keys())]
+        for k in feat_fields
+    }
+    distribs = [distribs[k] for k in sorted(distribs.keys())]
+    labels_pos_mask = [
+        labels_pos_mask[k] for k in sorted(labels_pos_mask.keys())
+    ]
+
     res = [features, labels_pos_mask]
 
-    if (return_assign):
-        res.append(np.concatenate(assignments))
+    if (return_distribs):
+        res.append(np.concatenate(distribs))
 
     if (return_obj_preds):
         res.append(obj_preds)

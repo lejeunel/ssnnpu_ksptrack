@@ -14,6 +14,7 @@ def split_list(alist, wanted_parts=1):
 seq_type = list(range(4))
 # seq_type = list(range(2))
 seqs_per_type = [[0, 1, 2, 3], [0, 1, 2, 3], [0, 1, 2, 3], [0, 1, 2, 3]]
+# seqs_per_type = [[0], [0], [0], [0]]
 
 run_dirs = [['Dataset' + str(t) + str(n) for n in seqs_per_type[t]]
             for t in seq_type]
@@ -22,7 +23,7 @@ train_dirs = [[str(t) + str(n) for n in seqs_per_type[t]] for t in seq_type]
 
 run_dirs = [item for sublist in run_dirs for item in sublist]
 
-n_jobs = min((len(run_dirs), 3))
+n_jobs = min((len(run_dirs), 2))
 run_dirs = split_list(run_dirs, n_jobs)
 
 train_dirs = [item for sublist in train_dirs for item in sublist]
@@ -30,6 +31,7 @@ train_dirs = split_list(train_dirs, n_jobs)
 
 script_path = '$HOME/Documents/software/ksptrack/ksptrack/siamese'
 script_name = 'train_all_type.py'
+# script_name = 'train_grid_focal.py'
 
 out_root = pjoin('$HOME/runs', 'siamese_dec')
 flags = '--cuda'

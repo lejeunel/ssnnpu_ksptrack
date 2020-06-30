@@ -4,16 +4,19 @@ from skimage import future, measure
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset, SequentialSampler, Sampler
+from torch.utils import data
 from tqdm import tqdm
 import pandas as pd
 from ksptrack.utils.loc_prior_dataset import LocPriorDataset
-from ksptrack.siamese import utils as utls
-from ksptrack.siamese.modeling.siamese import Siamese
+from ksptrack.utils.base_dataset import make_normalizer
+from ksptrack.siamese import im_utils as iutls
 from skimage.future import graph as skg
 import random
 import networkx as nx
 from torch._six import int_classes as _int_classes
 import pickle
+from imgaug import augmenters as iaa
+import imgaug as ia
 
 
 def _add_edge_filter(values, g):
@@ -56,9 +59,6 @@ class Loader(LocPriorDataset):
 
         """
         super().__init__(root_path=root_path,
-                         augmentations=augmentations,
-                         normalization=normalization,
-                         resize_shape=resize_shape,
                          csv_fname=csv_fname,
                          sig_prior=sig_prior)
 
@@ -74,9 +74,6 @@ class Loader(LocPriorDataset):
             print('loading graphs at {}'.format(graphs_path))
             np_file = np.load(graphs_path, allow_pickle=True)
             self.graphs = np_file['graphs']
-
-        self.labels = np.load(pjoin(root_path, 'precomp_desc',
-                                    'sp_labels.npz'))['sp_labels']
 
         npzfile = np.load(pjoin(root_path, 'precomp_desc', 'flows.npz'))
         flows = dict()
@@ -95,6 +92,17 @@ class Loader(LocPriorDataset):
         self.fx = [(f - f.min()) / (f.max() - f.min() + 1e-8) for f in fx]
         self.fy = [(f - f.min()) / (f.max() - f.min() + 1e-8) for f in fy]
 
+        self.normalization = make_normalizer(normalization, self.imgs)
+
+        self.reshaper = iaa.Noop()
+        self.augmentations = iaa.Noop()
+
+        if (augmentations is not None):
+            self.augmentations = augmentations
+
+        if (resize_shape is not None):
+            self.reshaper = iaa.size.Resize(resize_shape)
+
     def prepare_graphs(self):
 
         self.graphs = []
@@ -110,22 +118,55 @@ class Loader(LocPriorDataset):
         pbar.close()
 
     def __getitem__(self, idx):
-
         sample = super().__getitem__(idx)
 
-        sample['graph'] = self.graphs[idx]
+        aug = iaa.Sequential(
+            [self.reshaper, self.augmentations, self.normalization])
+        aug_det = aug.to_deterministic()
 
-        fnorm = self.fv[idx][..., None]
-        fnorm = self.reshaper_img.augment_image(fnorm)
+        max_node = 0
+        clicked = []
+        shape = self.fv[0].shape
+
+        fnorm = ia.HeatmapsOnImage(self.fv[idx], shape=shape)
+        fx = ia.HeatmapsOnImage(self.fx[idx], shape=shape)
+        fy = ia.HeatmapsOnImage(self.fy[idx], shape=shape)
+
+        fnorm = aug_det(heatmaps=fnorm).get_arr()
         sample['fnorm'] = fnorm
 
-        fx = self.fx[idx][..., None]
-        fx = self.reshaper_img.augment_image(fx)
+        fx = aug_det(heatmaps=fx).get_arr()
         sample['fx'] = fx
 
-        fy = self.fy[idx][..., None]
-        fy = self.reshaper_img.augment_image(fy)
+        fy = aug_det(heatmaps=fy).get_arr()
         sample['fy'] = fy
+
+        im = sample['image']
+        shape = im.shape[:2]
+        labels = ia.SegmentationMapsOnImage(sample['labels'].squeeze(),
+                                            shape=shape)
+        truth = ia.SegmentationMapsOnImage(
+            sample['label/segmentation'].squeeze(), shape=shape)
+        sample['image'] = aug_det(image=im)
+        sample['labels'] = aug_det(
+            segmentation_maps=labels).get_arr()[..., None] + max_node
+        sample['label/segmentation'] = aug_det(
+            segmentation_maps=truth).get_arr()[..., None]
+
+        keypoints = aug_det.augment_keypoints(sample['loc_keypoints'])
+        keypoints.clip_out_of_image_()
+        keypoints.labels = [
+            sample['labels'][k.y_int, k.x_int, 0] for k in keypoints.keypoints
+        ]
+
+        for kp in keypoints:
+            kp_ = (kp.y_int, kp.x_int)
+            clicked.append(sample['labels'][kp_[0], kp_[1], 0])
+        max_node += sample['labels'].max() + 1
+
+        sample['clicked'] = clicked
+
+        sample['graph'] = self.graphs[idx]
 
         return sample
 
@@ -146,10 +187,15 @@ class Loader(LocPriorDataset):
         fy = torch.stack([torch.from_numpy(f) for f in fy]).float()
         out['fy'] = fy
 
+        out['clicked'] = [s['clicked'] for s in samples]
+        out['clicked'] = [
+            item for sublist in out['clicked'] for item in sublist
+        ]
+
         return out
 
 
-class StackLoader(LocPriorDataset):
+class StackLoader(data.Dataset):
     def __init__(self,
                  root_path,
                  depth=2,
@@ -163,12 +209,21 @@ class StackLoader(LocPriorDataset):
         """
 
         """
-        super(StackLoader, self).__init__(root_path=root_path,
-                                          augmentations=augmentations,
-                                          normalization=normalization,
-                                          resize_shape=resize_shape,
-                                          csv_fname=csv_fname,
-                                          sig_prior=sig_prior)
+        super(StackLoader, self).__init__()
+
+        self.single_loader = LocPriorDataset(root_path=root_path,
+                                             csv_fname=csv_fname,
+                                             sig_prior=sig_prior)
+
+        if (resize_shape is not None):
+            self.reshaper = iaa.size.Resize(resize_shape)
+
+        self.normalization = make_normalizer(normalization,
+                                             self.single_loader.imgs)
+
+        self.augmentations = iaa.Noop()
+        if (augmentations is not None):
+            self.augmentations = augmentations
 
         self.nn_radius = nn_radius
         self.depth = depth
@@ -180,7 +235,6 @@ class StackLoader(LocPriorDataset):
         if (not os.path.exists(graphs_path)):
             self.prepare_graphs()
             pickle.dump(self.graphs, open(graphs_path, "wb"))
-
         else:
             print('loading graphs at {}'.format(graphs_path))
             self.graphs = pickle.load(open(graphs_path, "rb"))
@@ -201,9 +255,9 @@ class StackLoader(LocPriorDataset):
             np.concatenate((flows['fvy'], flows['fvy'][..., -1][..., None]),
                            axis=-1), -1, 0)
         self.fv = np.sqrt(self.fx**2 + self.fy**2)
-        # self.fv = [(f - f.min()) / (f.max() - f.min() + 1e-8) for f in fv]
-        # self.fx = [(f - f.min()) / (f.max() - f.min() + 1e-8) for f in fx]
-        # self.fy = [(f - f.min()) / (f.max() - f.min() + 1e-8) for f in fy]
+        self.fv = [(f - f.min()) / (f.max() - f.min() + 1e-8) for f in self.fv]
+        self.fx = [(f - f.min()) / (f.max() - f.min() + 1e-8) for f in self.fx]
+        self.fy = [(f - f.min()) / (f.max() - f.min() + 1e-8) for f in self.fy]
 
     def prepare_graphs(self):
 
@@ -213,10 +267,10 @@ class StackLoader(LocPriorDataset):
         self.graphs = []
 
         print('preparing graphs...')
-        pbar = tqdm(total=len(self.imgs) - (self.depth - 1))
-        for i in range(super(StackLoader, self).__len__() - self.depth + 1):
+        pbar = tqdm(total=len(self.single_loader) - (self.depth - 1))
+        for i in range(len(self.single_loader) - self.depth + 1):
             labels = np.array([
-                super(StackLoader, self).__getitem__(i)['labels'].squeeze()
+                self.single_loader[i]['labels'].squeeze()
                 for i in range(i, i + self.depth)
             ])
             max_node = 0
@@ -242,35 +296,64 @@ class StackLoader(LocPriorDataset):
 
     def __getitem__(self, idx):
 
-        samples = [
-            super(StackLoader, self).__getitem__(i)
-            for i in range(idx, idx + self.depth)
-        ]
+        samples = [self.single_loader[i] for i in range(idx, idx + self.depth)]
+
+        aug = iaa.Sequential(
+            [self.reshaper, self.augmentations, self.normalization])
+        aug_det = aug.to_deterministic()
 
         max_node = 0
         clicked = []
+        shape = self.fv[0].shape
         for i in range(self.depth):
-            fnorm = self.fv[idx + i][..., None]
-            fnorm = self.reshaper_img.augment_image(fnorm)
+            fnorm = ia.HeatmapsOnImage(self.fv[idx + i], shape=shape)
+            fx = ia.HeatmapsOnImage(self.fx[idx + i], shape=shape)
+            fy = ia.HeatmapsOnImage(self.fy[idx + i], shape=shape)
+
+            fnorm = aug_det(heatmaps=fnorm).get_arr()
             samples[i]['fnorm'] = fnorm
 
-            fx = self.fx[idx + i][..., None]
-            fx = self.reshaper_img.augment_image(fx)
+            fx = aug_det(heatmaps=fx).get_arr()
             samples[i]['fx'] = fx
 
-            fy = self.fy[idx + i][..., None]
-            fy = self.reshaper_img.augment_image(fy)
+            fy = aug_det(heatmaps=fy).get_arr()
             samples[i]['fy'] = fy
 
-            clicked.append(np.array(samples[i]['labels_clicked']) + max_node)
-            max_node += samples[i]['labels'].max() + 1
+            im = samples[i]['image']
+            shape = im.shape[:2]
+            labels = ia.SegmentationMapsOnImage(samples[i]['labels'].squeeze(),
+                                                shape=shape)
+            truth = ia.SegmentationMapsOnImage(
+                samples[i]['label/segmentation'].squeeze(), shape=shape)
+            samples[i]['image'] = aug_det(image=im)
+            samples[i]['labels'] = aug_det(
+                segmentation_maps=labels).get_arr()[..., None] + max_node
+            samples[i]['label/segmentation'] = aug_det(
+                segmentation_maps=truth).get_arr()[..., None]
 
-        clicked = np.concatenate(clicked)
+            keypoints = aug_det.augment_keypoints(samples[i]['loc_keypoints'])
+            shape = im.shape[:2]
+            keypoints = ia.KeypointsOnImage([
+                ia.Keypoint(np.clip(k.x, a_min=0, a_max=shape[1] - 1),
+                            np.clip(k.y, a_min=0, a_max=shape[0] - 1))
+                for k in keypoints
+            ], shape)
+
+            keypoints.clip_out_of_image_()
+            keypoints.labels = [
+                samples[i]['labels'][k.y_int, k.x_int, 0]
+                for k in keypoints.keypoints
+            ]
+
+            for kp in keypoints:
+                kp_ = (kp.y_int, kp.x_int)
+                clicked.append(samples[i]['labels'][kp_[0], kp_[1], 0])
+            max_node += samples[i]['labels'].max() + 1
 
         return samples, self.graphs[idx], clicked
 
     def __len__(self):
-        return len(self.imgs) - (self.depth - 1)
+        return len(self.single_loader.imgs) - (self.depth - 1)
         # return len(self.imgs)
 
     def collate_fn(self, samples):
@@ -279,7 +362,7 @@ class StackLoader(LocPriorDataset):
         clicked = samples[0][2]
 
         samples = samples[0][0]
-        out_ = super(Loader, Loader).collate_fn(samples)
+        out_ = self.single_loader.collate_fn(samples)
         out.update(out_)
 
         fnorm = [np.rollaxis(d['fnorm'], -1) for d in samples]
@@ -294,23 +377,70 @@ class StackLoader(LocPriorDataset):
         fy = torch.stack([torch.from_numpy(f) for f in fy]).float()
         out['fy'] = fy
 
-        out['clicked'] = torch.from_numpy(clicked)
+        out['clicked'] = clicked
+
+        im = [np.rollaxis(d['image'], -1) for d in samples]
+        im = torch.stack([torch.from_numpy(i).float() for i in im])
+
+        truth = [np.rollaxis(d['label/segmentation'], -1) for d in samples]
+        truth = torch.stack([torch.from_numpy(i) for i in truth]).float()
+
+        labels = [np.rollaxis(d['labels'], -1) for d in samples]
+        labels = torch.stack([torch.from_numpy(i) for i in labels]).float()
+        out['labels'] = labels
+        out['label/segmentation'] = truth
+        out['image'] = im
 
         return out
 
 
 if __name__ == "__main__":
+    from skimage import io
+    from ksptrack.siamese import utils as utls
+    from ksptrack.siamese.modeling.siamese import Siamese
+    from ksptrack.siamese.losses import do_previews
+    import matplotlib.pyplot as plt
 
-    dset = LocPriorDataset(root_path=pjoin(
-        '/home/ubelix/artorg/lejeune/data/medical-labeling/Dataset30'),
-                           normalization='rescale',
-                           depth=2,
-                           resize_shape=512)
+    root_path = '/home/ubelix/artorg/lejeune'
+    run_path = 'runs/siamese_dec/Dataset30'
+    transf = iaa.Sequential(
+        [iaa.Flipud(p=0.5),
+         iaa.Fliplr(p=0.5),
+         iaa.Rot90((1, 3))])
 
-    frames = [10, 11]
-    label_stack = []
-    max_node = 0
-    for f in frames:
-        labels = dset[f]['labels']
-        label_stack.append(labels + max_node)
-        max_node += labels.max() + 1
+    dset = Loader(
+        root_path=pjoin(root_path, 'data/medical-labeling/Dataset30'),
+        # '/home/ubelix/lejeune/data/medical-labeling/Dataset30'),
+        normalization='rescale',
+        resize_shape=512)
+    # dset = LocPriorDataset(root_path=pjoin(
+    #     '/home/ubelix/lejeune/data/medical-labeling/Dataset00'),
+    #                        normalization='rescale',
+    #                        augmentations=transf,
+    #                        resize_shape=512)
+    dl = DataLoader(dset, collate_fn=dset.collate_fn)
+
+    device = torch.device('cpu')
+
+    model = Siamese(embedded_dims=15, cluster_number=15,
+                    backbone='unet').to(device)
+    cp = pjoin(root_path, run_path, 'checkpoints/init_dec.pth.tar')
+    state_dict = torch.load(cp, map_location=lambda storage, loc: storage)
+    model.load_state_dict(state_dict)
+
+    cmap = plt.get_cmap('viridis')
+    import pdb
+    pdb.set_trace()  ## DEBUG ##
+    for data in dl:
+
+        im = (255 * np.rollaxis(data['image'].squeeze().detach().cpu().numpy(),
+                                0, 3)).astype(np.uint8)
+        labels = data['labels'].squeeze().detach().cpu().numpy()
+        labels = (cmap((labels.astype(float) / labels.max() * 255).astype(
+            np.uint8))[..., :3] * 255).astype(np.uint8)
+        clusters = model(data)['clusters']
+        clusters = iutls.make_clusters(labels, clusters)
+        all_ = np.concatenate((im, labels, clusters))
+        io.imsave(
+            pjoin(root_path, run_path, '{}.png'.format(data['frame_idx'][0])),
+            all_)

@@ -14,6 +14,47 @@ def init_weights(m):
         nn.init.xavier_normal_(m.weight)
 
 
+class Block(nn.Module):
+    """
+    Residual Block
+    """
+    def __init__(self,
+                 inplanes,
+                 outplanes,
+                 kernel_size,
+                 padding,
+                 nonlinearity=nn.ReLU,
+                 dropout=0.2,
+                 convObject=nn.Conv2d,
+                 batchNormObject=nn.BatchNorm2d):
+        super(Block, self).__init__()
+
+        self.conv1 = convObject(inplanes,
+                                outplanes,
+                                kernel_size=kernel_size,
+                                stride=1,
+                                padding=padding)
+        self.dropout = nn.Dropout2d(dropout)
+        self.nonlinearity = nonlinearity(inplace=False)
+        self.batch_norm1 = batchNormObject(outplanes)
+        self.conv2 = convObject(outplanes,
+                                outplanes,
+                                kernel_size=kernel_size,
+                                stride=1,
+                                padding=padding)
+        self.batch_norm2 = batchNormObject(outplanes)
+
+    def forward(self, x):
+        x = self.dropout(x)
+        x = self.conv1(x)
+        x = self.batch_norm1(x)
+        x = self.nonlinearity(x)
+        x = self.conv2(x)
+        out = self.batch_norm2(x)
+        out = self.nonlinearity(x)
+        return out
+
+
 class ResidualBlock(nn.Module):
     """
     Residual Block
@@ -66,14 +107,13 @@ class ConvolutionalEncoder(nn.Module):
     """
     def __init__(self,
                  in_channels=3,
-                 n_resblocks=3,
                  start_filts=64,
                  depth=5,
                  kernel_size=3,
                  padding=1,
                  dropout_min=0,
                  dropout_max=0.2,
-                 blockObject=ResidualBlock,
+                 blockObject=Block,
                  convObject=nn.Conv2d,
                  batchNormObject=nn.BatchNorm2d):
         """
@@ -96,20 +136,18 @@ class ConvolutionalEncoder(nn.Module):
                    for t in np.linspace(0, 1, depth)]
         # input convolution block
         block = [
-            convObject(in_channels,
-                       self.filts_dims[0],
-                       kernel_size=kernel_size,
-                       stride=1,
-                       padding=padding)
+            blockObject(in_channels,
+                        self.filts_dims[0],
+                        kernel_size=kernel_size,
+                        padding=padding,
+                        dropout=dropout[0])
         ]
-        for _ in range(n_resblocks):
-            block += [
-                blockObject(self.filts_dims[0],
-                            kernel_size,
-                            padding,
-                            dropout=dropout[0],
-                            batchNormObject=batchNormObject)
-            ]
+        block.append(
+            ASPP(self.filts_dims[0],
+                 outplanes=self.filts_dims[0],
+                 output_stride=8,
+                 BatchNorm=batchNormObject,
+                 dropout=dropout[0]))
         self.stages.append(nn.Sequential(*block))
 
         # layers
@@ -117,22 +155,17 @@ class ConvolutionalEncoder(nn.Module):
             # downsampling
             block = [
                 nn.MaxPool2d(2),
-                convObject(self.filts_dims[i],
-                           self.filts_dims[i + 1],
-                           kernel_size=1,
-                           padding=0),
-                batchNormObject(self.filts_dims[i + 1]),
-                nn.ReLU()
+                blockObject(self.filts_dims[i],
+                            self.filts_dims[i + 1],
+                            kernel_size=kernel_size,
+                            padding=padding,
+                            dropout=dropout[i + 1]),
+                ASPP(self.filts_dims[i + 1],
+                     outplanes=self.filts_dims[i + 1],
+                     output_stride=8,
+                     BatchNorm=batchNormObject,
+                     dropout=dropout[i + 1])
             ]
-            # residual blocks
-            for _ in range(n_resblocks):
-                block += [
-                    blockObject(self.filts_dims[i + 1],
-                                kernel_size,
-                                padding,
-                                dropout=dropout[i + 1],
-                                batchNormObject=batchNormObject)
-                ]
             self.stages.append(nn.Sequential(*block))
 
     def forward(self, x):
@@ -156,14 +189,13 @@ class ConvolutionalDecoder(nn.Module):
     """
     def __init__(self,
                  out_channels=3,
-                 n_resblocks=3,
                  start_filts=64,
                  depth=5,
                  kernel_size=3,
                  padding=1,
                  dropout_min=0,
                  dropout_max=0.2,
-                 blockObject=ResidualBlock,
+                 blockObject=Block,
                  convObject=nn.Conv2d,
                  batchNormObject=nn.BatchNorm2d,
                  skip_mode='conv'):
@@ -172,14 +204,13 @@ class ConvolutionalDecoder(nn.Module):
         num_hidden_features (list(int)): number of features for each stage
         kernel_size (int): convolution kernel size
         padding (int): convolution padding
-        n_resblocks (int): number of residual blocks at each stage
         dropout (float): dropout probability
         blockObject (nn.Module): Residual block to use. Default is ResidualBlock
         batchNormObject (nn.Module): normalization layer. Default is nn.BatchNorm2d
         """
         super(ConvolutionalDecoder, self).__init__()
 
-        if skip_mode in ('conv', 'none'):
+        if skip_mode in ('conv', 'none', 'aspp'):
             self.skip_mode = skip_mode
         else:
             raise ValueError(
@@ -191,7 +222,8 @@ class ConvolutionalDecoder(nn.Module):
         self.filts_dims = [start_filts * (2**i) for i in range(depth)][::-1]
         self.upConvolutions = nn.ModuleList()
         self.skipMergers = nn.ModuleList()
-        self.residualBlocks = nn.ModuleList()
+        self.skip_conns = nn.ModuleList()
+        self.blocks = nn.ModuleList()
         dropout = [(1 - t) * dropout_min + t * dropout_max
                    for t in np.linspace(0, 1, depth)][::-1]
         # layers
@@ -206,27 +238,37 @@ class ConvolutionalDecoder(nn.Module):
                                        padding=1,
                                        output_padding=1),
                     batchNormObject(self.filts_dims[i + 1]), nn.ReLU()))
-            if (self.skip_mode == 'conv'):
+            if (self.skip_mode in ['conv', 'aspp']):
                 self.skipMergers.append(
                     convObject(2 * self.filts_dims[i + 1],
                                self.filts_dims[i + 1],
-                               kernel_size=kernel_size,
+                               kernel_size=3,
                                stride=1,
-                               padding=padding))
+                               padding=1))
             else:
                 self.skipMergers.append(nn.Identity())
+
+            if (self.skip_mode == 'aspp'):
+                self.skip_conns.append(
+                    ASPP(self.filts_dims[i + 1],
+                         self.filts_dims[i + 1],
+                         output_stride=8,
+                         BatchNorm=batchNormObject))
+            else:
+                self.skip_conns.append(nn.Identity())
+
             # residual blocks
             block = []
             p = next(iter(dropout))
-            for _ in range(n_resblocks):
-                block += [
-                    blockObject(self.filts_dims[i + 1],
-                                kernel_size,
-                                padding,
-                                dropout=p,
-                                batchNormObject=batchNormObject)
-                ]
-            self.residualBlocks.append(nn.Sequential(*block))
+            block += [
+                blockObject(self.filts_dims[i + 1],
+                            self.filts_dims[i + 1],
+                            kernel_size,
+                            padding,
+                            dropout=p,
+                            batchNormObject=batchNormObject)
+            ]
+            self.blocks.append(nn.Sequential(*block))
         # output convolution block
         block = [
             convObject(self.filts_dims[-1],
@@ -238,11 +280,14 @@ class ConvolutionalDecoder(nn.Module):
         self.output_convolution = nn.Sequential(*block)
 
     def forward(self, x, skips):
-        for up, merge, conv, skip in zip(self.upConvolutions, self.skipMergers,
-                                         self.residualBlocks, skips):
+        for up, merge, skip_con, conv, skip in zip(self.upConvolutions,
+                                                   self.skipMergers,
+                                                   self.skip_conns,
+                                                   self.blocks, skips):
             x = up(x)
 
-            if (self.skip_mode == 'conv'):
+            if (self.skip_mode in ['conv', 'aspp']):
+                skip = skip_con(skip)
                 cat = torch.cat([x, skip], 1)
                 x = merge(cat)
             x = conv(x)
@@ -300,29 +345,23 @@ class UNet(nn.Module):
     """
     U-Net model with dynamic number of layers, Residual Blocks, Dilated Convolutions, Dropout and Group Normalization
     """
-    def __init__(
-            self,
-            in_channels=3,
-            out_channels=3,
-            depth=5,
-            start_filts=32,
-            n_resblocks=1,
-            # num_dilated_convs=3,
-            dropout_min=0,
-            dropout_max=0,
-            coordconv=True,
-            padding=1,
-            skip_mode='conv',
-            kernel_size=3,
-            l2_normalize=False,
-            group_norm=32):
+    def __init__(self,
+                 in_channels=3,
+                 out_channels=3,
+                 depth=5,
+                 start_filts=16,
+                 dropout_min=0,
+                 dropout_max=0,
+                 padding=1,
+                 skip_mode='conv',
+                 kernel_size=3,
+                 group_norm=16):
         """
         initialize the model
         Args:
             in_channels (int): number of input channels (image=3)
             out_channels (int): number of output channels (n_classes)
             num_hidden_features (list(int)): number of hidden features for each layer (the number of layer is the lenght of this list)
-            n_resblocks (int): number of residual blocks at each layer 
             dropout (float): float in [0,1]: dropout probability
             padding (int): padding for the convolutions
             kernel_size (int): kernel size for the convolutions
@@ -330,12 +369,7 @@ class UNet(nn.Module):
         """
         super(UNet, self).__init__()
 
-        self.l2_normalize = l2_normalize
-
-        if coordconv:
-            self.convObject = CoordConv2d
-        else:
-            self.convObject = nn.Conv2d
+        self.convObject = nn.Conv2d
 
         self.filts_dims = [start_filts * (2**i) for i in range(depth)]
         self.last_feats_dims = self.filts_dims[-1]
@@ -350,25 +384,21 @@ class UNet(nn.Module):
                                             kernel_size=kernel_size,
                                             padding=padding,
                                             depth=depth,
-                                            n_resblocks=n_resblocks,
                                             dropout_min=dropout_min,
                                             dropout_max=dropout_max,
-                                            blockObject=ResidualBlock,
+                                            blockObject=Block,
                                             convObject=self.convObject,
                                             batchNormObject=batchNormObject)
-        self.aspp = ASPP(self.last_feats_dims,
-                         output_stride=8,
-                         BatchNorm=batchNormObject)
+
         self.decoder = ConvolutionalDecoder(out_channels=out_channels,
                                             start_filts=start_filts,
                                             kernel_size=kernel_size,
                                             padding=padding,
                                             depth=depth,
-                                            n_resblocks=n_resblocks,
                                             dropout_min=dropout_min,
                                             dropout_max=dropout_max,
                                             skip_mode=skip_mode,
-                                            blockObject=ResidualBlock,
+                                            blockObject=Block,
                                             convObject=self.convObject,
                                             batchNormObject=batchNormObject)
 
@@ -378,12 +408,7 @@ class UNet(nn.Module):
         in_shape = x.shape
         x, skips = self.encoder(x)
 
-        x = self.aspp(x)
-
         feats = x
-
-        # if (self.l2_normalize):
-        #     x = F.normalize(x, p=2, dim=1)
 
         x = self.decoder(x, skips[:-1][::-1])
         x = F.interpolate(x,

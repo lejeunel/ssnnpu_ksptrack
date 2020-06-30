@@ -40,7 +40,12 @@ class _ASPPModule(nn.Module):
 
 
 class ASPP(nn.Module):
-    def __init__(self, inplanes, output_stride, BatchNorm):
+    def __init__(self,
+                 inplanes,
+                 outplanes,
+                 output_stride,
+                 BatchNorm,
+                 dropout=0.):
         super(ASPP, self).__init__()
         if output_stride == 16:
             dilations = [1, 6, 12, 18]
@@ -50,38 +55,38 @@ class ASPP(nn.Module):
             raise NotImplementedError
 
         self.aspp1 = _ASPPModule(inplanes,
-                                 256,
+                                 outplanes,
                                  1,
                                  padding=0,
                                  dilation=dilations[0],
                                  BatchNorm=BatchNorm)
         self.aspp2 = _ASPPModule(inplanes,
-                                 256,
+                                 outplanes,
                                  3,
                                  padding=dilations[1],
                                  dilation=dilations[1],
                                  BatchNorm=BatchNorm)
         self.aspp3 = _ASPPModule(inplanes,
-                                 256,
+                                 outplanes,
                                  3,
                                  padding=dilations[2],
                                  dilation=dilations[2],
                                  BatchNorm=BatchNorm)
         self.aspp4 = _ASPPModule(inplanes,
-                                 256,
+                                 outplanes,
                                  3,
                                  padding=dilations[3],
                                  dilation=dilations[3],
                                  BatchNorm=BatchNorm)
 
         self.global_avg_pool = nn.Sequential(
-            nn.AdaptiveAvgPool2d((1, 1)),
-            nn.Conv2d(inplanes, 256, 1, stride=1, bias=True), BatchNorm(256),
-            nn.ReLU())
-        self.conv1 = nn.Conv2d(1280, 256, 1, bias=True)
-        self.bn1 = BatchNorm(256)
+            nn.AvgPool2d((1, 1)),
+            nn.Conv2d(inplanes, outplanes, 1, stride=1, bias=True),
+            BatchNorm(outplanes), nn.ReLU())
+        self.conv1 = nn.Conv2d(5 * outplanes, outplanes, 1, bias=True)
+        self.bn1 = BatchNorm(outplanes)
         self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(0.5)
+        self.dropout = nn.Dropout(dropout)
         self._init_weight()
 
     def forward(self, x):

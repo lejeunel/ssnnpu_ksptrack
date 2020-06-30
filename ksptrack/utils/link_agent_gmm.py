@@ -66,7 +66,8 @@ class LinkAgentGMM(LinkAgentRadius):
 
         self.model = Siamese(embedded_dims=embedded_dims,
                              cluster_number=n_clusters,
-                             backbone='unet')
+                             backbone='unet',
+                             siamese='none')
         print('loading checkpoint {}'.format(model_path))
         state_dict = torch.load(model_path,
                                 map_location=lambda storage, loc: storage)
@@ -90,15 +91,14 @@ class LinkAgentGMM(LinkAgentRadius):
 
         self.fit_gmm()
 
-    def prepare_feats(self, all_edges_nn=None, feat_field='proj_pooled_feats'):
+    def prepare_feats(self):
         print('preparing features for linkAgentGMM')
 
         self.feats, self.labels_pos, self.assignments, self.obj_preds = get_features(
             self.model,
             self.dl,
             self.device,
-            return_assign=True,
-            feat_field=feat_field,
+            return_distribs=True,
             return_obj_preds=True)
 
     def get_all_entrance_sps(self, *args):
@@ -109,8 +109,8 @@ class LinkAgentGMM(LinkAgentRadius):
         print('fitting GMM...')
         centroids = self.model.dec.assignment.cluster_centers.detach().cpu(
         ).numpy()
-        feats_ = np.concatenate(self.feats, axis=0)
-        assign_ = self.assignments
+        feats_ = np.concatenate(self.feats['proj_pooled_feats'], axis=0)
+        assign_ = self.assignments.argmax(axis=1)
 
         n_clusters = self.model.dec.cluster_number
         weights = np.array([
@@ -144,7 +144,9 @@ class LinkAgentGMM(LinkAgentRadius):
                                        reg_covar=1e-1,
                                        covariance_type='diag')
             self.gmm.fit(feats_)
-        self.probas = [self.gmm.predict_proba(f) for f in self.feats]
+        self.probas = [
+            self.gmm.predict_proba(f) for f in self.feats['proj_pooled_feats']
+        ]
 
     def make_cluster_maps(self):
         return make_cluster_maps(self.model, self.dl, self.device)

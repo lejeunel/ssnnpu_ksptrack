@@ -8,8 +8,11 @@ epochs-dist: 50
 # generate previews every x epochs
 prev-period: 5
 tgt-update-period: 999
+cc-update-period: 10
 proba-update-period: 999
-cp-period: 2
+cp-period: 10
+
+neg-mode: rand_uniform
 
 # optimizer
 lr-dist: 1e-4
@@ -22,12 +25,12 @@ momentum: 0.95
 # foreground prediction
 lambda-: 1
 # image reconstruction
-gamma: 0
+gamma: 0.
 # pairwise similarity
 beta: 1
 # clustering
-alpha: 0
-delta: 1e-1
+alpha: 0.35
+delta: 1
 
 # batch
 batch-size: 2
@@ -82,5 +85,6 @@ bag-max-depth : 5
 
 linkage: 'ward'
 backbone: 'unet'
+siamese: 'none'
 
 thr-assign: 0.001

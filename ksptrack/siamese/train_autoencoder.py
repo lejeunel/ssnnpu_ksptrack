@@ -39,8 +39,9 @@ def get_features(model, dataloader, device):
         with torch.no_grad():
             res = model(data['image'])
 
+        clicked_labels = [loc.labels for loc in data['loc_keypoints']]
         clicked_labels = [
-            item for sublist in data['labels_clicked'] for item in sublist
+            item for sublist in clicked_labels for item in sublist
         ]
 
         to_add = np.zeros(np.unique(
@@ -76,7 +77,8 @@ def make_pm_prevs(model, dataloaders, cfg, centroids, all_labels, device):
     scores = [colorize(s) for s in scores]
     scores_thr = [colorize(s) for s in scores_thr]
     images = [
-        np.rollaxis(s['image_unnormal'].squeeze().cpu().numpy(), 0, 3)
+        np.rollaxis(
+            (255 * s['image'].squeeze().cpu().numpy()).astype(np.uint8), 0, 3)
         for s in dataloaders['prev']
     ]
     all_images = (np.concatenate(images, axis=1)).astype(np.uint8)
@@ -153,8 +155,6 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
                     optimizer.zero_grad()
 
                     loss = criterion(sigmoid(res['output']), data['image'])
-                    # loss = criterion(sigmoid(res['output']), data['image'],
-                    #                  data['prior'])
 
                     loss.backward()
                     optimizer.step()
@@ -175,7 +175,7 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
                     })
 
                 pbar.set_description(
-                    '[{}] epch {}/{} lss: {:.6e} lr: {:.3e}'.format(
+                    '[{}] ep {}/{} lss: {:.3e} lr: {:.1e}'.format(
                         phase, epoch + 1, cfg.epochs_autoenc,
                         loss_ if phase == 'train' else 0,
                         lr_sch.get_lr()[0] if phase == 'train' else 0))
@@ -188,18 +188,14 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
                 if (loss_ < best_loss):
                     is_best = True
                     best_loss = loss_
-                path = pjoin(run_path, 'checkpoints')
+                path = pjoin(run_path, 'checkpoints', 'cp_autoenc.pth.tar')
                 utls.save_checkpoint(
                     {
                         'epoch': epoch + 1,
                         'model': model,
                         'best_loss': best_loss,
                         'optimizer': optimizer.state_dict()
-                    },
-                    is_best,
-                    fname_cp='cp_autoenc.pth.tar',
-                    fname_bm='best_autoenc.pth.tar',
-                    path=path)
+                    }, path)
 
             pbar.close()
             lr_sch.step()
@@ -227,14 +223,8 @@ def main(cfg):
 
     device = torch.device('cuda' if cfg.cuda else 'cpu')
 
-    # model = DeepLabv3Plus(pretrained=False)
-    # model = UNet(merge_mode='none', depth=4)
     if (cfg.backbone == 'unet'):
-        model = UNet(depth=4,
-                     skip_mode='none',
-                     l2_normalize=True,
-                     coordconv=False,
-                     dropout_max=0.)
+        model = UNet(depth=5, skip_mode='none', dropout_max=0.)
     else:
         model = DeepLabv3Plus()
     model.to(device)
@@ -284,10 +274,10 @@ def main(cfg):
         params=[
             {
                 'params': model.parameters(),
-                'lr': 1e-3
+                'lr': 1e-4
             },
         ],
-        weight_decay=1e-5,
+        weight_decay=cfg.decay,
     )
 
     print('run_path: {}'.format(run_path))

@@ -20,7 +20,7 @@ def make_edges_ccl(model,
                    probas=None,
                    drho=0.5,
                    radius=None,
-                   return_subgraphs=False,
+                   return_nodes=False,
                    fully_connected=False,
                    return_pos_labels=False,
                    return_signed=False):
@@ -33,7 +33,7 @@ def make_edges_ccl(model,
         """
 
     edges = []
-    subgraphs = []
+    nodes = []
     from skimage import io
 
     model.eval()
@@ -46,28 +46,11 @@ def make_edges_ccl(model,
 
         all_edges = data['graph']
 
-        # ims = np.concatenate(
-        #     [(255 * np.rollaxis(data['image'][i, ...].detach().cpu().numpy(),
-        #                         0, 3)).astype(np.uint8)
-        #      for i in range(data['image'].shape[0])],
-        #     axis=0)
-        # labels = [
-        #     data['labels'][i, ...].detach().cpu().numpy().squeeze()
-        #     for i in range(data['labels'].shape[0])
-        # ]
-        # chunks = [np.unique(l).size for l in labels]
-        # clst = [clst[:chunks[0]], clst[chunks[0]:]]
-        # clst_maps = np.concatenate(
-        #     [iutls.make_clusters(l, c) for l, c in zip(labels, clst)], axis=0)
-
-        # all_ = np.concatenate((ims, clst_maps), axis=1)
-
         clst = clst.argmax(axis=1)
         # get edges according to cluster assignments
         edges_ = all_edges[:, clst[all_edges[0]] == clst[all_edges[1]]]
 
         if (probas is not None):
-            # probas_ = probas[data['frame_idx'][0]]
             probas_ = torch.cat([probas[f] for f in data['frame_idx']])
             edges_ = edges_[:,
                             abs(probas_[edges_[0]] -
@@ -84,6 +67,13 @@ def make_edges_ccl(model,
         else:
             edges_ = [[(n0, n1, c) for n0, n1 in S_.edges]
                       for c, S_ in enumerate(S)]
+        nodes_ = {c: S_.nodes for c, S_ in enumerate(S)}
+        nodes_ = torch.cat([
+            torch.stack((torch.tensor(
+                list(nodes)).long(), torch.ones(len(nodes)).long() * k))
+            for k, nodes in nodes_.items()
+        ],
+                           dim=1)
         edges_ = [item for sublist in edges_ for item in sublist]
         edges_ = np.array(edges_)
         edges_ = torch.from_numpy(edges_).T.long()
@@ -104,9 +94,10 @@ def make_edges_ccl(model,
         data.n_nodes = clst.size
 
         edges.append(data)
+        nodes.append(nodes_)
 
-    if return_subgraphs:
-        return edges, subgraphs
+    if return_nodes:
+        return edges, nodes
 
     return edges
 
@@ -288,21 +279,12 @@ def setup_logging(log_path,
         logging.basicConfig(level=default_level)
 
 
-def save_checkpoint(dict_,
-                    is_best,
-                    path,
-                    fname_cp='checkpoint.pth.tar',
-                    fname_bm='best_model.pth.tar'):
+def save_checkpoint(dict_, path):
 
-    cp_path = os.path.join(path, fname_cp)
-    bm_path = os.path.join(path, fname_bm)
-
-    if (not os.path.exists(path)):
-        os.makedirs(path)
+    dir_ = os.path.split(path)[0]
+    if (not os.path.exists(dir_)):
+        os.makedirs(dir_)
 
     state_dict = dict_['model'].state_dict()
 
-    torch.save(state_dict, cp_path)
-
-    if (is_best):
-        shutil.copyfile(cp_path, bm_path)
+    torch.save(state_dict, path)
