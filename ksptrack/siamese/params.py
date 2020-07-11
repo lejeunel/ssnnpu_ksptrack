@@ -101,6 +101,7 @@ def get_params(path='.'):
     p.add('--delta', type=float)
     p.add('--gamma', type=float)
     p.add('--alpha', type=float)
+    p.add('--pi-mul', type=float)
     p.add('--lambda-', type=float)
 
     p.add('--thr-assign', type=float)

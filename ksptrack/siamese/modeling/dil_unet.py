@@ -113,6 +113,7 @@ class ConvolutionalEncoder(nn.Module):
                  padding=1,
                  dropout_min=0,
                  dropout_max=0.2,
+                 use_aspp=True,
                  blockObject=Block,
                  convObject=nn.Conv2d,
                  batchNormObject=nn.BatchNorm2d):
@@ -142,12 +143,14 @@ class ConvolutionalEncoder(nn.Module):
                         padding=padding,
                         dropout=dropout[0])
         ]
-        block.append(
-            ASPP(self.filts_dims[0],
-                 outplanes=self.filts_dims[0],
-                 output_stride=8,
-                 BatchNorm=batchNormObject,
-                 dropout=dropout[0]))
+        if (use_aspp):
+
+            block.append(
+                ASPP(self.filts_dims[0],
+                     outplanes=self.filts_dims[0],
+                     output_stride=8,
+                     BatchNorm=batchNormObject,
+                     dropout=dropout[0]))
         self.stages.append(nn.Sequential(*block))
 
         # layers
@@ -159,13 +162,15 @@ class ConvolutionalEncoder(nn.Module):
                             self.filts_dims[i + 1],
                             kernel_size=kernel_size,
                             padding=padding,
-                            dropout=dropout[i + 1]),
-                ASPP(self.filts_dims[i + 1],
-                     outplanes=self.filts_dims[i + 1],
-                     output_stride=8,
-                     BatchNorm=batchNormObject,
-                     dropout=dropout[i + 1])
+                            dropout=dropout[i + 1])
             ]
+            if use_aspp:
+                block.append(
+                    ASPP(self.filts_dims[i + 1],
+                         outplanes=self.filts_dims[i + 1],
+                         output_stride=8,
+                         BatchNorm=batchNormObject,
+                         dropout=dropout[i + 1]))
             self.stages.append(nn.Sequential(*block))
 
     def forward(self, x):

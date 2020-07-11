@@ -238,7 +238,7 @@ def main(cfg):
 
     dl = LocPriorDataset(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
                          augmentations=transf,
-                         normalization='rescale',
+                         normalization='rescale_adapthist',
                          resize_shape=cfg.in_shape)
 
     cfg.batch_size = 2
@@ -251,7 +251,7 @@ def main(cfg):
 
     dl_all_prev = LocPriorDataset(pjoin(cfg.in_root,
                                         'Dataset' + cfg.train_dir),
-                                  normalization='rescale',
+                                  normalization='rescale_adapthist',
                                   resize_shape=cfg.in_shape)
 
     dataloader_all_prev = DataLoader(dl_all_prev, collate_fn=dl.collate_fn)

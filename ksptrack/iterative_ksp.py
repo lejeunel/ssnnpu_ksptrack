@@ -53,7 +53,6 @@ def make_link_agent(cfg):
                                                   cfg.csv_fname),
                                    data_path=cfg.in_path,
                                    model_path=cfg.siam_path,
-                                   model_path_clst=cfg.siam_path_clst,
                                    embedded_dims=cfg_siam.embedded_dims,
                                    n_clusters=cfg_siam.n_clusters,
                                    entrance_radius=cfg.norm_neighbor_in,

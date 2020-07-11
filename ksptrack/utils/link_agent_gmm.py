@@ -82,7 +82,7 @@ class LinkAgentGMM(LinkAgentRadius):
         }
 
         self.dset = Loader(data_path,
-                           normalization='rescale',
+                           normalization='rescale_adapthist',
                            resize_shape=512)
 
         self.dl = DataLoader(self.dset, collate_fn=self.dset.collate_fn)

@@ -46,26 +46,22 @@ class LinkAgentSiam(LinkAgentRadius):
                  csv_path,
                  data_path,
                  model_path,
-                 model_path_clst,
                  embedded_dims,
                  n_clusters,
-                 entrance_radius=0.1,
+                 sigma_max=0.1,
                  siamese='gcn',
                  cuda=False):
 
-        super().__init__(csv_path, data_path, entrance_radius=entrance_radius)
+        super().__init__(csv_path, data_path)
 
         self.device = torch.device('cuda' if cuda else 'cpu')
         self.data_path = data_path
+        self.sigma_max = sigma_max
 
         self.model = Siamese(embedded_dims=embedded_dims,
                              cluster_number=n_clusters,
                              backbone='unet',
                              siamese=siamese)
-        self.model_clst = Siamese(embedded_dims=embedded_dims,
-                                  cluster_number=n_clusters,
-                                  backbone='unet',
-                                  siamese=siamese)
         print('loading checkpoint {}'.format(model_path))
         state_dict = torch.load(model_path,
                                 map_location=lambda storage, loc: storage)
@@ -73,12 +69,7 @@ class LinkAgentSiam(LinkAgentRadius):
         self.model.load_state_dict(state_dict, strict=False)
         self.model.to(self.device)
 
-        print('loading cluster checkpoint {}'.format(model_path_clst))
-        state_dict = torch.load(model_path_clst,
-                                map_location=lambda storage, loc: storage)
-
-        self.model_clst.load_state_dict(state_dict, strict=False)
-        self.model_clst.to(self.device)
+        self.cs_sigma = self.model.cs_sigma.sigmoid().item()
 
         self.batch_to_device = lambda batch: {
             k: v.to(self.device) if (isinstance(v, torch.Tensor)) else v
@@ -86,7 +77,7 @@ class LinkAgentSiam(LinkAgentRadius):
         }
 
         self.dset = StackLoader(data_path,
-                                normalization='rescale',
+                                normalization='rescale_histeq',
                                 depth=2,
                                 resize_shape=512)
 
@@ -99,20 +90,15 @@ class LinkAgentSiam(LinkAgentRadius):
     def prepare_all(self, all_edges_nn=None, feat_field='pooled_feats'):
         print('preparing features for linkAgentSiam')
 
-        edges_list = utls.make_edges_ccl(self.model_clst,
-                                         self.dl,
-                                         self.device,
-                                         fully_connected=True,
-                                         return_signed=True)
-
         self.feats, self.labels_pos, self.assignments, self.obj_preds = get_features(
             self.model,
             self.dl,
             self.device,
-            edges_list=edges_list,
             return_distribs=True,
             return_obj_preds=True,
-            feat_fields=['pooled_feats', 'proj_pooled_feats', 'siam_feats'])
+            feat_fields=[
+                'pooled_feats', 'proj_pooled_feats', 'siam_feats', 'pos'
+            ])
 
         self.model.train()
 
@@ -145,10 +131,14 @@ class LinkAgentSiam(LinkAgentRadius):
 
     def get_proba(self, f0, l0, f1, l1, *args):
 
-        f0 = torch.tensor(self.feats['siam_feats'][f0][l0])
-        f1 = torch.tensor(self.feats['siam_feats'][f1][l1])
+        feat0 = torch.tensor(self.feats['siam_feats'][f0][l0])
+        feat1 = torch.tensor(self.feats['siam_feats'][f1][l1])
 
-        p = self.cs(f0, f1)
+        pos0 = torch.tensor(self.feats['pos'][f0][l0])
+        pos1 = torch.tensor(self.feats['pos'][f1][l1])
+
+        p = torch.exp(-(pos0 - pos1).norm()**2 / (
+            (self.sigma_max * self.cs_sigma)**2)) * self.cs(feat0, feat1)
         p = p.detach().cpu().numpy()
 
         return p

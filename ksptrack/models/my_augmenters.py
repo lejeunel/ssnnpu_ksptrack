@@ -1,6 +1,7 @@
 from imgaug import augmenters as iaa
 import numpy as np
 from imgaug.augmenters import Augmenter
+from skimage import exposure
 import matplotlib.pyplot as plt
 np.random.bit_generator = np.random._bit_generator
 
@@ -35,8 +36,103 @@ class Normalize(Augmenter):
         return [self.mean, self.std]
 
 
+class ContrastStretching(Augmenter):
+    def __init__(self, plow, phigh, name=None, random_state=None):
+        super(ContrastStretching, self).__init__(name=name,
+                                                 random_state=random_state)
+        self.plow = plow
+        self.phigh = phigh
+        self.n_chans = len(self.plow)
+
+    def _augment_images(self, images, random_state, parents, hooks):
+        nb_images = len(images)
+        for i in range(nb_images):
+            assert images[i].dtype == np.uint8, 'dtype must be uint8'
+            im = images[i]
+            im_new = np.zeros_like(im)
+            for c in range(im.shape[-1]):
+                im_new[..., c] = exposure.rescale_intensity(
+                    im[..., c], in_range=(self.plow[c], self.phigh[c]))
+            images[i] = im_new
+        return images
+
+    def _augment_keypoints(self, keypoints_on_images, random_state, parents,
+                           hooks):
+        return keypoints_on_images
+
+    def _augment_heatmaps(self, heatmaps, random_state, parents, hooks):
+        return heatmaps
+
+    def get_parameters(self):
+        return [self.bin_centers, self.cdfs]
+
+
+class AdaptHistEqualize(Augmenter):
+    def __init__(self, clip_limit=0.01, name=None, random_state=None):
+        super(AdaptHistEqualize, self).__init__(name=name,
+                                                random_state=random_state)
+        self.clip_limit = clip_limit
+
+    def _augment_images(self, images, random_state, parents, hooks):
+        nb_images = len(images)
+        for i in range(nb_images):
+            assert images[i].dtype == np.uint8, 'dtype must be uint8'
+            im = images[i]
+            im_new = exposure.equalize_adapthist(im,
+                                                 clip_limit=self.clip_limit)
+            images[i] = im_new
+        return images
+
+    def _augment_keypoints(self, keypoints_on_images, random_state, parents,
+                           hooks):
+        return keypoints_on_images
+
+    def _augment_heatmaps(self, heatmaps, random_state, parents, hooks):
+        return heatmaps
+
+    def get_parameters(self):
+        return [self.bin_centers, self.cdfs]
+
+
+class HistEqualize(Augmenter):
+    def __init__(self, cdfs, bin_centers, name=None, random_state=None):
+        super(HistEqualize, self).__init__(name=name,
+                                           random_state=random_state)
+        self.cdfs = cdfs
+        self.bin_centers = bin_centers
+        self.n_chans = len(self.cdfs)
+
+    def _augment_images(self, images, random_state, parents, hooks):
+        nb_images = len(images)
+        for i in range(nb_images):
+            assert images[i].dtype == np.uint8, 'dtype must be uint8'
+            im = images[i]
+            im_new = np.zeros(im.shape)
+            shape = im.shape[:2]
+            for c in range(im.shape[-1]):
+                im_new[..., c] = np.interp(im[...,
+                                              c].flat, self.bin_centers[c],
+                                           self.cdfs[c]).reshape(shape)
+            images[i] = im_new
+        return images
+
+    def _augment_keypoints(self, keypoints_on_images, random_state, parents,
+                           hooks):
+        return keypoints_on_images
+
+    def _augment_heatmaps(self, heatmaps, random_state, parents, hooks):
+        return heatmaps
+
+    def get_parameters(self):
+        return [self.bin_centers, self.cdfs]
+
+
 class Rescale(Augmenter):
-    def __init__(self, min_, max_, name=None, random_state=None):
+    def __init__(self,
+                 min_=[0., 0., 0.],
+                 max_=[1., 1., 1.],
+                 name=None,
+                 random_state=None):
         super(Rescale, self).__init__(name=name, random_state=random_state)
         self.min_ = min_
         self.max_ = max_

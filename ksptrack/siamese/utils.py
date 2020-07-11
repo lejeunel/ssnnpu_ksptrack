@@ -74,6 +74,8 @@ def make_edges_ccl(model,
             for k, nodes in nodes_.items()
         ],
                            dim=1)
+        _, idx = torch.sort(nodes_[0])
+        nodes_ = torch.stack((nodes_[0][idx], nodes_[1][idx]))
         edges_ = [item for sublist in edges_ for item in sublist]
         edges_ = np.array(edges_)
         edges_ = torch.from_numpy(edges_).T.long()

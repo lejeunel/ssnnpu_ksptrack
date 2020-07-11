@@ -20,11 +20,16 @@ from ksptrack.siamese import train_init_clst
 from ksptrack.siamese import utils as utls
 from ksptrack.siamese.distrib_buffer import DistribBuffer
 from ksptrack.siamese.loader import StackLoader
-from ksptrack.siamese.losses import ClusterFocalLoss, ClusterDiceLoss, TripletLoss
+from ksptrack.siamese.losses import ClusterPULoss, TripletCosineMarginLoss, DistanceWeightedMiner
 from ksptrack.siamese.modeling.siamese import Siamese
 from ksptrack.utils.bagging import calc_bagging
 
 from sklearn.utils.class_weight import compute_class_weight
+
+import GPUtil
+
+torch.backends.cudnn.benchmark = True
+torch.backends.cudnn.enabled = True
 
 
 def retrain_kmeans(model, dl, device, cfg):
@@ -64,25 +69,24 @@ def make_data_aug(cfg):
     return transf
 
 
-def train_one_epoch(model, dataloaders, optimizers, device, distrib_buff,
-                    lr_sch, cfg, probas, edges_list, nodes_list):
+def train_one_epoch(model, dataloaders, optimizers, device, lr_sch, cfg,
+                    probas, nodes_list):
 
     model.train()
 
     running_loss = 0.0
     running_clst = 0.0
     running_reg = 0.0
-    running_recons = 0.0
     running_pw = 0.0
     running_obj_pred = 0.0
 
-    criterion_clst = torch.nn.KLDivLoss(reduction='mean')
-    criterion_pw = TripletLoss()
-    # all_probas = torch.cat(probas)
-    # pos_freq = (all_probas >= 0.5).sum().float() / all_probas.numel()
-    criterion_obj_pred = ClusterFocalLoss(alpha=cfg.alpha,
-                                          gamma=cfg.gamma,
-                                          mode=cfg.neg_mode)
+    criterion_pw = TripletCosineMarginLoss(margin=0.3)
+    miner_pw = DistanceWeightedMiner(n_triplets_per_anchor=2)
+    all_probas = torch.cat(probas)
+    pos_freq = ((all_probas >= 0.5).sum().float() /
+                all_probas.numel()).to(device)
+    criterion_obj_pred = ClusterPULoss(pi=cfg.pi_mul * pos_freq,
+                                       mode=cfg.neg_mode)
 
     pbar = tqdm(total=len(dataloaders['train']))
     for i, data in enumerate(dataloaders['train']):
@@ -93,54 +97,55 @@ def train_one_epoch(model, dataloaders, optimizers, device, distrib_buff,
             for k in optimizers.keys():
                 optimizers[k].zero_grad()
 
-            _, targets = distrib_buff[data['frame_idx']]
-            # probas_ = torch.cat([probas[i] for i in data['frame_idx']])
-            edges_ = edges_list[data['frame_idx'][0]].edge_index.to(
-                device).detach()
             nodes_ = nodes_list[data['frame_idx'][0]].to(device).detach()
-            # with torch.autograd.set_detect_anomaly(True):
-            # print(data['frame_idx'])
-            res = model(data, edges_nn=edges_)
+            res = model(data)
 
             loss = 0
-
-            # if (not cfg.fix_clst):
-            #     loss_clst = criterion_clst(res['clusters'],
-            #                                targets.to(res['clusters']))
-            #     loss += cfg.alpha * loss_clst
 
             loss_obj_pred = criterion_obj_pred(res['rho_hat_pooled'].squeeze(),
                                                nodes_, data)
             loss += loss_obj_pred
 
-            loss_pw = criterion_pw(res['sim_ap'], res['sim_an'], res['dr_an'])
-            loss += cfg.lambda_ * loss_pw
+            if (cfg.pw):
+                miner_output = miner_pw(
+                    res['siam_feats'], nodes_[1],
+                    res['rho_hat_pooled'][..., None].sigmoid(), res['pos'])
+                loss_pw = criterion_pw(res['siam_feats'],
+                                       res['pos'],
+                                       nodes_[1],
+                                       sigma=model.cs_sigma.sigmoid(),
+                                       indices_tuple=miner_output)
+                loss += cfg.lambda_ * loss_pw
+                # print(model.cs_sigma)
 
-            # regularize norms to be ~1
-            loss_reg = ((1 - res['siam_feats'].norm(dim=1))**2).mean()
-            loss += cfg.delta * loss_reg
+                # regularize norms to be ~1
+                loss_reg = ((1 - res['siam_feats'].norm(dim=1))**2).mean()
+                loss += cfg.delta * loss_reg
 
             # with torch.autograd.set_detect_anomaly(True):
             loss.backward()
 
-            # torch.nn.utils.clip_grad_norm_(model.parameters(), 0.01)
+            optimizers['feats'].step()
+            lr_sch['feats'].step()
+            optimizers['pred'].step()
+            lr_sch['pred'].step()
+            if (cfg.pw):
+                optimizers['gcns'].step()
+                lr_sch['gcns'].step()
+                optimizers['sigma'].step()
+                lr_sch['sigma'].step()
 
-            for k in optimizers.keys():
-                optimizers[k].step()
-
-            for k in lr_sch.keys():
-                lr_sch[k].step()
-
-        running_loss += loss.cpu().detach().numpy()
-        # running_recons += loss_recons.cpu().detach().numpy()
-        if (not cfg.fix_clst):
-            running_clst += loss_clst.cpu().detach().numpy()
-        running_obj_pred += loss_obj_pred.cpu().detach().numpy()
-        running_pw += loss_pw.cpu().detach().numpy()
-        running_reg += loss_reg.cpu().detach().numpy()
+        running_loss += loss.item()
+        running_obj_pred += loss_obj_pred.item()
+        if (cfg.pw):
+            running_pw += loss_pw.item()
+            running_reg += loss_reg.item()
         loss_ = running_loss / ((i + 1) * cfg.batch_size)
         pbar.set_description('lss {:.6e}'.format(loss_))
         pbar.update(1)
+
+        del res
+        torch.cuda.empty_cache()
 
     pbar.close()
 
@@ -157,7 +162,6 @@ def train_one_epoch(model, dataloaders, optimizers, device, distrib_buff,
         'loss_reg': loss_reg,
         'loss_clst': loss_clst,
         'loss_obj_pred': loss_obj_pred
-        # 'loss_recons': loss_recons
     }
 
     return out
@@ -166,23 +170,19 @@ def train_one_epoch(model, dataloaders, optimizers, device, distrib_buff,
 def train(cfg, model, device, dataloaders, run_path):
 
     cp_fname = 'cp_{}.pth.tar'.format(cfg.exp_name)
-    best_cp_fname = 'best_{}.pth.tar'.format(cfg.exp_name)
     rags_prevs_path = pjoin(run_path, 'prevs_{}'.format(cfg.exp_name))
 
     path_ = pjoin(run_path, 'checkpoints',
                   'init_dec_{}.pth.tar'.format(cfg.siamese))
+    # path_ = pjoin(run_path, 'checkpoints', 'cp_{}.pth.tar'.format(cfg.siamese))
     print('loading checkpoint {}'.format(path_))
     state_dict = torch.load(path_, map_location=lambda storage, loc: storage)
     model.load_state_dict(state_dict)
 
-    if (cfg.siamese == 'unet'):
-        print('syncing siamese encoder...')
-        model.locmotionapp.sync(model.dec.autoencoder.encoder)
-
     check_cp_exist = pjoin(run_path, 'checkpoints', cp_fname)
     if (os.path.exists(check_cp_exist)):
         print('found checkpoint at {}. Skipping.'.format(check_cp_exist))
-        return
+        # return
 
     features, pos_masks = clst.get_features(model, dataloaders['init'], device)
     cat_features = np.concatenate(features['pooled_feats'])
@@ -246,77 +246,50 @@ def train(cfg, model, device, dataloaders, run_path):
         optim.Adam(model.dec.autoencoder.parameters(),
                    lr=1e-3,
                    weight_decay=1e-4),
-        # momentum=cfg.momentum),
+        'sigma':
+        optim.Adam([model.cs_sigma], lr=1e-3),
         'gcns':
-        optim.Adam(model.locmotionapp.parameters(), 1e-3),
-        # momentum=cfg.momentum),
+        optim.Adam(model.locmotionapp.parameters(), lr=1e-3),
         'pred':
-        optim.Adam(model.rho_dec.parameters(), lr=1e-3, weight_decay=1e-4),
-        # momentum=cfg.momentum),
-        'assign':
-        optim.Adam(model.dec.assignment.parameters(), lr=1e-4, weight_decay=0),
-        # momentum=cfg.momentum),
-        'transform':
-        optim.Adam(model.dec.transform.parameters(), weight_decay=0, lr=1e-4)
-        # momentum=cfg.momentum)
+        optim.Adam(model.rho_dec.parameters(), lr=1e-3, weight_decay=1e-4)
     }
 
     lr_sch = {
         'feats':
         torch.optim.lr_scheduler.ExponentialLR(optimizers['feats'],
                                                cfg.lr_power),
-        'assign':
-        torch.optim.lr_scheduler.ExponentialLR(optimizers['assign'],
-                                               cfg.lr_power),
         'pred':
         torch.optim.lr_scheduler.ExponentialLR(optimizers['pred'],
                                                cfg.lr_power),
-        'transform':
-        torch.optim.lr_scheduler.ExponentialLR(optimizers['transform'],
+        'sigma':
+        torch.optim.lr_scheduler.ExponentialLR(optimizers['sigma'],
                                                cfg.lr_power),
         'gcns':
         torch.optim.lr_scheduler.ExponentialLR(optimizers['gcns'],
                                                cfg.lr_power)
     }
 
-    distrib_buff = DistribBuffer(cfg.tgt_update_period,
-                                 thr_assign=cfg.thr_assign)
-    distrib_buff.maybe_update(model, dataloaders['init'], device)
     print('Generating connected components graphs')
 
-    edges_list, nodes_list = utls.make_edges_ccl(model,
-                                                 dataloaders['init'],
-                                                 device,
-                                                 return_signed=True,
-                                                 return_nodes=True,
-                                                 fully_connected=True)
+    _, nodes_list = utls.make_edges_ccl(model,
+                                        dataloaders['init'],
+                                        device,
+                                        return_signed=True,
+                                        return_nodes=True,
+                                        fully_connected=True)
+
+    print('syncing siamese encoder...')
+    model.locmotionapp.sync(model.dec.autoencoder.encoder)
 
     for epoch in range(cfg.epochs_dist):
 
         if epoch < cfg.epochs_pre_pred:
             mode = 'pred'
-            cfg.fix_clst = True
-            cfg.clf = True
-            cfg.clf_reg = False
             cfg.pw = False
         else:
             if (epoch >= cfg.epochs_pre_pred):
                 mode = 'siam'
-                cfg.fix_clst = True
-                cfg.clf_reg = True
                 cfg.pw = True
-                # if (epoch > 0):
-                #     if ((epoch - cfg.epochs_pre_pred) %
-                #             cfg.cc_update_period == 0):
-                #         print('retraining k-means')
-                #         model = retrain_kmeans(model, dataloaders['clst'],
-                #                                device, cfg)
-                #         print('generating CC graphs')
-                #         edges_list = utls.make_edges_ccl(model,
-                #                                          dataloaders['clst'],
-                #                                          device,
-                #                                          fully_connected=True,
-                #                                          return_signed=True)
 
         # save checkpoint
         if (epoch % cfg.cp_period == 0):
@@ -347,11 +320,9 @@ def train(cfg, model, device, dataloaders, run_path):
                               dataloaders,
                               optimizers,
                               device,
-                              distrib_buff,
                               lr_sch,
                               cfg,
                               probas=probas,
-                              edges_list=edges_list,
                               nodes_list=nodes_list)
 
         # write losses to tensorboard
@@ -367,6 +338,11 @@ def main(cfg):
 
     if (not os.path.exists(run_path)):
         os.makedirs(run_path)
+
+    path = 'cp_{}.pth.tar'.format(cfg.exp_name)
+    if (os.path.exists(path)):
+        print('checkpoint {} found. Skipping.'.format(path))
+        return
 
     device = torch.device('cuda' if cfg.cuda else 'cpu')
     model = Siamese(embedded_dims=cfg.embedded_dims,

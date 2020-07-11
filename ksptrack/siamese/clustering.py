@@ -112,7 +112,6 @@ def get_features(model,
                  device,
                  return_distribs=False,
                  return_obj_preds=False,
-                 edges_list=None,
                  feat_fields=['pooled_feats', 'proj_pooled_feats']):
 
     if (isinstance(feat_fields, str)):
@@ -131,11 +130,8 @@ def get_features(model,
     pbar = tqdm(total=len(dataloader))
     for index, data in enumerate(dataloader):
         data = utls.batch_to_device(data, device)
-        edges_nn = None
-        if (edges_list is not None):
-            edges_nn = edges_list[data['frame_idx'][0]].edge_index.to(device)
         with torch.no_grad():
-            res = model(data, edges_nn=edges_nn)
+            res = model(data)
 
         start = 0
         for i, f in enumerate(data['frame_idx']):

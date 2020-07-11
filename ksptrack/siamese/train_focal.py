@@ -20,7 +20,7 @@ from ksptrack.siamese import train_init_clst
 from ksptrack.siamese import utils as utls
 from ksptrack.siamese.distrib_buffer import DistribBuffer
 from ksptrack.siamese.loader import StackLoader
-from ksptrack.siamese.losses import ClusterFocalLoss, ClusterDiceLoss, TripletLoss
+from ksptrack.siamese.losses import ClusterPULoss, TripletLoss
 from ksptrack.siamese.modeling.siamese import Siamese
 from ksptrack.utils.bagging import calc_bagging
 from ksptrack.siamese.train_siam import retrain_kmeans
@@ -36,8 +36,8 @@ def make_data_aug(cfg):
                                            cfg.aug_blur_color_high),
                               sigma_space=(cfg.aug_blur_space_low,
                                            cfg.aug_blur_space_high)),
-            iaa.AdditiveGaussianNoise(scale=(0, cfg.aug_noise * 255)),
-            iaa.GammaContrast((0.5, 2.0))
+            iaa.AdditiveGaussianNoise(scale=(0, cfg.aug_noise * 255))
+            # iaa.GammaContrast((0.5, 2.0))
         ]),
         iaa.Flipud(p=0.5),
         iaa.Fliplr(p=.5),
@@ -55,8 +55,7 @@ def train_one_epoch(model,
                     cfg,
                     epoch,
                     probas,
-                    focal_loss_period=5,
-                    edges_list=None):
+                    nodes_list=None):
 
     model.train()
 
@@ -64,12 +63,10 @@ def train_one_epoch(model,
     running_obj_pred = 0.0
 
     all_probas = torch.cat(probas)
-    pos_freq = (all_probas >= 0.5).sum().float() / all_probas.numel()
-    criterion_obj_pred = ClusterFocalLoss(alpha=cfg.alpha,
-                                          gamma=cfg.gamma,
-                                          mode=cfg.neg_mode)
-
-    # criterion_obj_pred = ClusterDiceLoss()
+    pos_freq = ((all_probas >= 0.5).sum().float() /
+                all_probas.numel()).to(device)
+    criterion_obj_pred = ClusterPULoss(pi=cfg.pi_mul * pos_freq,
+                                       mode=cfg.neg_mode)
 
     pbar = tqdm(total=len(dataloaders['train']))
     for i, data in enumerate(dataloaders['train']):
@@ -80,9 +77,7 @@ def train_one_epoch(model,
             for k in optimizers.keys():
                 optimizers[k].zero_grad()
 
-            edges_ = edges_list[data['frame_idx'][0]].edge_index.to(
-                device).detach()
-
+            nodes_ = nodes_list[data['frame_idx'][0]].to(device).detach()
             # with torch.autograd.set_detect_anomaly(True):
             res = model(data)
 
@@ -91,7 +86,7 @@ def train_one_epoch(model,
             # alpha = (probas_ >= 0.5).sum().float() / probas_.numel()
 
             loss_obj_pred = criterion_obj_pred(res['rho_hat_pooled'].squeeze(),
-                                               edges_, data)
+                                               nodes_, data)
             loss += loss_obj_pred
 
             # with torch.autograd.set_detect_anomaly(True):
@@ -182,10 +177,6 @@ def train(cfg, model, device, dataloaders, run_path):
     cfg_ksp.precomp_desc_path = pjoin(cfg_ksp.in_path, 'precomp_desc')
     cfg_ksp.fin = dataloaders['prev']
 
-    # print('generating previews to {}'.format(rags_prevs_path))
-    # prev_ims = prev_trans_costs.main(cfg_ksp)
-    # io.imsave(pjoin(rags_prevs_path, 'ep_0000.png'), prev_ims)
-
     writer = SummaryWriter(run_path, flush_secs=1)
 
     best_loss = float('inf')
@@ -212,11 +203,12 @@ def train(cfg, model, device, dataloaders, run_path):
     }
 
     print('Generating connected components graphs')
-    edges_list = utls.make_edges_ccl(model,
-                                     dataloaders['init'],
-                                     device,
-                                     return_signed=True,
-                                     fully_connected=True)
+    _, nodes_list = utls.make_edges_ccl(model,
+                                        dataloaders['init'],
+                                        device,
+                                        return_signed=True,
+                                        return_nodes=True,
+                                        fully_connected=True)
 
     for epoch in range(cfg.epochs_dist):
 
@@ -250,9 +242,8 @@ def train(cfg, model, device, dataloaders, run_path):
                               lr_sch,
                               cfg,
                               epoch=epoch,
-                              focal_loss_period=5,
                               probas=probas,
-                              edges_list=edges_list)
+                              nodes_list=nodes_list)
 
         # write losses to tensorboard
         for k, v in res.items():
@@ -278,17 +269,13 @@ def main(cfg):
 
     dl_train = StackLoader(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
                            depth=2,
-                           normalization='rescale',
+                           normalization='rescale_stretching',
                            augmentations=transf,
                            resize_shape=cfg.in_shape)
-    dl_clst = StackLoader(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
-                          depth=2,
-                          normalization='rescale',
-                          resize_shape=cfg.in_shape)
 
     dl_init = StackLoader(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
                           depth=2,
-                          normalization='rescale',
+                          normalization='rescale_stretching',
                           resize_shape=cfg.in_shape)
 
     frames_tnsr_brd = np.linspace(0,
@@ -297,7 +284,6 @@ def main(cfg):
                                   dtype=int)
 
     dataloader_init = DataLoader(dl_init, collate_fn=dl_init.collate_fn)
-    dataloader_clst = DataLoader(dl_clst, collate_fn=dl_init.collate_fn)
 
     dataloader_train = DataLoader(dl_train,
                                   collate_fn=dl_train.collate_fn,
@@ -307,7 +293,6 @@ def main(cfg):
     dataloaders = {
         'train': dataloader_train,
         'init': dataloader_init,
-        'clst': dataloader_clst,
         'prev': frames_tnsr_brd
     }
 

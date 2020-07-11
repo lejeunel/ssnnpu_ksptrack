@@ -43,7 +43,7 @@ def main(cfg):
 
     dl = LocPriorDataset(cfg.in_path,
                          resize_shape=512,
-                         normalization='rescale',
+                         normalization='rescale_adapthist',
                          csv_fname=cfg.csv_fname)
 
     cluster_maps = link_agent.make_cluster_maps()

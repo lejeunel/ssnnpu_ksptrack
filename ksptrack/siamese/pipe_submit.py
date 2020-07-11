@@ -11,6 +11,8 @@ def split_list(alist, wanted_parts=1):
     ]
 
 
+n_jobs = 4
+
 seq_type = list(range(4))
 # seq_type = list(range(2))
 seqs_per_type = [[0, 1, 2, 3], [0, 1, 2, 3], [0, 1, 2, 3], [0, 1, 2, 3]]
@@ -23,7 +25,7 @@ train_dirs = [[str(t) + str(n) for n in seqs_per_type[t]] for t in seq_type]
 
 run_dirs = [item for sublist in run_dirs for item in sublist]
 
-n_jobs = min((len(run_dirs), 2))
+n_jobs = min((len(run_dirs), n_jobs))
 run_dirs = split_list(run_dirs, n_jobs)
 
 train_dirs = [item for sublist in train_dirs for item in sublist]

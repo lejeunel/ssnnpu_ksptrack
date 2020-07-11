@@ -1,16 +1,46 @@
 import os
 import numpy as np
 from skimage import io
+from skimage.exposure import cumulative_distribution
 import imgaug as ia
 from imgaug import augmenters as iaa
 from os.path import join as pjoin
 import glob
 from torch.utils import data
 import torch
-from ksptrack.models.my_augmenters import Rescale, Normalize
+from ksptrack.models.my_augmenters import Rescale, Normalize, HistEqualize, ContrastStretching, AdaptHistEqualize
 from ksptrack.models.my_augmenters import Normalize, rescale_augmenter
 
 np.random.bit_generator = np.random._bit_generator
+
+
+def batch_equalize_hist_calc(image, nbins=256, mask=None):
+    """Return histogram equalization parameters for a batch of images
+    Parameters
+    ----------
+    images : list
+        List of arrays
+    nbins : int, optional
+        Number of bins for image histogram. Note: this argument is
+        ignored for integer images, for which each integer is its own
+        bin.
+    mask: ndarray of bools or 0s and 1s, optional
+        Array of same shape as `image`. Only points at which mask == True
+        are used for the equalization, which is applied to the whole image.
+    Returns
+    -------
+    out : float array
+        Image array after histogram equalization.
+    Notes
+    -----
+    This function is adapted from [1]_ with the author's permission.
+    References
+    ----------
+    .. [1] http://www.janeriksolem.net/histogram-equalization-with-python-and.html
+    .. [2] https://en.wikipedia.org/wiki/Histogram_equalization
+    """
+    cdf, bin_centers = cumulative_distribution(image, nbins)
+    return cdf, bin_centers
 
 
 def make_normalizer(arg, imgs):
@@ -20,10 +50,11 @@ def make_normalizer(arg, imgs):
         normalizer = arg
     elif (isinstance(arg, str)):
         # check for right parameters in list
-        if arg not in ['rescale', 'std']:
-            raise ValueError("Invalid value for 'normalization': %s "
-                             "'normalization' should be in "
-                             "['rescale', 'std']" % arg)
+        if arg not in [
+                'rescale', 'std', 'rescale_histeq', 'rescale_stretching',
+                'rescale_adapthist'
+        ]:
+            raise ValueError("Invalid value for 'normalization'")
         if (arg == 'std'):
 
             im_flat = np.array(imgs).reshape((-1, 3)) / 255
@@ -32,11 +63,29 @@ def make_normalizer(arg, imgs):
             normalizer = iaa.Sequential(
                 [rescale_augmenter,
                  Normalize(mean=mean, std=std)])
-        else:
+        elif (arg == 'rescale'):
             im_flat = np.array(imgs).reshape((-1, 3)) / 255
             min_ = im_flat.min(axis=0)
             max_ = im_flat.max(axis=0)
             normalizer = iaa.Sequential([Rescale(min_, max_)])
+        elif (arg == 'rescale_histeq'):
+            normalizer = iaa.Sequential([
+                iaa.contrast.CLAHE(clip_limit=3, tile_grid_size_px=3),
+                rescale_augmenter
+            ])
+        elif (arg == 'rescale_stretching'):
+            im_flat = np.array(imgs).reshape((-1, 3))
+            plow = []
+            phigh = []
+            for c in range(im_flat.shape[-1]):
+                plow_, phigh_ = np.percentile(im_flat[..., c], (1, 99))
+                plow.append(plow_)
+                phigh.append(phigh_)
+            normalizer = iaa.Sequential(
+                [ContrastStretching(plow, phigh),
+                 Rescale()])
+        elif (arg == 'rescale_adapthist'):
+            normalizer = iaa.Sequential([AdaptHistEqualize(0.03), Rescale()])
 
     return normalizer
 
@@ -68,7 +117,8 @@ class BaseDataset(data.Dataset):
                  augmentations=None,
                  normalization=iaa.Noop(),
                  resize_shape=None,
-                 got_labels=True):
+                 got_labels=True,
+                 sp_labels_fname='sp_labels.npz'):
 
         self.root_path = root_path
 

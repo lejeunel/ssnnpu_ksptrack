@@ -32,9 +32,9 @@ if __name__ == "__main__":
             os.path.split(cfg.out_root)[0], 'ksptrack', cfg.run_dir)
 
         # use focal loss foreground model with GMM
-        cfg.exp_name = 'focal'
+        cfg.exp_name = 'pu'
         cfg.siamese = 'none'
-        cfg_ksp.exp_name = 'focal'
+        cfg_ksp.exp_name = 'pu'
         cfg_ksp.use_siam_pred = True
         cfg_ksp.use_siam_trans = False
         print('------------------------')
@@ -42,21 +42,7 @@ if __name__ == "__main__":
         print('------------------------')
         train_all.main(cfg)
         cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
-                                  'cp_focal.pth.tar')
-        iterative_ksp.main(cfg_ksp)
-
-        # use focal loss foreground model with GCN
-        cfg.exp_name = 'gcn'
-        cfg.siamese = 'gcn'
-        cfg_ksp.exp_name = 'gcn'
-        cfg_ksp.use_siam_pred = True
-        cfg_ksp.use_siam_trans = True
-        print('------------------------')
-        print('focal loss + GCN')
-        print('------------------------')
-        train_all.main(cfg)
-        cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
-                                  'cp_gcn.pth.tar')
+                                  'cp_pu.pth.tar')
         iterative_ksp.main(cfg_ksp)
 
         # use focal loss foreground model with U-net siamese
@@ -72,71 +58,3 @@ if __name__ == "__main__":
         cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
                                   'cp_unet.pth.tar')
         iterative_ksp.main(cfg_ksp)
-
-        # ksp/gmm
-        # train_init_clst.main(cfg)
-        # cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
-        #                           'init_dec.pth.tar')
-        # cfg_ksp.exp_name = 'gmm'
-        # iterative_ksp.main(cfg_ksp)
-
-        # train predictor only and retrain k-means
-        # cfg.clf = True
-        # cfg.fix_clst = True
-        # cfg.exp_name = 'pred'
-        # train_siam.main(cfg)
-        # cp_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
-        #                 'cp_pred.pth.tar')
-        # retrain_kmeans(cfg, cp_path, cp_path)
-        # cfg_ksp.siam_path = cp_path
-        # cfg_ksp.exp_name = cfg.exp_name
-        # cfg_ksp.use_siam_pred = True
-        # iterative_ksp.main(cfg_ksp)
-
-        # run with DEC (bagging foreground)
-        # cfg.clf = False
-        # cfg.fix_clst = False
-        # cfg.exp_name = 'dec'
-        # train_siam.main(cfg)
-        # cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
-        #                           'cp_{}.pth.tar'.format(cfg.exp_name))
-        # cfg_ksp.exp_name = cfg.exp_name
-        # iterative_ksp.main(cfg_ksp)
-
-        # run with DEC (DL foreground)
-        # cfg.clf = True
-        # cfg.fix_clst = False
-        # cfg.exp_name = 'dec_pred'
-        # train_siam.main(cfg)
-        # cfg_ksp.use_siam_pred = True
-        # cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
-        #                           'cp_{}.pth.tar'.format(cfg.exp_name))
-        # cfg_ksp.exp_name = cfg.exp_name
-        # cfg_ksp.use_siam_pred = True
-        # iterative_ksp.main(cfg_ksp)
-
-        # run with DEC (DL foreground + reg)
-        # cfg.clf = True
-        # cfg.fix_clst = False
-        # cfg.clf_reg = True
-        # cfg.exp_name = 'dec_pred_reg'
-        # train_siam.main(cfg)
-        # cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
-        #                           'cp_{}.pth.tar'.format(cfg.exp_name))
-        # cfg_ksp.exp_name = cfg.exp_name
-        # cfg_ksp.use_siam_pred = True
-        # iterative_ksp.main(cfg_ksp)
-
-        # run with gcn (DL foreground + reg)
-        # cfg.clf = True
-        # cfg.clf_reg = True
-        # cfg.fix_clst = True
-        # cfg.pw = True
-        # cfg.exp_name = 'pw_pred_reg'
-        # train_siam.main(cfg)
-        # cfg_ksp.use_siam_pred = True
-        # cfg_ksp.siam_path = pjoin(cfg.out_root, cfg.run_dir, 'checkpoints',
-        #                           'cp_{}.pth.tar'.format(cfg.exp_name))
-        # cfg_ksp.exp_name = cfg.exp_name
-        # cfg_ksp.use_siam_trans = True
-        # iterative_ksp.main(cfg_ksp)

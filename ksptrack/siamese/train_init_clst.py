@@ -158,9 +158,9 @@ def train(cfg, model, device, dataloaders, run_path=None):
 
     model.dec.set_clusters(init_clusters)
     model.dec.set_transform(L.T)
+
     path = pjoin(run_path, 'checkpoints',
                  'init_dec_{}.pth.tar'.format(cfg.siamese))
-
     print('saving DEC with initial parameters to {}'.format(path))
     utls.save_checkpoint({'epoch': -1, 'model': model}, path)
 
@@ -173,6 +173,12 @@ def main(cfg):
 
     if (not os.path.exists(run_path)):
         os.makedirs(run_path)
+
+    path = pjoin(run_path, 'checkpoints',
+                 'init_dec_{}.pth.tar'.format(cfg.siamese))
+    if (os.path.exists(path)):
+        print('checkpoint {} found. Skipping.'.format(path))
+        return
 
     device = torch.device('cuda' if cfg.cuda else 'cpu')
 
@@ -194,7 +200,7 @@ def main(cfg):
 
     dl = Loader(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
                 resize_shape=cfg.in_shape,
-                normalization='rescale')
+                normalization='rescale_adapthist')
 
     frames_tnsr_brd = np.linspace(0,
                                   len(dl) - 1,

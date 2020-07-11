@@ -6,10 +6,8 @@ from torch_geometric.data import Data
 import torch_geometric.nn as gnn
 import torch_geometric.utils as gutls
 from ksptrack.siamese.modeling.superpixPool.pytorch_superpixpool.suppixpool_layer import SupPixPool
-from ksptrack.siamese.losses import structured_negative_sampling
 from ksptrack.siamese.modeling.dil_unet import ConvolutionalEncoder, ResidualBlock, DilatedConvolutions, ConvolutionalDecoder
 from ksptrack.siamese.modeling.coordconv import CoordConv2d, AddCoords
-from ksptrack.siamese.losses import sample_triplets
 from ksptrack.models.aspp import ASPP
 import torch.nn.modules.conv as conv
 
@@ -117,191 +115,92 @@ def downsample_edges(pos_edge_index, neg_edge_index, max_edges):
     return pos_edge_index, neg_edge_index
 
 
+class Merger(nn.Module):
+    """
+
+    """
+    def __init__(self, in_dims, out_dims):
+        """
+
+        """
+        super(Merger, self).__init__()
+        self.conv1 = nn.Conv1d(in_dims, 256, kernel_size=1)
+        self.bn1 = nn.BatchNorm1d(256)
+        self.conv2 = nn.Conv1d(256, out_dims, kernel_size=1)
+        self.bn2 = nn.BatchNorm1d(out_dims)
+        self.lin = nn.Linear(out_dims, out_dims)
+
+    def forward(self, coords_flows, x, x_pred):
+        x = torch.cat((coords_flows, x, x_pred), dim=1).T[None, ...]
+
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = F.relu(x)
+        x = self.conv2(x)
+        x = self.bn2(x)
+        x = F.relu(x)
+        x = x.squeeze().T
+        x = F.relu(self.lin(x))
+
+        return x
+
+
 class LocMotionAppearanceUNet(nn.Module):
     """
 
     """
-    def __init__(self, dropout_reduc=0.2, pos_components=4, max_edges=1000):
+    def __init__(self, dropout_reduc=0, pos_components=4):
         """
         """
         super(LocMotionAppearanceUNet, self).__init__()
 
         self.mergers = []
-        self.max_edges = max_edges
 
         batchNormObject = lambda n_features: nn.GroupNorm(16, n_features)
 
         self.encoder = ConvolutionalEncoder(depth=5,
                                             in_channels=3,
                                             start_filts=16,
+                                            dropout_min=0,
+                                            dropout_max=0,
+                                            use_aspp=True,
                                             convObject=nn.Conv2d,
                                             batchNormObject=batchNormObject)
 
-        for dims in self.encoder.filts_dims:
-            merger = nn.Sequential(*[
-                nn.Conv2d(2 * dims + pos_components,
-                          out_channels=dims,
-                          kernel_size=3,
-                          stride=1,
-                          padding=1),
-                nn.BatchNorm2d(dims),
-                nn.ReLU()
-            ])
-            self.mergers.append(merger)
+        self.bn_coords = nn.Sequential(
+            *[nn.BatchNorm2d(pos_components),
+              nn.ReLU()])
 
-        self.mergers = nn.ModuleList(self.mergers)
+        self.merger = Merger(512 + pos_components, 128)
 
-        self.dropout_reduc = nn.Dropout2d(dropout_reduc)
-        self.lin_reduc = nn.Linear(256, 256)
+    def forward(self, data, autoenc_feats):
 
-    def forward(self, data, autoenc_skips, edges_nn):
+        x = data['image']
+
+        for stage in self.encoder.stages:
+            x = stage(x)
 
         coord_maps = make_coord_map(
             data['image'].shape[0], data['image'].shape[2],
             data['image'].shape[3]).to(data['labels'].device)
         coords_flows = torch.cat((coord_maps, data['fx'], data['fy']), dim=1)
-        x = data['image']
+        coords_flows = self.bn_coords(coords_flows)
+        siam_feats = self.merger(sp_pool(coords_flows, data['labels']),
+                                 sp_pool(x, data['labels']),
+                                 sp_pool(autoenc_feats, data['labels']))
 
-        for i, stage in enumerate(self.encoder.stages):
-            x = stage(x)
-            upsamp = nn.UpsamplingBilinear2d(x.size()[-2:])
-            c_ = upsamp(coords_flows)
-            x = self.mergers[i](torch.cat((x, autoenc_skips[i], c_), dim=1))
+        del coords_flows
 
-        x = self.dropout_reduc(x)
-
-        x = sp_pool(x, data['labels'])
-
-        x = self.lin_reduc(x)
-        x = F.relu(x)
-
-        return {'siam_feats': x}
+        return {
+            'siam_feats': siam_feats,
+            'pos': sp_pool(coord_maps, data['labels'])
+        }
 
     def sync(self, encoder_, from_=1):
 
         for i in range(from_, len(encoder_.stages)):
             self.encoder.stages[i].load_state_dict(
                 encoder_.stages[i].state_dict())
-
-
-class LocMotionAppearanceSigned(nn.Module):
-    """
-
-    """
-    def __init__(self,
-                 in_dims,
-                 dropout_adj=0.2,
-                 dropout_reduc=0.2,
-                 mixing_coeff=0.,
-                 pos_components=4,
-                 sigma=0.05,
-                 max_edges=1000):
-        """
-        """
-        super(LocMotionAppearanceSigned, self).__init__()
-
-        self.dropout_adj = dropout_adj
-
-        self.gcns = []
-        self.mergers_pos = []
-        self.mergers_neg = []
-        self.sigma = sigma
-        self.mixing_coeff = mixing_coeff
-        self.max_edges = max_edges
-
-        self.pre_merger = nn.Sequential(*[
-            nn.Linear(in_dims[0] + pos_components, in_dims[0]),
-            nn.BatchNorm1d(in_dims[0]),
-            nn.ReLU()
-        ])
-
-        for i in range(len(in_dims) - 1):
-            block = SignedGCNBlock(in_dims[i],
-                                   in_dims[i + 1],
-                                   first_aggr=True if (i == 0) else False)
-
-            self.gcns.append(block)
-
-            if (i > 0):
-                merger_pos = nn.Sequential(*[
-                    nn.Linear(2 * in_dims[i] + pos_components, in_dims[i]),
-                    nn.BatchNorm1d(in_dims[i]),
-                    nn.ReLU()
-                ])
-                merger_neg = nn.Sequential(*[
-                    nn.Linear(2 * in_dims[i] + pos_components, in_dims[i]),
-                    nn.BatchNorm1d(in_dims[i]),
-                    nn.ReLU()
-                ])
-                self.mergers_pos.append(merger_pos)
-                self.mergers_neg.append(merger_neg)
-
-        self.gcns = nn.ModuleList(self.gcns)
-        self.attention_neg = nn.ModuleList(
-            [gnn.AGNNConv() for d in range(len(self.gcns))])
-        self.attention_pos = nn.ModuleList(
-            [gnn.AGNNConv() for d in range(len(self.gcns))])
-        self.pre_attention = gnn.AGNNConv()
-        self.mergers_pos = nn.ModuleList(self.mergers_pos)
-        self.mergers_neg = nn.ModuleList(self.mergers_neg)
-
-        self.dropout_reduc = nn.Dropout(dropout_reduc)
-        self.lin_reduc = nn.Linear(512, 256)
-        # self.bn_reduc = nn.BatchNorm1d(1024)
-
-    def forward(self, data, autoenc_skips, edges_nn):
-
-        # make location/motion input tensor
-        batch_size, _, w, h = data['labels'].shape
-
-        coord_maps = make_coord_map(batch_size, w, h).to(data['labels'].device)
-
-        pooled_coords = sp_pool(coord_maps, data['labels'])
-        pooled_fx = sp_pool(data['fx'], data['labels'])[..., None]
-        pooled_fy = sp_pool(data['fy'], data['labels'])[..., None]
-
-        coords = torch.cat((pooled_coords, pooled_fx, pooled_fy), dim=1)
-
-        pos_edge_index = edges_nn[:, edges_nn[-1] != -1]
-        neg_edge_index = edges_nn[:, edges_nn[-1] == -1]
-
-        pos_edge_index, neg_edge_index = downsample_edges(
-            pos_edge_index, neg_edge_index, self.max_edges)
-
-        for i, g in enumerate(self.gcns):
-            skip = sp_pool(autoenc_skips[i], data['labels'])
-            if (i > 0):
-                x_pos = x[:, x.shape[1] // 2:]
-                x_neg = x[:, :x.shape[1] // 2]
-
-                x_pos = torch.cat((x_pos, skip, coords), dim=1)
-                x_pos = self.mergers_pos[i - 1](x_pos)
-                x_pos = self.attention_pos[i - 1](x_pos, pos_edge_index[:2])
-
-                x_neg = torch.cat((x_neg, skip, coords), dim=1)
-                x_neg = self.mergers_neg[i - 1](x_neg)
-                x_neg = self.attention_neg[i - 1](x_neg, neg_edge_index[:2])
-                x = torch.cat((x_pos, x_neg), dim=1)
-            else:
-                x = torch.cat((skip, coords), dim=1)
-                x = self.pre_merger(x)
-                x = self.pre_attention(
-                    x,
-                    torch.cat((pos_edge_index, neg_edge_index), dim=1)[:2])
-
-            x = g(x,
-                  pos_edge_index=pos_edge_index[:2],
-                  neg_edge_index=neg_edge_index[:2])
-
-        x = self.dropout_reduc(x)
-        x = self.lin_reduc(x)
-        x = F.relu(x)
-
-        return {
-            'siam_feats': x,
-            'sampled_pos_edges': pos_edge_index,
-            'sampled_neg_edges': neg_edge_index
-        }
 
 
 class Siamese(nn.Module):
@@ -323,10 +222,10 @@ class Siamese(nn.Module):
                  embedded_dims=None,
                  cluster_number: int = 30,
                  alpha: float = 1.0,
-                 backbone='drn',
+                 backbone='unet',
                  siamese='gcn',
                  skip_mode='aspp',
-                 max_triplets=5000,
+                 max_edges=10000,
                  dropout_fg=0,
                  dropout_adj=0.1,
                  dropout_reduc=0,
@@ -348,8 +247,6 @@ class Siamese(nn.Module):
                        backbone=backbone,
                        out_channels=out_channels)
 
-        self.max_triplets = max_triplets
-
         self.sigmoid = nn.Sigmoid()
         self.roi_pool = SupPixPool()
 
@@ -359,20 +256,18 @@ class Siamese(nn.Module):
                                             skip_mode='aspp',
                                             depth=5)
 
+        self.cs_sigma = nn.Parameter(torch.tensor(1.))
+
         if (siamese == 'gcn'):
             in_dims = self.dec.autoencoder.filts_dims
             in_dims += [in_dims[-1]]
             self.locmotionapp = LocMotionAppearanceSigned(
                 in_dims=in_dims,
-                dropout_adj=dropout_adj,
                 dropout_reduc=dropout_reduc,
-                max_edges=max_triplets)
+                max_edges=max_edges)
         elif (siamese == 'unet'):
             self.locmotionapp = LocMotionAppearanceUNet(
-                dropout_reduc=dropout_reduc, max_edges=1000)
-        elif (siamese == 'gcnunet'):
-            self.locmotionapp = LocMotionAppearanceSignedUNet(
-                dropout_reduc=dropout_reduc, max_edges=max_triplets)
+                dropout_reduc=dropout_reduc)
         else:
             self.locmotionapp = nn.Identity()
 
@@ -408,34 +303,12 @@ class Siamese(nn.Module):
         clusters = self.dec.assignment(proj_pooled_feats)
         res['clusters'] = clusters
 
-        if ((edges_nn is not None)
-                and (not isinstance(self.locmotionapp, nn.Identity))):
-            res_siam = self.locmotionapp(data, res['skips'], edges_nn)
+        if (not isinstance(self.locmotionapp, nn.Identity)):
+            res_siam = self.locmotionapp(data, res['skips'][-1])
             res.update(res_siam)
-            f = res['siam_feats']
-            tplts = sample_triplets(res['sampled_pos_edges'])
-            # idx = torch.randint(tplts.shape[-1], (self.max_triplets, ))
-            # tplts = tplts[:, idx]
 
-            fa = f[tplts[0]]
-            fp = f[tplts[1]]
-            fn = f[tplts[2]]
-
-            sim_ap = self.cs(fa, fp)
-            sim_an = self.cs(fa, fn)
-            res['sim_ap'] = sim_ap
-            res['sim_an'] = sim_an
-
-            coord_maps = make_coord_map(
-                data['image'].shape[0], data['image'].shape[2],
-                data['image'].shape[3]).to(data['labels'].device)
-
-            pooled_coords = sp_pool(coord_maps, data['labels'])
-            dr_an = (pooled_coords[tplts[0]] -
-                     pooled_coords[tplts[2]]).norm(dim=1)
-            res['dr_an'] = dr_an
-
-        res['rho_hat'] = self.rho_dec(res['feats'], res['skips'][:-2][::-1])
-        res['rho_hat_pooled'] = sp_pool(res['rho_hat'], data['labels'])
+        rho_hat = self.rho_dec(res['feats'], res['skips'][:-2][::-1])
+        res['rho_hat_pooled'] = sp_pool(rho_hat, data['labels'])
+        res['rho_hat'] = rho_hat
 
         return res

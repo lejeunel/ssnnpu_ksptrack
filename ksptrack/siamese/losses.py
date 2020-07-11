@@ -10,307 +10,6 @@ import os
 from ksptrack.SegLoss.losses_pytorch.dice_loss import SoftDiceLoss
 
 
-def get_edges_probas(probas, edges_nn, thrs=[0.6, 0.8], clusters=None):
-
-    edges = {'sim': [], 'disim': []}
-
-    # get edges with both nodes in positive or negative segment
-    edges_mask_sim = (probas[edges_nn[:, 0]] >=
-                      thrs[1]) * (probas[edges_nn[:, 1]] >= thrs[1])
-    edges_mask_sim += (probas[edges_nn[:, 0]] <
-                       thrs[0]) * (probas[edges_nn[:, 1]] < thrs[0])
-    if (clusters is not None):
-        edges_mask_sim *= (clusters[edges_nn[:, 1]].argmax(
-            dim=1) == clusters[edges_nn[:, 0]].argmax(dim=1))
-    edges_sim = edges_nn[edges_mask_sim, :]
-
-    sim_probas = torch.ones(edges_sim.shape[0]).to(probas).float()
-    edges_sim = [edges_sim, sim_probas]
-    edges['sim'] = edges_sim
-
-    # get edges with one node > thr[1] and other < thr[0]
-    edges_mask_disim_0 = probas[edges_nn[:, 0]] >= thrs[1]
-    edges_mask_disim_0 *= probas[edges_nn[:, 1]] < thrs[0]
-    edges_mask_disim_1 = probas[edges_nn[:, 1]] >= thrs[1]
-    edges_mask_disim_1 *= probas[edges_nn[:, 0]] < thrs[0]
-    edges_mask_disim = edges_mask_disim_0 + edges_mask_disim_1
-    if (clusters is not None):
-        edges_mask_disim *= (clusters[edges_nn[:, 1]].argmax(dim=1) !=
-                             clusters[edges_nn[:, 0]].argmax(dim=1))
-    edges_disim = edges_nn[edges_mask_disim, :]
-
-    disim_probas = torch.zeros(edges_disim.shape[0]).to(probas).float()
-
-    edges_disim = [edges_disim, disim_probas]
-    edges['disim'] = edges_disim
-
-    for k in edges.keys():
-        if (len(edges[k]) == 0):
-            edges[k] = torch.tensor([]).to(probas)
-
-    return edges
-
-
-def get_edges_keypoint_probas(probas, data, edges_nn, thrs=[0.6, 0.8]):
-
-    edges = {'sim': [], 'disim': []}
-
-    max_node = 0
-    n_nodes = [g.number_of_nodes() for g in data['graph']]
-    for labels, n_nodes_ in zip(data['label_keypoints'], n_nodes):
-        for l in labels:
-            l += max_node
-
-            # get edges with one node on keypoint
-            edges_mask = edges_nn[:, 0] == l
-            edges_mask += edges_nn[:, 1] == l
-
-            if (edges_mask.sum() > 0):
-                # get edges with nodes with proba > thr
-                edges_mask_sim = edges_mask * probas[edges_nn[:, 0]] >= thrs[1]
-                edges_mask_sim *= probas[edges_nn[:, 1]] >= thrs[1]
-                edges_sim = edges_nn[edges_mask_sim, :]
-                edges['sim'].append(edges_sim)
-
-                # get edges with nodes with proba < thr
-                edges_mask_disim = edges_mask * probas[edges_nn[:,
-                                                                0]] <= thrs[0]
-                edges_mask_disim *= probas[edges_nn[:, 1]] <= thrs[0]
-                edges_disim = edges_nn[edges_mask_disim, :]
-                edges['disim'].append(edges_disim)
-
-        max_node += n_nodes_ + 1
-
-    for k in edges.keys():
-        if (len(edges[k]) == 0):
-            edges[k] = torch.tensor([]).to(probas)
-
-    return edges
-
-
-class LabelPairwiseLoss(nn.Module):
-    def __init__(self, thrs=[0.6, 0.8]):
-        super(LabelPairwiseLoss, self).__init__()
-        self.criterion = nn.BCELoss(reduction='none')
-        self.thrs = thrs
-
-    def forward(self, edges_nn, probas, feats, clusters=None):
-
-        edges = get_edges_probas(probas,
-                                 edges_nn,
-                                 thrs=self.thrs,
-                                 clusters=clusters)
-        constrained_feats = dict()
-        probas = dict()
-
-        constrained_feats['sim'] = torch.stack(
-            (feats[edges['sim'][0][:, 0]], feats[edges['sim'][0][:, 1]]))
-        constrained_feats['disim'] = torch.stack(
-            (feats[edges['disim'][0][:, 0]], feats[edges['disim'][0][:, 1]]))
-
-        probas['sim'] = torch.exp(-torch.norm(
-            constrained_feats['sim'][0] - constrained_feats['sim'][1], dim=1))
-        probas['disim'] = torch.exp(-torch.norm(constrained_feats['disim'][0] -
-                                                constrained_feats['disim'][1],
-                                                dim=1))
-
-        n_pos = probas['sim'].numel()
-        n_neg = probas['disim'].numel()
-        pos_weight = float(max((n_pos, n_neg))) / n_pos
-        neg_weight = float(max((n_pos, n_neg)) / n_neg)
-
-        weights = torch.cat((torch.ones_like(probas['sim']) * pos_weight,
-                             torch.ones_like(probas['disim']) * neg_weight))
-        loss = self.criterion(
-            torch.cat((probas['sim'], probas['disim'])),
-            torch.cat((edges['sim'][1], edges['disim'][1])).float())
-        loss *= weights
-
-        return loss.mean()
-
-
-class LabelKLPairwiseLoss(nn.Module):
-    def __init__(self, thr=0.5):
-        super(LabelKLPairwiseLoss, self).__init__()
-        self.criterion_clst = torch.nn.KLDivLoss(reduction='mean')
-        self.criterion_pw = torch.nn.KLDivLoss(reduction='mean')
-        self.thr = thr
-
-    def forward(self, edges_nn, probas, clusters, targets, keypoints=None):
-
-        edges = get_edges_probas(probas,
-                                 edges_nn,
-                                 thrs=[self.thr, self.thr],
-                                 clusters=targets)
-        # clusters=targets)
-
-        if (keypoints is not None):
-            # filter out similar edges
-            mask = torch.zeros(edges['sim'][0].shape[0]).to(clusters).bool()
-            for kp in keypoints:
-                mask += edges['sim'][0][:, 0] == kp
-                mask += edges['sim'][0][:, 1] == kp
-
-            edges['sim'][0] = edges['sim'][0][mask, :]
-
-        loss_pw = torch.tensor((0.)).to(clusters)
-
-        clst_sim = torch.stack(
-            (clusters[edges['sim'][0][:, 0]], clusters[edges['sim'][0][:, 1]]))
-        tgt_sim = torch.stack(
-            (targets[edges['sim'][0][:, 0]], targets[edges['sim'][0][:, 1]]))
-        clst_disim = torch.stack(
-            (clusters[edges['disim'][0][:,
-                                        0]], clusters[edges['disim'][0][:,
-                                                                        1]]))
-        tgt_disim = torch.stack(
-            (targets[edges['disim'][0][:, 0]], targets[edges['disim'][0][:,
-                                                                         1]]))
-
-        n_pos = edges['sim'][0].shape[0]
-        n_neg = edges['disim'][0].shape[0]
-
-        if (n_pos > 0):
-            loss_sim = self.criterion_pw(
-                (clst_sim[0] + 1e-7).log(), tgt_sim[1]) / clst_sim[0].shape[0]
-            loss_sim += self.criterion_pw(
-                (clst_sim[1] + 1e-7).log(), tgt_sim[0]) / clst_sim[0].shape[0]
-            loss_sim = loss_sim / 2
-            pos_weight = float(max((n_pos, n_neg))) / n_pos
-            # loss_pw += loss_sim * pos_weight
-            loss_pw += loss_sim
-
-        # if (n_neg > 0):
-        #     loss_disim = self.criterion_pw(
-        #         (clst_disim[0] + 1e-7).log(),
-        #         tgt_disim[1]) / clst_disim[0].shape[0]
-        #     loss_disim += self.criterion_pw(
-        #         (clst_disim[1] + 1e-7).log(),
-        #         tgt_disim[0]) / clst_disim[0].shape[0]
-        #     neg_weight = float(max((n_pos, n_neg)) / n_neg)
-        #     loss_pw -= loss_disim * neg_weight
-
-        return loss_pw
-
-
-class PairwiseContrastive(nn.Module):
-    def __init__(self, margin=0.2):
-        super(PairwiseContrastive, self).__init__()
-        self.bce = nn.BCELoss(reduction='none')
-        self.margin = 0.
-
-    def forward(self, input, target):
-
-        loss = self.bce(input, target)
-
-        loss_pos = loss[target == 1]
-        loss_pos = loss_pos[loss_pos <= 1 - self.margin].mean()
-
-        loss_neg = loss[target == 0]
-        loss_neg = loss_neg[loss_neg >= self.margin].mean()
-
-        return (loss_neg + loss_pos) / 2
-
-
-class EmbeddingLoss(nn.Module):
-    def __init__(self):
-        super(EmbeddingLoss, self).__init__()
-
-    def pos_embedding_loss(self, z, pos_edge_index):
-        """Computes the triplet loss between positive node pairs and sampled
-        non-node pairs.
-
-        Args:
-            z (Tensor): The node embeddings.
-            pos_edge_index (LongTensor): The positive edge indices.
-        """
-        i, j, k = structured_negative_sampling(pos_edge_index, z.size(0))
-
-        out = (z[i] - z[j]).pow(2).sum(dim=1) - (z[i] - z[k]).pow(2).sum(dim=1)
-        return torch.clamp(out, min=0).mean()
-
-    def neg_embedding_loss(self, z, neg_edge_index):
-        """Computes the triplet loss between negative node pairs and sampled
-        non-node pairs.
-
-        Args:
-            z (Tensor): The node embeddings.
-            neg_edge_index (LongTensor): The negative edge indices.
-        """
-        i, j, k = structured_negative_sampling(neg_edge_index, z.size(0))
-
-        out = (z[i] - z[k]).pow(2).sum(dim=1) - (z[i] - z[j]).pow(2).sum(dim=1)
-        return torch.clamp(out, min=0).mean()
-
-    def forward(self, z, pos_edges, neg_edges):
-
-        loss_1 = self.pos_embedding_loss(z, pos_edges)
-        loss_2 = self.neg_embedding_loss(z, neg_edges)
-        return loss_1 + loss_2
-
-
-def structured_negative_sampling(edge_index):
-    r"""Samples a negative sample :obj:`(k)` for every positive edge
-    :obj:`(i,j)` in the graph given by :attr:`edge_index`, and returns it as a
-    tuple of the form :obj:`(i,j,k)`.
-
-    Args:
-        edge_index (LongTensor): The edge indices.
-        num_nodes (int, optional): The number of nodes, *i.e.*
-            :obj:`max_val + 1` of :attr:`edge_index`. (default: :obj:`None`)
-
-    :rtype: (LongTensor, LongTensor, LongTensor)
-    """
-    num_nodes = edge_index.max().item() + 1
-
-    i, j = edge_index.to('cpu')
-    idx_1 = i * num_nodes + j
-
-    k = torch.randint(num_nodes, (i.size(0), ), dtype=torch.long)
-    idx_2 = i * num_nodes + k
-
-    mask = torch.from_numpy(np.isin(idx_2, idx_1)).to(torch.bool)
-    rest = mask.nonzero().view(-1)
-    while rest.numel() > 0:  # pragma: no cover
-        tmp = torch.randint(num_nodes, (rest.numel(), ), dtype=torch.long)
-        idx_2 = i[rest] * num_nodes + tmp
-        mask = torch.from_numpy(np.isin(idx_2, idx_1)).to(torch.bool)
-        k[rest] = tmp
-        rest = rest[mask.nonzero().view(-1)]
-
-    return edge_index[0], edge_index[1], k.to(edge_index.device)
-
-
-def complete_graph_from_list(L, create_using=None):
-    G = nx.empty_graph(len(L), create_using)
-    if len(L) > 1:
-        if G.is_directed():
-            edges = itertools.permutations(L, 2)
-        else:
-            edges = itertools.combinations(L, 2)
-        G.add_edges_from(edges)
-    return G
-
-
-class CosineSoftMax(nn.Module):
-    def __init__(self, kappa=20.):
-        super(CosineSoftMax, self).__init__()
-        self.kappa = kappa
-        self.loss = nn.CrossEntropyLoss(reduction='none')
-
-    def forward(self, z, targets):
-
-        targets_ = targets.argmax(dim=1).to(z.device)
-
-        bc = torch.bincount(targets_)
-        freq_weights = bc.max() / bc.float()
-        freq_smp_weights = freq_weights[targets.argmax(dim=1)]
-        inputs = self.kappa * z
-
-        loss = (freq_smp_weights * self.loss(inputs, targets_)).mean()
-        return loss
-
-
 def make_coord_map(batch_size, w, h):
     xx_ones = torch.ones([1, 1, 1, w], dtype=torch.int32)
     yy_ones = torch.ones([1, 1, 1, h], dtype=torch.int32)
@@ -358,51 +57,6 @@ def sample_triplets(edges):
     return tplts
 
 
-class PointLoss(nn.Module):
-    def __init__(self):
-        super(PointLoss, self).__init__()
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, input, labels, labels_clicked):
-
-        labels_clicked_batch = []
-        max_l = 0
-        for i, l in enumerate(labels_clicked):
-            labels_clicked_batch.append([l_ + max_l for l_ in l])
-            max_l += torch.unique(labels[i]).numel() + 1
-
-        idx = torch.tensor(labels_clicked_batch).to(input.device).flatten()
-        loss = -(torch.log(self.sigmoid(input[idx]) + 1e-8)).mean()
-
-        return loss
-
-
-class LSMLoss(nn.Module):
-    def __init__(self, K=0.5, T=0.1):
-        super(LSMLoss, self).__init__()
-        self.cs = nn.CosineSimilarity(dim=1)
-        self.K = K
-        self.T = T
-
-    def forward(self, feats, edges):
-        """
-        Computes the triplet loss between positive node pairs and sampled
-        non-node pairs.
-        """
-
-        # remove negative edges
-        edges = edges[:, edges[-1, :] != -1]
-        tplts = sample_triplets(edges)
-
-        cs_ap = self.cs(feats[tplts[0]], feats[tplts[1]])
-        cs_an = self.cs(feats[tplts[0]], feats[tplts[2]])
-
-        loss_ap = torch.log1p(torch.exp(-(cs_ap - self.K) / self.T))
-        loss_an = torch.log1p(torch.exp((cs_an - self.K) / self.T))
-
-        return loss
-
-
 def num_nan_inf(t):
     return torch.isnan(t).sum() + torch.isinf(t).sum()
 
@@ -441,50 +95,49 @@ def do_previews(images, labels, pos_nodes, neg_nodes):
     return all_
 
 
-def get_pos_negs(keypoints, nodes, input, mode='all'):
-    # edges_ = edges[:, edges[-1] != -1]
-
-    # print('keypoints: {}'.format(keypoints))
-    # print('frames: {}'.format(data['frame_idx']))
-    # print('sum(edges_[0] == k): {}'.format(
-    #     torch.cat([edges_[0] == l for l in keypoints]).sum()))
-    # print('sum(edges_[1] == k): {}'.format(
-    #     torch.cat([edges_[0] == l for l in keypoints]).sum()))
-    # get edges that corresponds to keypoints
-    #
-    assert mode in ['all', 'rand_weighted',
-                    'rand_uniform'], print('mode should be either all or rand')
+def get_pos_negs(keypoints, nodes, input, mode):
     all_clusters = torch.unique(nodes[-1])
 
     if (len(keypoints) > 0):
-        cluster_clicked = torch.cat(
-            [nodes[-1, (nodes[0, :] == l)] for l in keypoints])
+        if (mode == 'single'):
+            all_nodes = torch.unique(nodes[0, :])
+            pos_nodes = torch.tensor(keypoints).to(all_nodes.device).long()
+            compareview = pos_nodes.repeat(all_nodes.numel(), 1).T
+            neg_nodes = all_nodes[(compareview != all_nodes).T.prod(1) == 1]
 
-        pos_nodes = torch.cat([
-            torch.unique(nodes[0, nodes[-1] == c])
-            for c in torch.unique(cluster_clicked)
-        ])
+        else:
+            cluster_clicked = torch.cat(
+                [nodes[-1, (nodes[0, :] == l)] for l in keypoints])
 
-        if ('rand' in mode):
+            pos_nodes = torch.cat([
+                torch.unique(nodes[0, nodes[-1] == c])
+                for c in torch.unique(cluster_clicked)
+            ])
             compareview = cluster_clicked.repeat(all_clusters.shape[0], 1).T
+            compareview = compareview.to(all_nodes.device)
             neg_clusters = all_clusters[(
                 compareview != all_clusters).T.prod(1) == 1]
 
             neg_nodes = [
                 torch.unique(nodes[0, nodes[-1] == c]) for c in neg_clusters
             ]
-            if ('weighted' in mode):
-                weights = torch.tensor([len(n) for n in neg_nodes
-                                        ]).to(all_clusters.device)
-                weights = weights.max().float() / weights.float()
-            else:
-                weights = torch.ones(len(neg_nodes)).to(all_clusters.device)
 
-            neg_cluster_idx = torch.multinomial(weights, 1, replacement=True)
-            neg_cluster = neg_clusters[neg_cluster_idx]
-            neg_nodes = torch.unique(nodes[:2, nodes[-1] == neg_cluster])
-        else:
-            neg_nodes = random.choice(neg_nodes)
+            if ('rand' in mode):
+                if ('weighted' in mode):
+                    weights = torch.tensor([len(n) for n in neg_nodes
+                                            ]).to(all_clusters.device)
+                    weights = weights.max().float() / weights.float()
+                else:
+                    weights = torch.ones(len(neg_nodes)).to(
+                        all_clusters.device)
+
+                neg_cluster_idx = torch.multinomial(weights,
+                                                    1,
+                                                    replacement=True)
+                neg_cluster = neg_clusters[neg_cluster_idx]
+                neg_nodes = torch.unique(nodes[:2, nodes[-1] == neg_cluster])
+            else:
+                neg_nodes = torch.cat(neg_nodes)
 
         pos_tgt = torch.ones(pos_nodes.numel()).float().to(nodes.device)
         neg_tgt = torch.zeros(neg_nodes.numel()).float().to(nodes.device)
@@ -503,20 +156,46 @@ def get_pos_negs(keypoints, nodes, input, mode='all'):
     return input, tgt
 
 
-class ClusterDiceLoss(nn.Module):
-    def __init__(self, smooth=1., square=False):
-        super(ClusterDiceLoss, self).__init__()
-        self.loss = SoftDiceLoss(smooth=smooth, square=square)
+class ClusterPULoss(nn.Module):
+    """
+    https://arxiv.org/abs/2002.04672
+    """
+    def __init__(self, pi=0.25, mode='all'):
+        super(ClusterPULoss, self).__init__()
+        self.pi = pi
+        self.mode = mode
+        modes = ['all', 'single', 'rand_weighted', 'rand_uniform']
 
-    def forward(self, input, edges, data):
+        assert mode in modes, print('mode should be either all or rand')
+
+    def cross_entropy_logits(self, in_, tgt, reduction='none'):
+        # in_ : tensor (without logit)
+        # tgt : integer (0 or 1)
+        tgt = torch.ones_like(in_) * tgt
+
+        return F.binary_cross_entropy_with_logits(in_,
+                                                  tgt,
+                                                  reduction=reduction)
+
+    def forward(self, input, nodes, data):
         """
         """
 
-        input, tgt = get_pos_negs(data['clicked'], edges, input)
-        input = input[None, None, ..., None]
-        tgt = tgt[None, None, ..., None]
+        input, tgt = get_pos_negs(data['clicked'], nodes, input, self.mode)
 
-        return self.loss(input.sigmoid(), tgt)
+        in_pos = input[tgt == 1]
+        in_unl = input[tgt == 0]
+
+        Rp_plus = self.cross_entropy_logits(in_pos, 1)
+        Rp_minus = self.cross_entropy_logits(in_pos, 0)
+        Ru_minus = self.cross_entropy_logits(in_unl, 0)
+
+        loss_p = self.pi * Rp_plus.mean()
+        loss_u = Ru_minus.mean()
+        loss_u -= self.pi * Rp_minus.mean()
+        loss_u = loss_u.relu()
+
+        return loss_p + loss_u
 
 
 class ClusterFocalLoss(nn.Module):
@@ -548,54 +227,277 @@ class ClusterFocalLoss(nn.Module):
         return loss.mean()
 
 
-class RAGTripletLoss(nn.Module):
-    def __init__(self):
-        super(RAGTripletLoss, self).__init__()
-        self.cs = nn.CosineSimilarity(dim=1)
-        # self.cs = nn.CosineSimilarity(dim=1, eps=1e-3)
-        self.margin = 0.5
-
-    def forward(self, feats, edges):
-        """
-        Computes the triplet loss between positive node pairs and sampled
-        non-node pairs.
-        """
-
-        # remove negative edges
-        edges = edges[:, edges[-1, :] != -1]
-        tplts = sample_triplets(edges)
-
-        xa = feats[tplts[0]]
-        xp = feats[tplts[1]]
-        xn = feats[tplts[2]]
-        # print('[RAGTripletLoss] num. NaN feats: {}'.format(
-        #     num_nan_inf(xa) + num_nan_inf(xp) + num_nan_inf(xn)))
-        cs_ap = self.cs(xa, xp)
-        cs_an = self.cs(xa, xn)
-        # print('[RAGTripletLoss] num. NaN cs: {}'.format(
-        #     num_nan_inf(cs_ap) + num_nan_inf(cs_an)))
-        dap = 1 - cs_ap
-        dan = 1 - cs_an
-
-        # weight by clique size
-        # bc = torch.bincount(edges[-1])
-        # freq_weights = bc.float() / edges.shape[-1]
-        # freq_smp_weights = freq_weights[edges[-1]]
-
-        # loss = torch.log1p(dap - dan)
-        loss = torch.clamp(dap - dan + self.margin, min=0)
-        loss = loss[loss > 0]
-        loss = loss.mean()
-        # print('[RAGTripletLoss] loss: {}'.format(loss))
-
-        return loss
-
-
 def cosine_distance_torch(x1, x2=None, eps=1e-8):
     x2 = x1 if x2 is None else x2
     w1 = x1.norm(p=2, dim=1, keepdim=True)
     w2 = w1 if x2 is x1 else x2.norm(p=2, dim=1, keepdim=True)
     return 1 - torch.mm(x1, x2.t()) / (w1 * w2.t()).clamp(min=eps)
+
+
+from pytorch_metric_learning.miners import BaseTupleMiner
+from pytorch_metric_learning.utils import loss_and_miner_utils as lmu
+from pytorch_metric_learning.utils import common_functions as c_f
+
+
+def safe_random_choice(input_data, size, p=None):
+    """
+    Randomly samples without replacement from a sequence. It is "safe" because
+    if len(input_data) < size, it will randomly sample WITH replacement
+    Args:
+        input_data is a sequence, like a torch tensor, numpy array,
+                        python list, tuple etc
+        size is the number of elements to randomly sample from input_data
+    Returns:
+        An array of size "size", randomly sampled from input_data
+    """
+    replace = len(input_data) < size
+    return np.random.choice(input_data, size=size, p=p, replace=replace)
+
+
+# sample triplets, with a weighted distribution if weights is specified.
+def get_random_triplet_indices(labels,
+                               ref_labels=None,
+                               t_per_anchor=None,
+                               weights=None,
+                               ap_pw_weights=None):
+
+    a_idx, p_idx, n_idx = [], [], []
+    labels = labels.cpu().numpy()
+    ref_labels = labels if ref_labels is None else ref_labels.cpu().numpy()
+    batch_size = ref_labels.shape[0]
+    label_count = dict(zip(*np.unique(ref_labels, return_counts=True)))
+    indices = np.arange(batch_size)
+
+    for i, label in enumerate(labels):
+        curr_label_count = label_count[label]
+        if ref_labels is labels: curr_label_count -= 1
+        if curr_label_count == 0:
+            continue
+        k = curr_label_count if t_per_anchor is None else t_per_anchor
+
+        if weights is not None and not np.any(np.isnan(weights[i])):
+            n_idx += c_f.NUMPY_RANDOM.choice(batch_size, k,
+                                             p=weights[i]).tolist()
+        else:
+            possible_n_idx = list(np.where(ref_labels != label)[0])
+            n_idx += c_f.NUMPY_RANDOM.choice(possible_n_idx, k).tolist()
+
+        a_idx.extend([i] * k)
+        if (ap_pw_weights is None):
+            curr_p_idx = safe_random_choice(
+                np.where((ref_labels == label) & (indices != i))[0], k)
+        else:
+            possible_p_idx = np.where((ref_labels == label)
+                                      & (indices != i))[0]
+            p = ap_pw_weights[i, possible_p_idx]
+            p = p + 1e-6
+            p = p / p.sum()
+            curr_p_idx = safe_random_choice(possible_p_idx, k, p=p)
+
+        p_idx.extend(curr_p_idx.tolist())
+
+    return (
+        torch.LongTensor(a_idx),
+        torch.LongTensor(p_idx),
+        torch.LongTensor(n_idx),
+    )
+
+
+def pairwise_distances(x, y=None):
+    '''
+    Input: x is a Nxd matrix
+           y is an optional Mxd matirx
+    Output: dist is a NxM matrix where dist[i,j] is the square norm between x[i,:] and y[j,:]
+            if y is not given then use 'y=x'.
+    i.e. dist[i,j] = ||x[i,:]-y[j,:]||^2
+    '''
+    x_norm = (x**2).sum(1).view(-1, 1)
+    if y is not None:
+        y_norm = (y**2).sum(1).view(1, -1)
+    else:
+        y = x
+        y_norm = x_norm.view(1, -1)
+
+    dist = x_norm + y_norm - 2.0 * torch.mm(x, torch.transpose(y, 0, 1))
+    return dist
+
+
+class DistanceWeightedMiner(BaseTupleMiner):
+    def __init__(self,
+                 cutoff=0.2,
+                 nonzero_loss_cutoff=10,
+                 sigma=0.1,
+                 n_triplets_per_anchor=2,
+                 **kwargs):
+        super().__init__(**kwargs)
+        self.cutoff = float(cutoff)
+        self.nonzero_loss_cutoff = float(nonzero_loss_cutoff)
+        self.n_triplets_per_anchor = n_triplets_per_anchor
+        self.cutoff = cutoff
+        self.pw_loc = nn.PairwiseDistance(p=2)
+        self.sigma = sigma
+
+    def forward(self,
+                embeddings,
+                labels,
+                probas,
+                pos,
+                ref_emb=None,
+                ref_labels=None):
+        """
+        Args:
+            embeddings: tensor of size (batch_size, embedding_size)
+            labels: tensor of size (batch_size)
+        Does any necessary preprocessing, then does mining, and then checks the
+        shape of the mining output before returning it
+        """
+        self.reset_stats()
+        with torch.no_grad():
+            c_f.assert_embeddings_and_labels_are_same_size(embeddings, labels)
+            labels = labels.to(embeddings.device)
+            if self.normalize_embeddings:
+                embeddings = torch.nn.functional.normalize(embeddings,
+                                                           p=2,
+                                                           dim=1)
+            mining_output = self.mine(embeddings, probas, pos, labels)
+        self.output_assertion(mining_output)
+        return mining_output
+
+    def mine(self, embeddings, probas, pos, labels):
+        d = embeddings.size(1)
+        dist_mat = cosine_distance_torch(embeddings)
+
+        # Cut off to avoid high variance.
+        dist_mat = torch.max(dist_mat,
+                             torch.tensor(self.cutoff).to(dist_mat.device))
+
+        # this is for the weights of picking negatives, i.e. it compute log(1/q(d))
+        #
+        # Subtract max(log(distance)) for stability.
+        # See the first equation from Section 4 of the paper
+        log_weights = (2.0 - float(d)) * torch.log(dist_mat) - (
+            float(d - 3) / 2) * torch.log(1.0 - 0.25 * (dist_mat**2.0))
+        weights = torch.exp(log_weights - torch.max(log_weights))
+
+        # Sample only negative examples by setting weights of
+        # the same-class examples to 0.
+        mask = torch.ones(weights.size()).to(embeddings.device)
+        same_class = labels.unsqueeze(1) == labels.unsqueeze(0)
+        mask[same_class] = 0
+
+        weights = weights * mask * (
+            (dist_mat < self.nonzero_loss_cutoff).float())
+        weights = weights / torch.sum(weights, dim=1, keepdim=True)
+
+        np_weights = weights.cpu().numpy()
+
+        # compute pairwise sampling probas for positives
+        dist_probas = (probas -
+                       probas[:, None]).abs().squeeze().detach().cpu().numpy()
+        dist_loc_sqrd = torch.exp(-pairwise_distances(pos) /
+                                  self.sigma).detach().cpu().numpy()
+        p = 1 - dist_probas
+        p = np.multiply(p, dist_loc_sqrd)
+
+        return get_random_triplet_indices(
+            labels,
+            weights=np_weights,
+            t_per_anchor=self.n_triplets_per_anchor,
+            ap_pw_weights=p)
+
+
+from pytorch_metric_learning.losses import BaseMetricLossFunction
+from pytorch_metric_learning.reducers import AvgNonZeroReducer
+
+
+class TripletCosineMarginLoss(BaseMetricLossFunction):
+    """
+    Args:
+        margin: The desired difference between the anchor-positive distance and the
+                anchor-negative distance.
+        distance_norm: The norm used when calculating distance between embeddings
+        power: Each pair's loss will be raised to this power.
+        swap: Use the positive-negative distance instead of anchor-negative distance,
+              if it violates the margin more.
+        smooth_loss: Use the log-exp version of the triplet loss
+    """
+    def __init__(self,
+                 margin=0.5,
+                 smooth_loss=True,
+                 sigma_max=0.1,
+                 triplets_per_anchor="all",
+                 **kwargs):
+        super().__init__(**kwargs)
+        self.margin = margin
+        self.triplets_per_anchor = triplets_per_anchor
+        self.cs = nn.CosineSimilarity(dim=1)
+        self.smooth_loss = smooth_loss
+        self.sigma_max = sigma_max
+
+    def forward(self, embeddings, pos, labels, sigma=1, indices_tuple=None):
+        """
+        Args:
+            embeddings: tensor of size (batch_size, embedding_size)
+            labels: tensor of size (batch_size)
+            indices_tuple: tuple of size 3 for triplets (anchors, positives, negatives)
+                            or size 4 for pairs (anchor1, postives, anchor2, negatives)
+                            Can also be left as None
+        Returns: the loss (float)
+        """
+        self.reset_stats()
+        c_f.assert_embeddings_and_labels_are_same_size(embeddings, labels)
+        labels = labels.to(embeddings.device)
+        if self.normalize_embeddings:
+            embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
+        self.embedding_norms = torch.norm(embeddings, p=2, dim=1)
+        self.avg_embedding_norm = torch.mean(self.embedding_norms)
+
+        loss_dict = self.compute_loss(embeddings, pos, labels, indices_tuple,
+                                      sigma)
+        return self.reducer(loss_dict, embeddings, labels)
+
+    def compute_loss(self, embeddings, pos, labels, indices_tuple, sigma=1):
+        indices_tuple = lmu.convert_to_triplets(
+            indices_tuple, labels, t_per_anchor=self.triplets_per_anchor)
+        anchor_idx, positive_idx, negative_idx = indices_tuple
+        if len(anchor_idx) == 0:
+            return self.zero_losses()
+        anchors, positives, negatives = embeddings[anchor_idx], embeddings[
+            positive_idx], embeddings[negative_idx]
+        anchors_loc = pos[anchor_idx]
+        positives_loc = pos[positive_idx]
+        negatives_loc = pos[negative_idx]
+        dist_loc_pos = torch.exp(
+            -(anchors_loc - positives_loc).norm(dim=1)**2 /
+            ((self.sigma_max * sigma)**2))
+        dist_loc_neg = torch.exp(
+            -(anchors_loc - negatives_loc).norm(dim=1)**2 /
+            ((self.sigma_max * sigma)**2))
+        a_p_dist = 1 - dist_loc_pos * self.cs(anchors, positives)
+        a_n_dist = 1 - dist_loc_neg * self.cs(anchors, negatives)
+
+        if self.smooth_loss:
+            inside_exp = a_p_dist - a_n_dist
+            inside_exp = self.maybe_modify_loss(inside_exp)
+            loss = torch.log(1 + torch.exp(inside_exp))
+        else:
+            dist = a_p_dist - a_n_dist
+            loss_modified = self.maybe_modify_loss(dist + self.margin)
+            loss = torch.nn.functional.relu(loss_modified)
+
+        return {
+            "loss": {
+                "losses": loss,
+                "indices": indices_tuple,
+                "reduction_type": "triplet"
+            }
+        }
+
+    def maybe_modify_loss(self, x):
+        return x
+
+    def get_default_reducer(self):
+        return AvgNonZeroReducer()
 
 
 class BatchHardTripletSelector(object):
@@ -628,17 +530,22 @@ class TripletLoss(nn.Module):
     def __init__(self, margin=0.7):
         super(TripletLoss, self).__init__()
         self.margin = margin
+        self.sampler = BatchHardTripletSelector()
+        self.cs = nn.CosineSimilarity(dim=1)
 
-    def forward(self, sim_ap, sim_an, dr_an=None):
+    def forward(self, feats, labels):
         """Computes the triplet loss between positive node pairs and sampled
         non-node pairs.
         """
 
-        dap = 1 - sim_ap
-        dan = 1 - sim_an
+        a, p, n = self.sampler(feats, labels)
+
+        dap = 1 - self.cs(a, p)
+        dan = 1 - self.cs(a, n)
 
         loss = torch.clamp(dap - dan + self.margin, min=0)
         loss = loss[loss > 0]
+        # loss = torch.log1p((dap - dan).exp())
         loss = loss.mean()
 
         return loss
@@ -646,20 +553,11 @@ class TripletLoss(nn.Module):
 
 if __name__ == "__main__":
     N = 1000
-    eps = 1e-8
-    alpha = 0.9
-    gamma = 0.2
-    input = torch.randn(N)
-    tgt = torch.randint(0, 2, size=(N, ))
-
-    logit = input.sigmoid()
-    logit = logit.clamp(eps, 1. - eps)
-    pt0 = logit[tgt == 0]
-    pt1 = 1 - logit[tgt == 1]
-    loss0 = -alpha * (1 - pt1)**gamma * torch.log(pt1)
-    loss0 = loss0.mean()
-    loss1 = -(1 - alpha) * (1 - pt0)**gamma * torch.log(pt0)
-    loss1 = loss1.mean()
-    loss = loss0 + loss1
-
-    print(loss.mean())
+    feats = torch.randn(1000, 256).relu()
+    probas = torch.rand(size=(N, 1))
+    feats = torch.cat((feats, probas), dim=1)
+    labels = torch.randint(0, 50, size=(1000, ))
+    criterion = TripletCosineMarginLoss()
+    miner = DistanceWeightedMiner()
+    miner_output = miner(feats, labels)
+    loss = criterion(feats, labels, miner_output)
