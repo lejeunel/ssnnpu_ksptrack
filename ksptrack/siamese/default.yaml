@@ -11,6 +11,8 @@ tgt-update-period: 999
 cc-update-period: 10
 proba-update-period: 999
 cp-period: 10
+unlabeled-period: 5
+unlabeled-ratio: 0.5
 
 neg-mode: single
 
@@ -19,7 +21,7 @@ lr-dist: 1e-4
 lr-autoenc: 1e-4
 lr-assign: 1e-4
 decay : 1e-5
-lr-power : 0.99
+lr-power : 0.9
 momentum: 0.95
 
 # pairwise similarity

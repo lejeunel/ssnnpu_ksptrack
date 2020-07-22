@@ -7,7 +7,7 @@ from ksptrack.cfgs import params
 import numpy as np
 from skimage import (color, io, segmentation, draw)
 from ksptrack.utils.link_agent_gmm import LinkAgentGMM
-from ksptrack.utils.loc_prior_dataset import LocPriorDataset
+from ksptrack.siamese.tree_set_explorer import TreeSetExplorer
 import matplotlib.pyplot as plt
 import tqdm
 from os.path import join as pjoin
@@ -35,16 +35,20 @@ def main(cfg):
         probas = link_agent.obj_preds
         pm_scores_fg = utls.get_pm_array(link_agent.labels, probas)
     else:
-        pm = utls.calc_pm(desc_df,
-                          np.array(link_agent.get_all_entrance_sps(desc_df)),
-                          cfg.bag_n_feats, cfg.bag_t, cfg.bag_max_depth,
-                          cfg.bag_max_samples, cfg.bag_jobs)
-        pm_scores_fg = utls.get_pm_array(link_agent.labels, pm)
+        probas = utls.calc_pm(
+            desc_df, np.array(link_agent.get_all_entrance_sps(desc_df)),
+            cfg.bag_n_feats, cfg.bag_t, cfg.bag_max_depth, cfg.bag_max_samples,
+            cfg.bag_jobs)
+        pm_scores_fg = utls.get_pm_array(link_agent.labels, probas)
 
-    dl = LocPriorDataset(cfg.in_path,
-                         resize_shape=512,
-                         normalization='rescale_adapthist',
-                         csv_fname=cfg.csv_fname)
+    if cfg.use_aug_trees:
+        dl = TreeSetExplorer(cfg.in_path,
+                             resize_shape=512,
+                             normalization='rescale',
+                             csv_fname=cfg.csv_fname)
+    if cfg.n_augs > 0:
+        dl.make_candidates(probas, dl.dataset.labels)
+        dl.augment_positives(cfg.n_augs)
 
     cluster_maps = link_agent.make_cluster_maps()
 
@@ -73,6 +77,22 @@ def main(cfg):
                                            int(cfg.norm_neighbor_in *
                                                im1.shape[1]),
                                            shape=im1.shape)
+            pos_labels = dl[fin]['pos_labels']
+            pos_sps = [
+                dl[fin]['labels'] == l
+                for l in pos_labels[pos_labels['from_aug'] == False]
+            ]
+            aug_sps = [
+                dl[fin]['labels'] == l
+                for l in pos_labels[pos_labels['from_aug']]
+            ]
+            pos_ct = [segmentation.find_boundaries(p) for p in pos_sps]
+            aug_ct = [segmentation.find_boundaries(p) for p in aug_sps]
+
+            for p in pos_ct:
+                im1[p, ...] = (0, 255, 0)
+            for p in aug_ct:
+                im1[p, ...] = (0, 0, 255)
 
             im1[truth_ct, ...] = (255, 0, 0)
 
@@ -136,9 +156,10 @@ if __name__ == "__main__":
     p = params.get_params()
     p.add('--in-path', required=True)
     p.add('--siam-path', default='')
-    p.add('--siam-path-clst', default='')
     p.add('--use-siam-pred', default=False, action='store_true')
     p.add('--use-siam-trans', default=False, action='store_true')
+    p.add('--use-aug-trees', default=False, action='store_true')
+    p.add('--n-augs', type=int, default=0)
     p.add('--fin', nargs='+', type=int, default=[0])
     p.add('--save-path', default='')
     p.add('--do-all', default=False, action='store_true')

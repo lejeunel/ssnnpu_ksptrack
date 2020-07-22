@@ -14,6 +14,47 @@ from sklearn.neighbors import radius_neighbors_graph
 import im_utils as iutls
 
 
+def df_to_tgt(df):
+    target_pos = {
+        r['frame']: torch.zeros(r['n_labels'])
+        for _, r in df.iterrows()
+    }
+    target_aug = dict(target_pos)
+
+    for _, r in df.iterrows():
+        if r['from_aug']:
+            target_aug[r['frame']][r['label']] = 1.
+        else:
+            target_pos[r['frame']][r['label']] = 1.
+
+    frames = list(set([r['frame'] for _, r in df.iterrows()]))
+    target_pos = torch.cat([target_pos[f] for f in frames])
+    target_aug = torch.cat([target_aug[f] for f in frames])
+    target_neg = torch.zeros_like(target_pos)
+    target_neg[torch.logical_not(target_pos + target_aug)] = 1.
+
+    return target_pos, target_neg, target_aug
+
+
+def predict_and_augment(model, dataloader, device, tree_set_expl, n_samples):
+
+    predictions = []
+    print('predicting object...')
+    for s in dataloader:
+        s = batch_to_device(s, device)
+
+        pred = model(
+            s)['rho_hat_pooled'].sigmoid().squeeze().detach().cpu().numpy()
+
+        predictions.append(pred)
+
+    tree_set_expl.make_trees_and_positives(np.array(predictions))
+    tree_set_expl.make_unlabeled_candidates()
+    tree_set_expl.augment_positives(n_samples)
+
+    return tree_set_expl
+
+
 def make_edges_ccl(model,
                    dataloader,
                    device,

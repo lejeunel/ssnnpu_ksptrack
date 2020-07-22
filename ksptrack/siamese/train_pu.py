@@ -8,7 +8,6 @@ import yaml
 from imgaug import augmenters as iaa
 from skimage import io
 from tensorboardX import SummaryWriter
-from torch import sigmoid
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -16,16 +15,12 @@ import clustering as clst
 import params
 from ksptrack import prev_trans_costs
 from ksptrack.cfgs import params as params_ksp
-from ksptrack.siamese import train_init_clst
 from ksptrack.siamese import utils as utls
-from ksptrack.siamese.distrib_buffer import DistribBuffer
-from ksptrack.siamese.loader import StackLoader
-from ksptrack.siamese.losses import ClusterPULoss, TripletLoss
+from ksptrack.siamese.loader import Loader
+from ksptrack.siamese.losses import TreePULoss
 from ksptrack.siamese.modeling.siamese import Siamese
+from ksptrack.siamese.tree_set_explorer import TreeSetExplorer
 from ksptrack.utils.bagging import calc_bagging
-from ksptrack.siamese.train_siam import retrain_kmeans
-
-from sklearn.utils.class_weight import compute_class_weight
 
 
 def make_data_aug(cfg):
@@ -47,15 +42,8 @@ def make_data_aug(cfg):
     return transf
 
 
-def train_one_epoch(model,
-                    dataloaders,
-                    optimizers,
-                    device,
-                    lr_sch,
-                    cfg,
-                    epoch,
-                    probas,
-                    nodes_list=None):
+def train_one_epoch(model, dataloader, optimizers, device, epoch, lr_sch, cfg,
+                    probas, writer):
 
     model.train()
 
@@ -65,11 +53,10 @@ def train_one_epoch(model,
     all_probas = torch.cat(probas)
     pos_freq = ((all_probas >= 0.5).sum().float() /
                 all_probas.numel()).to(device)
-    criterion_obj_pred = ClusterPULoss(pi=cfg.pi_mul * pos_freq,
-                                       mode=cfg.neg_mode)
+    criterion_obj_pred = TreePULoss(pi=cfg.pi_mul * pos_freq)
 
-    pbar = tqdm(total=len(dataloaders['train']))
-    for i, data in enumerate(dataloaders['train']):
+    pbar = tqdm(total=len(dataloader))
+    for i, data in enumerate(dataloader):
         data = utls.batch_to_device(data, device)
 
         # forward
@@ -77,16 +64,12 @@ def train_one_epoch(model,
             for k in optimizers.keys():
                 optimizers[k].zero_grad()
 
-            nodes_ = nodes_list[data['frame_idx'][0]].to(device).detach()
-            # with torch.autograd.set_detect_anomaly(True):
             res = model(data)
 
             loss = 0
-            # probas_ = torch.cat([probas[f] for f in data['frame_idx']])
-            # alpha = (probas_ >= 0.5).sum().float() / probas_.numel()
 
             loss_obj_pred = criterion_obj_pred(res['rho_hat_pooled'].squeeze(),
-                                               nodes_, data)
+                                               data['pos_labels'])
             loss += loss_obj_pred
 
             # with torch.autograd.set_detect_anomaly(True):
@@ -102,17 +85,14 @@ def train_one_epoch(model,
         # running_recons += loss_recons.cpu().detach().numpy()
         running_obj_pred += loss_obj_pred.cpu().detach().numpy()
         loss_ = running_loss / ((i + 1) * cfg.batch_size)
+        niter = epoch * len(dataloader) + i
+        writer.add_scalar('train/loss', loss_, niter)
         pbar.set_description('lss {:.6e}'.format(loss_))
         pbar.update(1)
 
     pbar.close()
 
-    loss_obj_pred = running_obj_pred / (cfg.batch_size *
-                                        len(dataloaders['train']))
-
-    out = {'loss': loss_, 'loss_obj_pred': loss_obj_pred}
-
-    return out
+    loss_obj_pred = running_obj_pred / (cfg.batch_size * len(dataloader))
 
 
 def train(cfg, model, device, dataloaders, run_path):
@@ -134,6 +114,7 @@ def train(cfg, model, device, dataloaders, run_path):
     features, pos_masks = clst.get_features(model, dataloaders['init'], device)
     cat_features = np.concatenate(features['pooled_feats'])
     cat_pos_mask = np.concatenate(pos_masks)
+
     print('computing probability map')
     probas = calc_bagging(cat_features,
                           cat_pos_mask,
@@ -153,7 +134,18 @@ def train(cfg, model, device, dataloaders, run_path):
         torch.tensor(prior).to(device))
 
     n_labels = [m.shape[0] for m in pos_masks]
+    all_labels = [
+        np.array(s['labels']).squeeze() for s in dataloaders['init'].dataset
+    ]
     probas = torch.split(probas, n_labels)
+    dataloaders['train'].dataset.make_candidates(probas, all_labels)
+
+    all_pos = dataloaders['train'].dataset.positives
+    n_pos = all_pos[np.logical_not(all_pos['from_aug'])].shape[0]
+    max_n_augs = int(cfg.unlabeled_ratio *
+                     (pos_freq * np.concatenate(pos_masks).shape[0]) - n_pos)
+
+    aug_step = max_n_augs // (cfg.epochs_dist - cfg.epochs_pre_pred)
 
     if (not os.path.exists(rags_prevs_path)):
         os.makedirs(rags_prevs_path)
@@ -202,14 +194,6 @@ def train(cfg, model, device, dataloaders, run_path):
                                                cfg.lr_power)
     }
 
-    print('Generating connected components graphs')
-    _, nodes_list = utls.make_edges_ccl(model,
-                                        dataloaders['init'],
-                                        device,
-                                        return_signed=True,
-                                        return_nodes=True,
-                                        fully_connected=True)
-
     for epoch in range(cfg.epochs_dist):
 
         # save checkpoint
@@ -231,23 +215,32 @@ def train(cfg, model, device, dataloaders, run_path):
 
             cfg_ksp.siam_path = pjoin(run_path, 'checkpoints', cp_fname)
             cfg_ksp.use_siam_pred = True
+            cfg_ksp.use_aug_trees = True
+            cfg_ksp.n_augs = n_aug
             prev_ims = prev_trans_costs.main(cfg_ksp)
             io.imsave(pjoin(out_path, 'ep_{:04d}.png'.format(epoch)), prev_ims)
 
         print('epoch {}/{}. Mode: {}'.format(epoch, cfg.epochs_dist, 'pred'))
-        res = train_one_epoch(model,
-                              dataloaders,
-                              optimizers,
-                              device,
-                              lr_sch,
-                              cfg,
-                              epoch=epoch,
-                              probas=probas,
-                              nodes_list=nodes_list)
+        if (epoch % cfg.unlabeled_period == 0) and epoch > 0:
+            print('augmenting positive set')
+            dataloaders['train'].dataset.augment_positives(aug_step)
+            pos_df = dataloaders['train'].positives
+            n_pos = pos_df[np.logical_not(pos_df['from_aug'])].shape[0]
+            n_aug = pos_df[pos_df['from_aug']].shape[0]
+            print('n_positives: {}'.format(n_pos))
+            print('n_augmented: {}'.format(n_aug))
+            writer.add_scalar('n_aug', n_aug, epoch)
+            writer.add_scalar('n_pos', n_aug, epoch)
 
-        # write losses to tensorboard
-        for k, v in res.items():
-            writer.add_scalar(k, v, epoch)
+        train_one_epoch(model,
+                        dataloaders['train'],
+                        optimizers,
+                        device,
+                        epoch,
+                        lr_sch,
+                        cfg,
+                        probas=probas,
+                        writer=writer)
 
     return model
 
@@ -267,16 +260,14 @@ def main(cfg):
 
     transf = make_data_aug(cfg)
 
-    dl_train = StackLoader(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
-                           depth=2,
-                           normalization='rescale_stretching',
-                           augmentations=transf,
-                           resize_shape=cfg.in_shape)
+    dl_train = TreeSetExplorer(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
+                               normalization='rescale',
+                               augmentations=transf,
+                               resize_shape=cfg.in_shape)
 
-    dl_init = StackLoader(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
-                          depth=2,
-                          normalization='rescale_stretching',
-                          resize_shape=cfg.in_shape)
+    dl_init = TreeSetExplorer(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
+                              normalization='rescale',
+                              loader_class=Loader)
 
     frames_tnsr_brd = np.linspace(0,
                                   len(dl_train) - 1,

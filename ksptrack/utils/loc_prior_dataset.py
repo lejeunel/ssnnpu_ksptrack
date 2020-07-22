@@ -1,6 +1,6 @@
-from ksptrack.utils.base_dataset import BaseDataset, make_normalizer
+from ksptrack.utils.base_dataset import BaseDataset, make_normalizer, base_apply_augs
 from ksptrack.utils.kps_label import KeypointsOnLabelMap
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from os.path import join as pjoin
 import os
 import pandas as pd
@@ -8,13 +8,20 @@ import numpy as np
 import imgaug as ia
 from torch.utils import data
 import torch
-import matplotlib.pyplot as plt
 from imgaug import augmenters as iaa
 import matplotlib.pyplot as plt
 from skimage.draw import circle
 from skimage import segmentation
 from scipy import ndimage as nd
 import networkx as nx
+
+
+def loc_apply_augs(im, labels, truth, keypoints, aug):
+
+    im, labels, truth = base_apply_augs(im, labels, truth, aug)
+
+    keypoints = aug.augment_keypoints(keypoints)
+    return im, labels, truth, keypoints
 
 
 def make_1d_gauss(length, std, x0):
@@ -74,7 +81,7 @@ def coord2Pixel(x, y, width, height):
     return i, j
 
 
-class LocPriorDataset(BaseDataset, data.Dataset):
+class LocPriorDataset(BaseDataset):
     """
     Adds objectness prior using 2d locations
     """
@@ -83,6 +90,7 @@ class LocPriorDataset(BaseDataset, data.Dataset):
                  augmentations=None,
                  normalization=iaa.Noop(),
                  resize_shape=None,
+                 sp_labels_fname='sp_labels.npy',
                  csv_fname='video1.csv',
                  sig_prior=0.04):
         super().__init__(root_path=root_path)
@@ -94,7 +102,8 @@ class LocPriorDataset(BaseDataset, data.Dataset):
         else:
             raise Exception('couldnt find 2d locs file {}'.format(locs2d_path))
 
-        self.__normalization = make_normalizer(normalization, self.imgs)
+        self.__normalization = make_normalizer(normalization,
+                                               map(lambda s: s['image'], self))
 
         self.__reshaper = iaa.Noop()
         self.__augmentations = iaa.Noop()
@@ -109,7 +118,7 @@ class LocPriorDataset(BaseDataset, data.Dataset):
 
         sample = super(LocPriorDataset, self).__getitem__(idx)
 
-        orig_shape = self.imgs[0].shape[:2]
+        orig_shape = sample['image'].shape[:2]
 
         locs = self.locs2d[self.locs2d['frame'] == idx]
         locs = [
@@ -120,35 +129,35 @@ class LocPriorDataset(BaseDataset, data.Dataset):
         keypoints = ia.KeypointsOnImage(
             [ia.Keypoint(x=l[1], y=l[0]) for l in locs],
             shape=sample['labels'].squeeze().shape)
-        truth = ia.SegmentationMapsOnImage(
-            sample['label/segmentation'].squeeze(),
-            shape=sample['label/segmentation'].shape[:2])
-        labels = ia.SegmentationMapsOnImage(sample['labels'].squeeze(),
-                                            shape=sample['labels'].shape[:2])
 
         aug = iaa.Sequential(
             [self.__reshaper, self.__augmentations, self.__normalization])
         aug_det = aug.to_deterministic()
 
-        im = aug_det(image=sample['image'])
-        truth = aug_det(segmentation_maps=truth).get_arr()[..., None]
-        labels = aug_det(segmentation_maps=labels).get_arr()[..., None]
-        keypoints = aug_det.augment_keypoints(keypoints)
-        shape = im.shape[:2]
+        sample['image'], sample['labels'], sample[
+            'label/segmentation'], keypoints = loc_apply_augs(
+                sample['image'], sample['labels'],
+                sample['label/segmentation'], keypoints, aug_det)
+        shape = sample['image'].shape[:2]
         keypoints = ia.KeypointsOnImage([
             ia.Keypoint(np.clip(k.x, a_min=0, a_max=shape[1] - 1),
                         np.clip(k.y, a_min=0, a_max=shape[0] - 1))
             for k in keypoints
         ], shape)
         keypoints.labels = [
-            labels[k.y_int, k.x_int, 0] for k in keypoints.keypoints
+            sample['labels'][k.y_int, k.x_int, 0] for k in keypoints.keypoints
         ]
-        # keypoints.update_labels([sample['labels'].squeeze()])
+        pos_labels = pd.DataFrame([{
+            'frame':
+            idx,
+            'label':
+            l,
+            'n_labels':
+            np.unique(sample['labels']).shape[0]
+        } for l in keypoints.labels])
 
-        sample['labels'] = labels
-        sample['label/segmentation'] = truth
-        sample['image'] = im
         sample['loc_keypoints'] = keypoints
+        sample['pos_labels'] = pos_labels
 
         return sample
 
@@ -158,6 +167,7 @@ class LocPriorDataset(BaseDataset, data.Dataset):
         out = super(LocPriorDataset, LocPriorDataset).collate_fn(data)
 
         out['loc_keypoints'] = [d['loc_keypoints'] for d in data]
+        out['pos_labels'] = pd.concat(out['pos_labels'])
 
         return out
 
@@ -184,8 +194,6 @@ if __name__ == "__main__":
     cmap = plt.get_cmap('viridis')
     for data in dl:
 
-        import pdb
-        pdb.set_trace()  ## DEBUG ##
         im = (255 * np.rollaxis(data['image'].squeeze().detach().cpu().numpy(),
                                 0, 3)).astype(np.uint8)
         labels = data['labels'].squeeze().detach().cpu().numpy()

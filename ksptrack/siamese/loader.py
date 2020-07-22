@@ -7,9 +7,8 @@ from torch.utils.data import DataLoader, Dataset, SequentialSampler, Sampler
 from torch.utils import data
 from tqdm import tqdm
 import pandas as pd
-from ksptrack.utils.loc_prior_dataset import LocPriorDataset
+from ksptrack.utils.loc_prior_dataset import LocPriorDataset, loc_apply_augs
 from ksptrack.utils.base_dataset import make_normalizer
-from ksptrack.siamese import im_utils as iutls
 from skimage.future import graph as skg
 import random
 import networkx as nx
@@ -19,30 +18,83 @@ from imgaug import augmenters as iaa
 import imgaug as ia
 
 
-def _add_edge_filter(values, g):
-    """Add an edge between first element in `values` and
-    all other elements of `values` in the graph `g`.
-    `values[0]` is expected to be the central value of
-    the footprint used.
+def apply_augs(im,
+               labels,
+               truth,
+               keypoints,
+               fx,
+               fy,
+               fnorm,
+               aug,
+               min_fx=-2,
+               max_fx=2,
+               min_fy=-2,
+               max_fy=2):
 
-    Parameters
-    ----------
-    values : array
-        The array to process.
-    g : RAG
-        The graph to add edges in.
+    aug_norescale = iaa.Sequential(aug[:-1])
+    fnorm = ia.HeatmapsOnImage(fnorm, shape=im.shape)
+    fx = ia.HeatmapsOnImage(fx,
+                            shape=im.shape,
+                            min_value=min_fx,
+                            max_value=max_fx)
+    fy = ia.HeatmapsOnImage(fy,
+                            shape=im.shape,
+                            min_value=min_fy,
+                            max_value=max_fy)
 
-    Returns
-    -------
-    0.0 : float
-        Always returns 0.
+    fnorm = aug_norescale(heatmaps=fnorm).get_arr()
+    fx = aug_norescale(heatmaps=fx).get_arr()
+    fy = aug_norescale(heatmaps=fy).get_arr()
+    im, labels, truth, keypoints = loc_apply_augs(im, labels, truth, keypoints,
+                                                  aug)
 
+    return im, labels, truth, keypoints, fx, fy, fnorm
+
+
+def linearize_labels(label_map, labels=None):
     """
-    values = values.astype(int)
-    current = values[0]
-    for value in values[1:]:
-        g.add_edge(current, value)
-    return 0.0
+    Converts a batch of label maps and labels each numbered starting from 0
+    to have unique labels on the whole batch
+
+    label_map: list of label maps
+    labels: list of labels
+    """
+    if (labels is not None):
+        assert (len(label_map) == len(labels)
+                ), print('label_map and labels must have same length')
+
+    max_label = 0
+    for b in range(len(label_map)):
+
+        label_map[b] += max_label
+        if labels is not None:
+            labels[b] = [l + max_label for l in labels[b]]
+        max_label += label_map[b].max() + 1
+
+    if labels is not None:
+        return label_map, labels
+    else:
+        return label_map
+
+
+def delinearize_labels(label_map, labels):
+    """
+    Converts a batch of label maps and labels each with unique values to
+    a batch where each start at 0
+
+    label_map: list of label maps
+    labels: list of labels
+    """
+    assert (len(label_map) == len(labels)
+            ), print('label_map and labels must have same length')
+    curr_min_label = 0
+    for b in range(len(label_map)):
+
+        label_map[b] -= curr_min_label
+        labels[b] = [l - curr_min_label for l in labels[b]]
+        curr_min_label -= label_map[b].max() + 1
+
+    return label_map, labels
 
 
 class Loader(LocPriorDataset):
@@ -52,56 +104,48 @@ class Loader(LocPriorDataset):
                  normalization=None,
                  resize_shape=None,
                  csv_fname='video1.csv',
-                 labels_fname='sp_labels.npz',
-                 sig_prior=0.1,
-                 nn_radius=0.1):
+                 sp_labels_fname='sp_labels.npy',
+                 sig_prior=0.1):
         """
 
         """
         super().__init__(root_path=root_path,
                          csv_fname=csv_fname,
+                         sp_labels_fname=sp_labels_fname,
                          sig_prior=sig_prior)
 
-        self.nn_radius = nn_radius
-
-        self.hoof = pd.read_pickle(pjoin(root_path, 'precomp_desc', 'hoof.p'))
-
-        graphs_path = pjoin(root_path, 'precomp_desc', 'siam_graphs.npz')
-        if (not os.path.exists(graphs_path)):
+        self.graphs_path = pjoin(root_path, 'precomp_desc', 'graphs_nodepth')
+        if (not os.path.exists(self.graphs_path)):
             self.prepare_graphs()
-            np.savez(graphs_path, **{'graphs': self.graphs})
-        else:
-            print('loading graphs at {}'.format(graphs_path))
-            np_file = np.load(graphs_path, allow_pickle=True)
-            self.graphs = np_file['graphs']
 
-        npzfile = np.load(pjoin(root_path, 'precomp_desc', 'flows.npz'))
-        flows = dict()
-        flows['bvx'] = npzfile['bvx']
-        flows['fvx'] = npzfile['fvx']
-        flows['bvy'] = npzfile['bvy']
-        flows['fvy'] = npzfile['fvy']
-        fx = np.rollaxis(
-            np.concatenate((flows['fvx'], flows['fvx'][..., -1][..., None]),
-                           axis=-1), -1, 0)
-        fy = np.rollaxis(
-            np.concatenate((flows['fvy'], flows['fvy'][..., -1][..., None]),
-                           axis=-1), -1, 0)
-        fv = np.sqrt(fx**2 + fy**2)
-        self.fv = [(f - f.min()) / (f.max() - f.min() + 1e-8) for f in fv]
-        self.fx = [(f - f.min()) / (f.max() - f.min() + 1e-8) for f in fx]
-        self.fy = [(f - f.min()) / (f.max() - f.min() + 1e-8) for f in fy]
+            os.makedirs(self.graphs_path)
+            for i, g in enumerate(self.graphs):
+                pickle.dump(
+                    g,
+                    open(pjoin(self.graphs_path, 'graph_{:04d}.p'.format(i)),
+                         "wb"))
 
-        self.normalization = make_normalizer(normalization, self.imgs)
+        self.fvx = np.load(pjoin(root_path, 'precomp_desc', 'flows_fvx.npy'),
+                           mmap_mode='r')
+        self.fvy = np.load(pjoin(root_path, 'precomp_desc', 'flows_fvy.npy'),
+                           mmap_mode='r')
+        self.bvx = np.load(pjoin(root_path, 'precomp_desc', 'flows_bvx.npy'),
+                           mmap_mode='r')
+        self.bvx = np.load(pjoin(root_path, 'precomp_desc', 'flows_bvy.npy'),
+                           mmap_mode='r')
 
-        self.reshaper = iaa.Noop()
-        self.augmentations = iaa.Noop()
+        self.___augmentations = iaa.Noop()
+        self.___reshaper = iaa.Noop()
+        self.___normalization = iaa.Noop()
+
+        self.___normalization = make_normalizer(
+            normalization, map(lambda s: s['image'], self))
 
         if (augmentations is not None):
-            self.augmentations = augmentations
+            self.___augmentations = augmentations
 
         if (resize_shape is not None):
-            self.reshaper = iaa.size.Resize(resize_shape)
+            self.___reshaper = iaa.size.Resize(resize_shape)
 
     def prepare_graphs(self):
 
@@ -109,10 +153,9 @@ class Loader(LocPriorDataset):
 
         print('preparing graphs...')
 
-        pbar = tqdm(total=len(self.imgs))
-        for idx, (im, truth) in enumerate(zip(self.imgs, self.truths)):
-            labels = self.labels[..., idx]
-            graph = skg.RAG(label_image=labels)
+        pbar = tqdm(total=len(self))
+        for label in self.labels:
+            graph = skg.RAG(label_image=label)
             self.graphs.append(graph)
             pbar.update(1)
         pbar.close()
@@ -120,53 +163,22 @@ class Loader(LocPriorDataset):
     def __getitem__(self, idx):
         sample = super().__getitem__(idx)
 
+        fx = self.fvx[idx]
+        fy = self.fvy[idx]
+        fnorm = np.linalg.norm(np.stack((fx, fy)), axis=0)
+
         aug = iaa.Sequential(
-            [self.reshaper, self.augmentations, self.normalization])
-        aug_det = aug.to_deterministic()
+            [self.___reshaper, self.___augmentations, self.___normalization])
+        aug = aug.to_deterministic()
+        sample['image'], sample['labels'], sample[
+            'label/segmentation'], sample['loc_keypoints'], sample[
+                'fx'], sample['fy'], sample['fnorm'] = apply_augs(
+                    sample['image'], sample['labels'].squeeze(),
+                    sample['label/segmentation'].squeeze(),
+                    sample['loc_keypoints'], fx, fy, fnorm, aug)
 
-        max_node = 0
-        clicked = []
-        shape = self.fv[0].shape
-
-        fnorm = ia.HeatmapsOnImage(self.fv[idx], shape=shape)
-        fx = ia.HeatmapsOnImage(self.fx[idx], shape=shape)
-        fy = ia.HeatmapsOnImage(self.fy[idx], shape=shape)
-
-        fnorm = aug_det(heatmaps=fnorm).get_arr()
-        sample['fnorm'] = fnorm
-
-        fx = aug_det(heatmaps=fx).get_arr()
-        sample['fx'] = fx
-
-        fy = aug_det(heatmaps=fy).get_arr()
-        sample['fy'] = fy
-
-        im = sample['image']
-        shape = im.shape[:2]
-        labels = ia.SegmentationMapsOnImage(sample['labels'].squeeze(),
-                                            shape=shape)
-        truth = ia.SegmentationMapsOnImage(
-            sample['label/segmentation'].squeeze(), shape=shape)
-        sample['image'] = aug_det(image=im)
-        sample['labels'] = aug_det(
-            segmentation_maps=labels).get_arr()[..., None] + max_node
-        sample['label/segmentation'] = aug_det(
-            segmentation_maps=truth).get_arr()[..., None]
-
-        keypoints = aug_det.augment_keypoints(sample['loc_keypoints'])
-        keypoints.clip_out_of_image_()
-        keypoints.labels = [
-            sample['labels'][k.y_int, k.x_int, 0] for k in keypoints.keypoints
-        ]
-
-        for kp in keypoints:
-            kp_ = (kp.y_int, kp.x_int)
-            clicked.append(sample['labels'][kp_[0], kp_[1], 0])
-        max_node += sample['labels'].max() + 1
-
-        sample['clicked'] = clicked
-
-        sample['graph'] = self.graphs[idx]
+        sample['graph'] = pickle.load(
+            open(pjoin(self.graphs_path, 'graph_{:04d}.p'.format(idx)), "rb"))
 
         return sample
 
@@ -187,15 +199,12 @@ class Loader(LocPriorDataset):
         fy = torch.stack([torch.from_numpy(f) for f in fy]).float()
         out['fy'] = fy
 
-        out['clicked'] = [s['clicked'] for s in samples]
-        out['clicked'] = [
-            item for sublist in out['clicked'] for item in sublist
-        ]
+        out['pos_labels'] = pd.concat([s['pos_labels'] for s in samples])
 
         return out
 
 
-class StackLoader(data.Dataset):
+class StackLoader(Loader):
     def __init__(self,
                  root_path,
                  depth=2,
@@ -203,61 +212,43 @@ class StackLoader(data.Dataset):
                  normalization=None,
                  resize_shape=None,
                  csv_fname='video1.csv',
-                 labels_fname='sp_labels.npz',
+                 sp_labels_fname='sp_labels.npz',
                  sig_prior=0.05,
                  nn_radius=0.1):
         """
 
         """
-        super(StackLoader, self).__init__()
+        super().__init__(root_path=root_path,
+                         csv_fname=csv_fname,
+                         sig_prior=sig_prior,
+                         sp_labels_fname=sp_labels_fname)
 
-        self.single_loader = LocPriorDataset(root_path=root_path,
-                                             csv_fname=csv_fname,
-                                             sig_prior=sig_prior)
-
-        if (resize_shape is not None):
-            self.reshaper = iaa.size.Resize(resize_shape)
-
-        self.normalization = make_normalizer(normalization,
-                                             self.single_loader.imgs)
-
-        self.augmentations = iaa.Noop()
-        if (augmentations is not None):
-            self.augmentations = augmentations
-
-        self.nn_radius = nn_radius
         self.depth = depth
 
-        self.hoof = pd.read_pickle(pjoin(root_path, 'precomp_desc', 'hoof.p'))
-
-        graphs_path = pjoin(root_path, 'precomp_desc',
-                            'graphs_depth_{}.p'.format(self.depth))
-        if (not os.path.exists(graphs_path)):
+        self.graphs_path = pjoin(root_path, 'precomp_desc',
+                                 'graphs_depth_{}'.format(self.depth))
+        if (not os.path.exists(self.graphs_path)):
             self.prepare_graphs()
-            pickle.dump(self.graphs, open(graphs_path, "wb"))
-        else:
-            print('loading graphs at {}'.format(graphs_path))
-            self.graphs = pickle.load(open(graphs_path, "rb"))
 
-        self.labels = np.load(pjoin(root_path, 'precomp_desc',
-                                    'sp_labels.npz'))['sp_labels']
+            os.makedirs(self.graphs_path)
+            for i, g in enumerate(self.graphs):
+                pickle.dump(
+                    g,
+                    open(pjoin(self.graphs_path, 'graph_{:04d}.p'.format(i)),
+                         "wb"))
 
-        npzfile = np.load(pjoin(root_path, 'precomp_desc', 'flows.npz'))
-        flows = dict()
-        flows['bvx'] = npzfile['bvx']
-        flows['fvx'] = npzfile['fvx']
-        flows['bvy'] = npzfile['bvy']
-        flows['fvy'] = npzfile['fvy']
-        self.fx = np.rollaxis(
-            np.concatenate((flows['fvx'], flows['fvx'][..., -1][..., None]),
-                           axis=-1), -1, 0)
-        self.fy = np.rollaxis(
-            np.concatenate((flows['fvy'], flows['fvy'][..., -1][..., None]),
-                           axis=-1), -1, 0)
-        self.fv = np.sqrt(self.fx**2 + self.fy**2)
-        self.fv = [(f - f.min()) / (f.max() - f.min() + 1e-8) for f in self.fv]
-        self.fx = [(f - f.min()) / (f.max() - f.min() + 1e-8) for f in self.fx]
-        self.fy = [(f - f.min()) / (f.max() - f.min() + 1e-8) for f in self.fy]
+        self.____augmentations = iaa.Noop()
+        self.____reshaper = iaa.Noop()
+        self.____normalization = iaa.Noop()
+
+        self.____normalization = make_normalizer(
+            normalization, map(lambda s: s['image'], self))
+
+        if (augmentations is not None):
+            self.____augmentations = augmentations
+
+        if (resize_shape is not None):
+            self.____reshaper = iaa.size.Resize(resize_shape)
 
     def prepare_graphs(self):
 
@@ -267,11 +258,13 @@ class StackLoader(data.Dataset):
         self.graphs = []
 
         print('preparing graphs...')
-        pbar = tqdm(total=len(self.single_loader) - (self.depth - 1))
-        for i in range(len(self.single_loader) - self.depth + 1):
+        len_ = super(StackLoader, StackLoader).__len__(self) - (self.depth - 1)
+        pbar = tqdm(total=len_)
+        for i in range(len_):
             labels = np.array([
-                self.single_loader[i]['labels'].squeeze()
-                for i in range(i, i + self.depth)
+                super(StackLoader,
+                      StackLoader).__getitem__(self, j)['labels'].squeeze()
+                for j in range(i, i + self.depth)
             ])
             max_node = 0
             for d in range(self.depth):
@@ -296,151 +289,85 @@ class StackLoader(data.Dataset):
 
     def __getitem__(self, idx):
 
-        samples = [self.single_loader[i] for i in range(idx, idx + self.depth)]
+        samples = [
+            super(StackLoader, StackLoader).__getitem__(self, i)
+            for i in range(idx, idx + self.depth)
+        ]
 
-        aug = iaa.Sequential(
-            [self.reshaper, self.augmentations, self.normalization])
-        aug_det = aug.to_deterministic()
+        aug = iaa.Sequential([
+            self.____reshaper, self.____augmentations, self.____normalization
+        ])
+        aug = aug.to_deterministic()
 
-        max_node = 0
-        clicked = []
-        shape = self.fv[0].shape
-        for i in range(self.depth):
-            fnorm = ia.HeatmapsOnImage(self.fv[idx + i], shape=shape)
-            fx = ia.HeatmapsOnImage(self.fx[idx + i], shape=shape)
-            fy = ia.HeatmapsOnImage(self.fy[idx + i], shape=shape)
+        for s in samples:
 
-            fnorm = aug_det(heatmaps=fnorm).get_arr()
-            samples[i]['fnorm'] = fnorm
+            s['image'], s['labels'], s['label/segmentation'], s[
+                'loc_keypoints'], s['fx'], s['fy'], s['fnorm'] = apply_augs(
+                    s['image'], s['labels'], s['label/segmentation'],
+                    s['loc_keypoints'], s['fx'], s['fy'], s['fnorm'], aug)
 
-            fx = aug_det(heatmaps=fx).get_arr()
-            samples[i]['fx'] = fx
+        cat_sample = {}
+        for k in samples[0].keys():
+            cat_sample[k] = [samples[i][k] for i in range(len(samples))]
 
-            fy = aug_det(heatmaps=fy).get_arr()
-            samples[i]['fy'] = fy
+        cat_sample['graph'] = pickle.load(
+            open(pjoin(self.graphs_path, 'graph_{:04d}.p'.format(idx)), "rb"))
 
-            im = samples[i]['image']
-            shape = im.shape[:2]
-            labels = ia.SegmentationMapsOnImage(samples[i]['labels'].squeeze(),
-                                                shape=shape)
-            truth = ia.SegmentationMapsOnImage(
-                samples[i]['label/segmentation'].squeeze(), shape=shape)
-            samples[i]['image'] = aug_det(image=im)
-            samples[i]['labels'] = aug_det(
-                segmentation_maps=labels).get_arr()[..., None] + max_node
-            samples[i]['label/segmentation'] = aug_det(
-                segmentation_maps=truth).get_arr()[..., None]
+        cat_sample['pos_labels'] = pd.concat(cat_sample['pos_labels'])
 
-            keypoints = aug_det.augment_keypoints(samples[i]['loc_keypoints'])
-            shape = im.shape[:2]
-            keypoints = ia.KeypointsOnImage([
-                ia.Keypoint(np.clip(k.x, a_min=0, a_max=shape[1] - 1),
-                            np.clip(k.y, a_min=0, a_max=shape[0] - 1))
-                for k in keypoints
-            ], shape)
-
-            keypoints.clip_out_of_image_()
-            keypoints.labels = [
-                samples[i]['labels'][k.y_int, k.x_int, 0]
-                for k in keypoints.keypoints
-            ]
-
-            for kp in keypoints:
-                kp_ = (kp.y_int, kp.x_int)
-                clicked.append(samples[i]['labels'][kp_[0], kp_[1], 0])
-            max_node += samples[i]['labels'].max() + 1
-
-        return samples, self.graphs[idx], clicked
+        return cat_sample
 
     def __len__(self):
-        return len(self.single_loader.imgs) - (self.depth - 1)
-        # return len(self.imgs)
+        return super().__len__() - (self.depth - 1)
 
-    def collate_fn(self, samples):
-        out = dict()
-        out['graph'] = samples[0][1]
-        clicked = samples[0][2]
+    def collate_fn(self, sample):
+        to_cat = ['image', 'label/segmentation', 'labels', 'fnorm', 'fx', 'fy']
 
-        samples = samples[0][0]
-        out_ = self.single_loader.collate_fn(samples)
-        out.update(out_)
+        assert len(sample) == 1, print(
+            'set batch_size to 1 and modify depth instead')
 
-        fnorm = [np.rollaxis(d['fnorm'], -1) for d in samples]
-        fnorm = torch.stack([torch.from_numpy(f) for f in fnorm]).float()
-        out['fnorm'] = fnorm
+        sample = sample[0]
 
-        fx = [np.rollaxis(d['fx'], -1) for d in samples]
-        fx = torch.stack([torch.from_numpy(f) for f in fx]).float()
-        out['fx'] = fx
+        for k in sample.keys():
+            if (k in to_cat):
+                sample[k] = np.array([
+                    np.moveaxis(sample[k][i], -1, 0)
+                    for i in range(len(sample[k]))
+                ])
+                sample[k] = torch.from_numpy(sample[k]).float()
 
-        fy = [np.rollaxis(d['fy'], -1) for d in samples]
-        fy = torch.stack([torch.from_numpy(f) for f in fy]).float()
-        out['fy'] = fy
-
-        out['clicked'] = clicked
-
-        im = [np.rollaxis(d['image'], -1) for d in samples]
-        im = torch.stack([torch.from_numpy(i).float() for i in im])
-
-        truth = [np.rollaxis(d['label/segmentation'], -1) for d in samples]
-        truth = torch.stack([torch.from_numpy(i) for i in truth]).float()
-
-        labels = [np.rollaxis(d['labels'], -1) for d in samples]
-        labels = torch.stack([torch.from_numpy(i) for i in labels]).float()
-        out['labels'] = labels
-        out['label/segmentation'] = truth
-        out['image'] = im
-
-        return out
+        return sample
 
 
 if __name__ == "__main__":
-    from skimage import io
-    from ksptrack.siamese import utils as utls
-    from ksptrack.siamese.modeling.siamese import Siamese
-    from ksptrack.siamese.losses import do_previews
-    import matplotlib.pyplot as plt
 
-    root_path = '/home/ubelix/artorg/lejeune'
+    root_path = '/home/ubelix/lejeune'
     run_path = 'runs/siamese_dec/Dataset30'
     transf = iaa.Sequential(
         [iaa.Flipud(p=0.5),
          iaa.Fliplr(p=0.5),
          iaa.Rot90((1, 3))])
+    import matplotlib.pyplot as plt
 
-    dset = Loader(
+    dset = StackLoader(
         root_path=pjoin(root_path, 'data/medical-labeling/Dataset30'),
-        # '/home/ubelix/lejeune/data/medical-labeling/Dataset30'),
+        # depth=2,
+        augmentations=transf,
         normalization='rescale',
         resize_shape=512)
-    # dset = LocPriorDataset(root_path=pjoin(
-    #     '/home/ubelix/lejeune/data/medical-labeling/Dataset00'),
-    #                        normalization='rescale',
-    #                        augmentations=transf,
-    #                        resize_shape=512)
-    dl = DataLoader(dset, collate_fn=dset.collate_fn)
 
-    device = torch.device('cpu')
+    for s in dset:
+        plt.subplot(231)
+        plt.imshow(s['image'][0])
+        plt.subplot(232)
+        plt.imshow(s['labels'][0].squeeze())
+        plt.subplot(233)
+        plt.imshow(s['label/segmentation'][0].squeeze())
 
-    model = Siamese(embedded_dims=15, cluster_number=15,
-                    backbone='unet').to(device)
-    cp = pjoin(root_path, run_path, 'checkpoints/init_dec.pth.tar')
-    state_dict = torch.load(cp, map_location=lambda storage, loc: storage)
-    model.load_state_dict(state_dict)
-
-    cmap = plt.get_cmap('viridis')
-    import pdb
-    pdb.set_trace()  ## DEBUG ##
-    for data in dl:
-
-        im = (255 * np.rollaxis(data['image'].squeeze().detach().cpu().numpy(),
-                                0, 3)).astype(np.uint8)
-        labels = data['labels'].squeeze().detach().cpu().numpy()
-        labels = (cmap((labels.astype(float) / labels.max() * 255).astype(
-            np.uint8))[..., :3] * 255).astype(np.uint8)
-        clusters = model(data)['clusters']
-        clusters = iutls.make_clusters(labels, clusters)
-        all_ = np.concatenate((im, labels, clusters))
-        io.imsave(
-            pjoin(root_path, run_path, '{}.png'.format(data['frame_idx'][0])),
-            all_)
+        plt.subplot(234)
+        plt.imshow(s['image'][1])
+        plt.subplot(235)
+        plt.imshow(s['labels'][1].squeeze())
+        plt.subplot(236)
+        plt.imshow(s['label/segmentation'][1].squeeze())
+        plt.show()

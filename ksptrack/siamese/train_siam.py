@@ -19,8 +19,8 @@ from ksptrack.cfgs import params as params_ksp
 from ksptrack.siamese import train_init_clst
 from ksptrack.siamese import utils as utls
 from ksptrack.siamese.distrib_buffer import DistribBuffer
-from ksptrack.siamese.loader import StackLoader
-from ksptrack.siamese.losses import ClusterPULoss, TripletCosineMarginLoss, DistanceWeightedMiner
+from ksptrack.siamese.tree_set_explorer import TreeSetExplorer
+from ksptrack.siamese.losses import TreePULoss, TripletCosineMarginLoss, DistanceWeightedMiner
 from ksptrack.siamese.modeling.siamese import Siamese
 from ksptrack.utils.bagging import calc_bagging
 
@@ -75,7 +75,6 @@ def train_one_epoch(model, dataloaders, optimizers, device, lr_sch, cfg,
     model.train()
 
     running_loss = 0.0
-    running_clst = 0.0
     running_reg = 0.0
     running_pw = 0.0
     running_obj_pred = 0.0
@@ -85,8 +84,7 @@ def train_one_epoch(model, dataloaders, optimizers, device, lr_sch, cfg,
     all_probas = torch.cat(probas)
     pos_freq = ((all_probas >= 0.5).sum().float() /
                 all_probas.numel()).to(device)
-    criterion_obj_pred = ClusterPULoss(pi=cfg.pi_mul * pos_freq,
-                                       mode=cfg.neg_mode)
+    criterion_obj_pred = TreePULoss(pi=cfg.pi_mul * pos_freq)
 
     pbar = tqdm(total=len(dataloaders['train']))
     for i, data in enumerate(dataloaders['train']):
@@ -97,14 +95,27 @@ def train_one_epoch(model, dataloaders, optimizers, device, lr_sch, cfg,
             for k in optimizers.keys():
                 optimizers[k].zero_grad()
 
-            nodes_ = nodes_list[data['frame_idx'][0]].to(device).detach()
-            res = model(data)
+            if not cfg.pw:
+                nodes_ = nodes_list[data['frame_idx'][0]].to(device).detach()
+                res = model(data)
 
-            loss = 0
+                loss = 0
 
-            loss_obj_pred = criterion_obj_pred(res['rho_hat_pooled'].squeeze(),
-                                               nodes_, data)
-            loss += loss_obj_pred
+                import pdb
+                pdb.set_trace()  ## DEBUG ##
+                loss_obj_pred = criterion_obj_pred(
+                    res['rho_hat_pooled'].squeeze(), data['pos_labels'])
+                loss += loss_obj_pred
+
+                # regularize norms to be ~1
+                loss_reg = ((1 - res['siam_feats'].norm(dim=1))**2).mean()
+                loss += cfg.delta * loss_reg
+
+                loss.backward()
+                optimizers['feats'].step()
+                lr_sch['feats'].step()
+                optimizers['pred'].step()
+                lr_sch['pred'].step()
 
             if (cfg.pw):
                 miner_output = miner_pw(
@@ -116,30 +127,20 @@ def train_one_epoch(model, dataloaders, optimizers, device, lr_sch, cfg,
                                        sigma=model.cs_sigma.sigmoid(),
                                        indices_tuple=miner_output)
                 loss += cfg.lambda_ * loss_pw
-                # print(model.cs_sigma)
 
-                # regularize norms to be ~1
-                loss_reg = ((1 - res['siam_feats'].norm(dim=1))**2).mean()
-                loss += cfg.delta * loss_reg
+                loss.backward()
 
-            # with torch.autograd.set_detect_anomaly(True):
-            loss.backward()
-
-            optimizers['feats'].step()
-            lr_sch['feats'].step()
-            optimizers['pred'].step()
-            lr_sch['pred'].step()
-            if (cfg.pw):
                 optimizers['gcns'].step()
                 lr_sch['gcns'].step()
                 optimizers['sigma'].step()
                 lr_sch['sigma'].step()
 
         running_loss += loss.item()
-        running_obj_pred += loss_obj_pred.item()
-        if (cfg.pw):
+        if cfg.pw:
             running_pw += loss_pw.item()
             running_reg += loss_reg.item()
+        else:
+            running_obj_pred += loss_obj_pred.item()
         loss_ = running_loss / ((i + 1) * cfg.batch_size)
         pbar.set_description('lss {:.6e}'.format(loss_))
         pbar.update(1)
@@ -152,7 +153,6 @@ def train_one_epoch(model, dataloaders, optimizers, device, lr_sch, cfg,
     # loss_recons = running_recons / (cfg.batch_size * len(dataloaders['train']))
     loss_pw = running_pw / (cfg.batch_size * len(dataloaders['train']))
     loss_reg = running_reg / (cfg.batch_size * len(dataloaders['train']))
-    loss_clst = running_clst / (cfg.batch_size * len(dataloaders['train']))
     loss_obj_pred = running_obj_pred / (cfg.batch_size *
                                         len(dataloaders['train']))
 
@@ -160,7 +160,6 @@ def train_one_epoch(model, dataloaders, optimizers, device, lr_sch, cfg,
         'loss': loss_,
         'loss_pw': loss_pw,
         'loss_reg': loss_reg,
-        'loss_clst': loss_clst,
         'loss_obj_pred': loss_obj_pred
     }
 
@@ -325,6 +324,11 @@ def train(cfg, model, device, dataloaders, run_path):
                               probas=probas,
                               nodes_list=nodes_list)
 
+        pos = dataloaders['train'].augment_positives(0.1 * pos_freq)
+        print('user positives: {}'.format(
+            pos[pos['from_aug'] == False].shape[0]))
+        print('augmented: {}'.format(pos[pos['from_aug'] == True].shape[0]))
+
         # write losses to tensorboard
         for k, v in res.items():
             writer.add_scalar(k, v, epoch)
@@ -352,20 +356,15 @@ def main(cfg):
 
     transf = make_data_aug(cfg)
 
-    dl_train = StackLoader(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
-                           depth=2,
-                           normalization='rescale',
-                           augmentations=transf,
-                           resize_shape=cfg.in_shape)
-    dl_clst = StackLoader(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
-                          depth=2,
-                          normalization='rescale',
-                          resize_shape=cfg.in_shape)
-
-    dl_init = StackLoader(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
-                          depth=2,
-                          normalization='rescale',
-                          resize_shape=cfg.in_shape)
+    dl_train = TreeSetExplorer(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
+                               depth=2,
+                               normalization='rescale',
+                               augmentations=transf,
+                               resize_shape=cfg.in_shape)
+    dl_init = TreeSetExplorer(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
+                              depth=2,
+                              normalization='rescale',
+                              resize_shape=cfg.in_shape)
 
     frames_tnsr_brd = np.linspace(0,
                                   len(dl_train) - 1,
@@ -373,7 +372,6 @@ def main(cfg):
                                   dtype=int)
 
     dataloader_init = DataLoader(dl_init, collate_fn=dl_init.collate_fn)
-    dataloader_clst = DataLoader(dl_clst, collate_fn=dl_init.collate_fn)
 
     dataloader_train = DataLoader(dl_train,
                                   collate_fn=dl_train.collate_fn,
@@ -383,7 +381,6 @@ def main(cfg):
     dataloaders = {
         'train': dataloader_train,
         'init': dataloader_init,
-        'clst': dataloader_clst,
         'prev': frames_tnsr_brd
     }
 

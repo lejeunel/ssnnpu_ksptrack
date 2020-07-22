@@ -159,10 +159,7 @@ class PbHierarchyExtractor:
 
         self.model_root_path = os.path.expanduser(pjoin('~', '.models'))
 
-        self.dl = LocPriorDataset(self.root_path,
-                                  normalization='rescale_histeq',
-                                  *args,
-                                  **kwargs)
+        self.dl = LocPriorDataset(self.root_path, *args, **kwargs)
         self.do_pb()
         self.do_hierarchies()
 
@@ -287,6 +284,9 @@ class PbHierarchyExtractor:
         hg.CptHierarchy.link(tree, rag)
 
         return tree, altitudes
+
+    def __len__(self):
+        return len(self.dl)
 
     def __getitem__(self, idx):
         fname = os.path.splitext(self.dl[idx]['frame_name'])[0]

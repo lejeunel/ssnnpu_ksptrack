@@ -142,10 +142,8 @@ def get_features(model,
                 features[k][f] = res[k][start:end].detach().cpu().numpy()
             distribs[f] = res['clusters'][start:end].detach().cpu().numpy()
 
-            clicked_labels = [
-                c - start for c in data['clicked']
-                if ((c >= start) and (c < end))
-            ]
+            clicked_labels = data['pos_labels'][data['pos_labels']['frame'] ==
+                                                f]['label'].tolist()
             to_add = np.zeros(
                 np.unique(
                     data['labels'][i].cpu().numpy()).shape[0]).astype(bool)

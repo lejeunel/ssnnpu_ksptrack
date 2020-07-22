@@ -14,6 +14,17 @@ from ksptrack.models.my_augmenters import Normalize, rescale_augmenter
 np.random.bit_generator = np.random._bit_generator
 
 
+def base_apply_augs(im, labels, truth, aug):
+    truth = ia.SegmentationMapsOnImage(truth, shape=truth.shape)
+    labels = ia.SegmentationMapsOnImage(labels, shape=labels.shape)
+
+    im = aug(image=im)
+    truth = aug(segmentation_maps=truth).get_arr()[..., None]
+    labels = aug(segmentation_maps=labels).get_arr()[..., None]
+
+    return im, labels, truth
+
+
 def batch_equalize_hist_calc(image, nbins=256, mask=None):
     """Return histogram equalization parameters for a batch of images
     Parameters
@@ -43,7 +54,7 @@ def batch_equalize_hist_calc(image, nbins=256, mask=None):
     return cdf, bin_centers
 
 
-def make_normalizer(arg, imgs):
+def make_normalizer(arg, img_iter):
     normalizer = iaa.Noop()
 
     if (isinstance(arg, iaa.Augmenter)):
@@ -57,24 +68,23 @@ def make_normalizer(arg, imgs):
             raise ValueError("Invalid value for 'normalization'")
         if (arg == 'std'):
 
-            im_flat = np.array(imgs).reshape((-1, 3)) / 255
+            im_flat = np.array([im for im in img_iter])
+            im_flat = im_flat.reshape((-1, 3)) / 255
             mean = im_flat.mean(axis=0)
             std = im_flat.std(axis=0)
             normalizer = iaa.Sequential(
                 [rescale_augmenter,
                  Normalize(mean=mean, std=std)])
         elif (arg == 'rescale'):
-            im_flat = np.array(imgs).reshape((-1, 3)) / 255
-            min_ = im_flat.min(axis=0)
-            max_ = im_flat.max(axis=0)
-            normalizer = iaa.Sequential([Rescale(min_, max_)])
+            normalizer = Rescale()
         elif (arg == 'rescale_histeq'):
             normalizer = iaa.Sequential([
                 iaa.contrast.CLAHE(clip_limit=3, tile_grid_size_px=3),
                 rescale_augmenter
             ])
         elif (arg == 'rescale_stretching'):
-            im_flat = np.array(imgs).reshape((-1, 3))
+            im_flat = np.array([im for im in img_iter])
+            im_flat = im_flat.reshape((-1, 3))
             plow = []
             phigh = []
             for c in range(im_flat.shape[-1]):
@@ -118,9 +128,10 @@ class BaseDataset(data.Dataset):
                  normalization=iaa.Noop(),
                  resize_shape=None,
                  got_labels=True,
-                 sp_labels_fname='sp_labels.npz'):
+                 sp_labels_fname='sp_labels.npy'):
 
         self.root_path = root_path
+        self.got_labels = got_labels
 
         exts = ['*.png', '*.jpg', '*.jpeg']
         img_paths = []
@@ -134,21 +145,12 @@ class BaseDataset(data.Dataset):
         self.truth_paths = truth_paths
         self.img_paths = img_paths
 
-        self.truths = [io.imread(f).astype('bool') for f in self.truth_paths]
-        self.truths = [
-            t if (len(t.shape) < 3) else t[..., 0] for t in self.truths
-        ]
-        self.imgs = [imread(f, scale=False) for f in self.img_paths]
-
-        if (got_labels):
-            self.labels = np.load(
-                pjoin(root_path, 'precomp_desc', 'sp_labels.npz'))['sp_labels']
-        else:
-            self.labels = np.zeros(
-                (self.imgs[0].shape[0], self.imgs[0].shape[1],
-                 len(self.imgs))).astype(int)
-
-        self._normalization = make_normalizer(normalization, self.imgs)
+        if (self.got_labels):
+            self.labels = np.load(pjoin(root_path, 'precomp_desc',
+                                        sp_labels_fname),
+                                  mmap_mode='r')
+        self._normalization = make_normalizer(normalization,
+                                              map(lambda s: s['image'], self))
 
         self._reshaper = iaa.Noop()
         self._augmentations = iaa.Noop()
@@ -160,20 +162,14 @@ class BaseDataset(data.Dataset):
             self._reshaper = iaa.size.Resize(resize_shape)
 
     def __len__(self):
-        return len(self.imgs)
-
-    def sample_uniform(self):
-
-        random_sample_idx = np.random.choice(np.arange(len(self.imgs)))
-
-        return self.__getitem__(random_sample_idx)
+        return len(self.img_paths)
 
     def __getitem__(self, idx):
 
         # When truths are resized, the values change
         # we apply a threshold to get back to binary
 
-        im = self.imgs[idx]
+        im = imread(self.img_paths[idx], scale=False)
 
         shape = im.shape
 
@@ -191,18 +187,14 @@ class BaseDataset(data.Dataset):
         else:
             truth = np.zeros(im.shape[:2]).astype(np.uint8)
 
+        if (self.got_labels):
+            labels = self.labels[idx].astype(np.int16)
+
         aug = iaa.Sequential(
             [self._reshaper, self._augmentations, self._normalization])
         aug_det = aug.to_deterministic()
 
-        truth = ia.SegmentationMapsOnImage(truth, shape=truth.shape)
-        labels = ia.SegmentationMapsOnImage(self.labels[...,
-                                                        idx].astype(np.int16),
-                                            shape=self.labels[..., idx].shape)
-
-        im = aug_det(image=im)
-        truth = aug_det(segmentation_maps=truth).get_arr()[..., None]
-        labels = aug_det(segmentation_maps=labels).get_arr()[..., None]
+        im, labels, truth = base_apply_augs(im, labels, truth, aug_det)
 
         return {
             'image': im,
@@ -216,23 +208,19 @@ class BaseDataset(data.Dataset):
     @staticmethod
     def collate_fn(data):
 
-        im = [np.rollaxis(d['image'], -1) for d in data]
-        im = torch.stack([torch.from_numpy(i).float() for i in im])
+        to_collate = ['image', 'label/segmentation', 'labels']
 
-        truth = [np.rollaxis(d['label/segmentation'], -1) for d in data]
-        truth = torch.stack([torch.from_numpy(i) for i in truth]).float()
+        out = dict()
+        for k in data[0].keys():
+            if (k in to_collate):
+                out[k] = torch.stack([
+                    torch.from_numpy(np.rollaxis(data[i][k], -1)).float()
+                    for i in range(len(data))
+                ])
+            else:
+                out[k] = [data[i][k] for i in range(len(data))]
 
-        labels = [np.rollaxis(d['labels'], -1) for d in data]
-        labels = torch.stack([torch.from_numpy(i) for i in labels]).float()
-
-        return {
-            'image': im,
-            'frame_name': [d['frame_name'] for d in data],
-            'frame_idx': [d['frame_idx'] for d in data],
-            'n_frames': [d['n_frames'] for d in data],
-            'label/segmentation': truth,
-            'labels': labels
-        }
+        return out
 
 
 if __name__ == "__main__":

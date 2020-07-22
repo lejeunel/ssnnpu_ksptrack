@@ -8,6 +8,7 @@ import torch_geometric.utils as gutls
 from ksptrack.siamese.modeling.superpixPool.pytorch_superpixpool.suppixpool_layer import SupPixPool
 from ksptrack.siamese.modeling.dil_unet import ConvolutionalEncoder, ResidualBlock, DilatedConvolutions, ConvolutionalDecoder
 from ksptrack.siamese.modeling.coordconv import CoordConv2d, AddCoords
+from ksptrack.siamese.loader import linearize_labels
 from ksptrack.models.aspp import ASPP
 import torch.nn.modules.conv as conv
 
@@ -290,7 +291,8 @@ class Siamese(nn.Module):
 
         x, skips = self.dec.autoencoder.encoder(data['image'])
         feats = x
-        pooled_feats = sp_pool(feats, data['labels'])
+        labels = linearize_labels(data['labels'])
+        pooled_feats = sp_pool(feats, labels)
         # pooled_feats = F.normalize(pooled_feats, p=2, dim=1)
         res = dict()
         res['pooled_feats'] = pooled_feats
@@ -308,7 +310,7 @@ class Siamese(nn.Module):
             res.update(res_siam)
 
         rho_hat = self.rho_dec(res['feats'], res['skips'][:-2][::-1])
-        res['rho_hat_pooled'] = sp_pool(rho_hat, data['labels'])
+        res['rho_hat_pooled'] = sp_pool(rho_hat, labels)
         res['rho_hat'] = rho_hat
 
         return res

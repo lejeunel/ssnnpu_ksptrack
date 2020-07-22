@@ -28,7 +28,7 @@ class HOOFExtractor:
         self.directions = directions
         self.root_path = root_path
         self.desc_path = pjoin(root_path, desc_dir)
-        self.path_flow = pjoin(self.desc_path, 'flows.npz')
+        self.path_flow = self.desc_path
         self.labels = labels
         self.n_bins_hoof = n_bins
 
@@ -60,12 +60,12 @@ class HOOFExtractor:
             for f in range(self.labels.shape[0]):
 
                 regions_for = regionprops(self.labels[f] + 1,
-                                          flow=np.stack((fvx[..., f],
-                                                         fvy[..., f])),
+                                          flow=np.stack((fvx[..., f], fvy[...,
+                                                                          f])),
                                           n_bins_hoof=self.n_bins_hoof)
                 regions_back = regionprops(self.labels[f] + 1,
-                                           flow=np.stack((bvx[..., f],
-                                                          bvy[..., f])),
+                                           flow=np.stack(
+                                               (bvx[..., f], bvy[..., f])),
                                            n_bins_hoof=self.n_bins_hoof)
 
                 hoof += [{

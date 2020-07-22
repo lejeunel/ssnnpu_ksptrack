@@ -1,13 +1,14 @@
-from torch import nn
 import numpy as np
 import torch
-import networkx as nx
-import itertools
-import random
 import torch.nn.functional as F
-from skimage import io
-import os
-from ksptrack.SegLoss.losses_pytorch.dice_loss import SoftDiceLoss
+from pytorch_metric_learning.losses import BaseMetricLossFunction
+from pytorch_metric_learning.miners import BaseTupleMiner
+from pytorch_metric_learning.reducers import AvgNonZeroReducer
+from pytorch_metric_learning.utils import common_functions as c_f
+from pytorch_metric_learning.utils import loss_and_miner_utils as lmu
+from torch import nn
+import pandas as pd
+from utils import df_to_tgt
 
 
 def make_coord_map(batch_size, w, h):
@@ -156,6 +157,47 @@ def get_pos_negs(keypoints, nodes, input, mode):
     return input, tgt
 
 
+class TreePULoss(nn.Module):
+    """
+    https://arxiv.org/abs/2002.04672
+    """
+    def __init__(self, pi=0.25):
+        super(TreePULoss, self).__init__()
+        self.pi = pi
+
+    def cross_entropy_logits(self, in_, tgt, reduction='none'):
+        # in_ : tensor (without logit)
+        # tgt : integer (0 or 1)
+        tgt = torch.ones_like(in_) * tgt
+
+        return F.binary_cross_entropy_with_logits(in_,
+                                                  tgt,
+                                                  reduction=reduction)
+
+    def forward(self, input, target, pi=None):
+        """
+        """
+
+        target_pos, target_neg, target_aug = df_to_tgt(target)
+
+        in_p_plus = input[(target_pos + target_aug).bool()]
+        Rp_plus = self.cross_entropy_logits(in_p_plus, 1)
+
+        in_u_minus = input[target_neg.bool()]
+        Ru_minus = self.cross_entropy_logits(in_u_minus, 0)
+
+        in_p_minus = input[target_pos.bool()]
+        Rp_minus = self.cross_entropy_logits(in_p_minus, 0)
+
+        loss_p_plus = self.pi * Rp_plus.sum() / target_pos.sum()
+        loss_u_minus = Ru_minus.sum() / target_neg.sum()
+        loss_p_minus = self.pi * Rp_minus.sum() / target_pos.sum()
+
+        loss = loss_p_plus + F.relu(loss_u_minus - loss_p_minus)
+
+        return loss
+
+
 class ClusterPULoss(nn.Module):
     """
     https://arxiv.org/abs/2002.04672
@@ -177,11 +219,11 @@ class ClusterPULoss(nn.Module):
                                                   tgt,
                                                   reduction=reduction)
 
-    def forward(self, input, nodes, data):
+    def forward(self, input, nodes, data, augmented_set=None):
         """
         """
 
-        input, tgt = get_pos_negs(data['clicked'], nodes, input, self.mode)
+        input, tgt = get_pos_negs(data['pos_labels'], nodes, input, self.mode)
 
         in_pos = input[tgt == 1]
         in_unl = input[tgt == 0]
@@ -189,6 +231,10 @@ class ClusterPULoss(nn.Module):
         Rp_plus = self.cross_entropy_logits(in_pos, 1)
         Rp_minus = self.cross_entropy_logits(in_pos, 0)
         Ru_minus = self.cross_entropy_logits(in_unl, 0)
+
+        if (augmented_set is not None):
+            # add a term to Rp_plus
+            pass
 
         loss_p = self.pi * Rp_plus.mean()
         loss_u = Ru_minus.mean()
@@ -215,7 +261,7 @@ class ClusterFocalLoss(nn.Module):
         else:
             alpha = override_alpha
 
-        input, tgt = get_pos_negs(data['clicked'], nodes, input, self.mode)
+        input, tgt = get_pos_negs(data['pos_labels'], nodes, input, self.mode)
 
         logit = input.sigmoid().clamp(self.eps, 1 - self.eps)
         pt0 = 1 - logit[tgt == 0]
@@ -232,11 +278,6 @@ def cosine_distance_torch(x1, x2=None, eps=1e-8):
     w1 = x1.norm(p=2, dim=1, keepdim=True)
     w2 = w1 if x2 is x1 else x2.norm(p=2, dim=1, keepdim=True)
     return 1 - torch.mm(x1, x2.t()) / (w1 * w2.t()).clamp(min=eps)
-
-
-from pytorch_metric_learning.miners import BaseTupleMiner
-from pytorch_metric_learning.utils import loss_and_miner_utils as lmu
-from pytorch_metric_learning.utils import common_functions as c_f
 
 
 def safe_random_choice(input_data, size, p=None):
@@ -406,10 +447,6 @@ class DistanceWeightedMiner(BaseTupleMiner):
             ap_pw_weights=p)
 
 
-from pytorch_metric_learning.losses import BaseMetricLossFunction
-from pytorch_metric_learning.reducers import AvgNonZeroReducer
-
-
 class TripletCosineMarginLoss(BaseMetricLossFunction):
     """
     Args:
@@ -552,12 +589,19 @@ class TripletLoss(nn.Module):
 
 
 if __name__ == "__main__":
-    N = 1000
-    feats = torch.randn(1000, 256).relu()
-    probas = torch.rand(size=(N, 1))
-    feats = torch.cat((feats, probas), dim=1)
-    labels = torch.randint(0, 50, size=(1000, ))
-    criterion = TripletCosineMarginLoss()
-    miner = DistanceWeightedMiner()
-    miner_output = miner(feats, labels)
-    loss = criterion(feats, labels, miner_output)
+    frames = [100, 100, 100, 10, 10]
+    labels = [10, 20, 30, 2, 3, 4]
+    from_aug = [False, True, True, False, True, True]
+    n_labels = [500, 500, 500, 1000, 1000, 1000]
+    target = [{
+        'frame': f,
+        'label': l,
+        'n_labels': n,
+        'from_aug': a
+    } for f, l, n, a in zip(frames, labels, n_labels, from_aug)]
+    target = pd.DataFrame(target)
+    input = torch.randn(500 + 1000)
+
+    criterion = TreePULoss(0.1)
+
+    criterion(input, target)

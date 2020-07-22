@@ -26,21 +26,21 @@ def candidate_subtrees(tree, label_map, leaves_weights, clicked_coords=[]):
         mean_intensities = np.array([p['mean_intensity'] for p in regions])
         leaves_weights = np.array([
             mean_inten * area
+            # mean_inten
             for mean_inten, area in zip(mean_intensities, area_leaves)
         ])
     elif (leaves_weights.ndim == 1):
-        pass
+        leaves_weights = leaves_weights * area_leaves
     else:
         raise TypeError('leaves_weights: Only 1-D and 2-D arrays supported.')
 
-    # tree, altitudes = hg.hierarchy_to_optimal_MumfordShah_energy_cut_hierarchy(
-    #     tree, leaves_weights, approximation_piecewise_linear_function=10)
-
     areas = hg.accumulate_sequential(tree, area_leaves, hg.Accumulators.sum)
 
-    # each node is area-weighted sum of weights
+    #each node is area-weighted sum of weights
     accum_weights = hg.accumulate_sequential(tree, leaves_weights,
                                              hg.Accumulators.sum) / areas
+    # accum_weights = hg.accumulate_sequential(tree, leaves_weights,
+    #                                          hg.Accumulators.sum)
 
     # each node is area-weighted sum of weights
     # accum_weights = hg.accumulate_sequential(tree, sums, hg.Accumulators.sum)
@@ -62,36 +62,59 @@ class TreeExplorer:
                  label_map,
                  leaves_weights,
                  clicked_coords=[],
-                 sort_order='ascending'):
+                 thr=None,
+                 thr_mode='upper',
+                 ascending=False):
 
-        sort_options = ['ascending', 'descending']
-        assert (sort_order in sort_options
-                ), 'sort_order must be in {}'.format(sort_options)
+        thr_options = ['upper', 'lower']
+        assert (thr_mode in thr_options
+                ), 'thr_mode must be in {}'.format(thr_options)
         self.leaves = np.unique(label_map)
         self.tree = tree
         self.label_map = label_map
         self.leaves_weights = leaves_weights
         self.clicked_coords = clicked_coords
+        self.clicked_labels = [
+            self.label_map[n[0], n[1]] for n in self.clicked_coords
+        ]
+        self.clicked_label_map = np.array(
+            [self.label_map == l for l in self.clicked_labels]).sum(axis=0)
 
         self.accum_weights, self.parents = candidate_subtrees(
             self.tree, self.label_map, self.leaves_weights,
             self.clicked_coords)
 
         # sort parents by weights
-        self.parents_weights = [(p, self.accum_weights[p])
-                                for p in self.parents]
-        self.parents_weights.sort(key=lambda x: x[1])
-        if sort_order == 'descending':
+        self.parents_weights = [{
+            'nodes': p,
+            'weight': self.accum_weights[p]
+        } for p in self.parents]
+        self.parents_weights.sort(key=lambda x: x['weight'])
+        if ascending == False:
             self.parents_weights = self.parents_weights[::-1]
 
+        if (thr is not None):
+            if (thr_mode == 'upper'):
+                self.parents_weights = [
+                    paw for paw in self.parents_weights if paw['weight'] >= thr
+                ]
+            else:
+                self.parents_weights = [
+                    paw for paw in self.parents_weights if paw['weight'] <= thr
+                ]
+
     def __len__(self):
-        return len(self.parents)
+        return len(self.parents_weights)
 
     def __getitem__(self, idx):
         # this will return all leaf-nodes
-        nodes = self.inorder_traversal(self.parents_weights[idx][0])
+        nodes = self.inorder_traversal(self.parents_weights[idx]['nodes'])
         nodes = [n for n in nodes if n in self.leaves]
-        return {'nodes': nodes, 'weight': self.parents_weights[idx][1]}
+        return {
+            'nodes': nodes,
+            'weight': self.parents_weights[idx]['weight'],
+            'n_nodes': len(nodes)
+        }
 
     def inorder_traversal(self, root):
         res = []

@@ -47,7 +47,9 @@ texp = TreeExplorer(data['tree'],
                     data['labels'],
                     rho,
                     np.fliplr(kps.to_xy_array()).astype(int).tolist(),
-                    sort_order='descending')
+                    sort_order='descending',
+                    thr=0.6,
+                    thr_mode='upper')
 
 level0 = 0
 level1 = 4
@@ -55,16 +57,22 @@ merged_label0 = np.array([data['labels'] == n
                           for n in texp[level0]['nodes']]).sum(axis=0)
 merged_label1 = np.array([data['labels'] == n
                           for n in texp[level1]['nodes']]).sum(axis=0)
-print(texp[level0])
-print(texp[level1])
+
+weights = np.array([t['weight'] for t in texp])
+plt.plot(np.arange(len(texp)), weights, 'bo-')
+plt.show()
+
+print(texp[level1]['nodes'])
 
 im = kps.draw_on_image(data['image'], size=7)
+plt.ion()
 plt.subplot(321)
 plt.imshow(data['labels'])
 plt.subplot(322)
 plt.imshow(im)
 plt.subplot(323)
 plt.imshow(rho)
+# plt.imshow(texp.clicked_label_map)
 plt.subplot(324)
 plt.imshow(data['pb'])
 plt.subplot(325)
