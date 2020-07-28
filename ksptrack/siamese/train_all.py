@@ -1,5 +1,5 @@
 import params
-from ksptrack.siamese import train_autoencoder, train_dec, train_init_clst, train_siam, train_focal
+from ksptrack.siamese import train_autoencoder, train_dec, train_init_clst, train_siam, train_pu
 
 
 def main(cfg):
@@ -9,7 +9,7 @@ def main(cfg):
     if (cfg.siamese != 'none'):
         train_siam.main(cfg)
     else:
-        train_focal.main(cfg)
+        train_pu.main(cfg)
 
 
 if __name__ == "__main__":

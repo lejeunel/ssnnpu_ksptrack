@@ -11,6 +11,8 @@ from ksptrack.siamese.tree_set_explorer import TreeSetExplorer
 import matplotlib.pyplot as plt
 import tqdm
 from os.path import join as pjoin
+from sklearn.metrics import (f1_score, roc_curve, auc, precision_recall_curve)
+from skimage import transform
 
 
 def colorize(map_):
@@ -43,14 +45,35 @@ def main(cfg):
 
     if cfg.use_aug_trees:
         dl = TreeSetExplorer(cfg.in_path,
-                             resize_shape=512,
                              normalization='rescale',
-                             csv_fname=cfg.csv_fname)
-    if cfg.n_augs > 0:
-        dl.make_candidates(probas, dl.dataset.labels)
-        dl.augment_positives(cfg.n_augs)
+                             csv_fname=cfg.csv_fname,
+                             sp_labels_fname='sp_labels_pb.npy')
+        if cfg.n_augs > 0:
+            dl.make_candidates(probas, dl.labels)
+            dl.augment_positives(cfg.n_augs)
+    else:
+        dl = TreeSetExplorer(cfg.in_path,
+                             normalization='rescale',
+                             csv_fname=cfg.csv_fname,
+                             sp_labels_fname='sp_labels.npy')
 
-    cluster_maps = link_agent.make_cluster_maps()
+    scores = dict()
+    if cfg.do_scores:
+        shape = pm_scores_fg.shape[1:]
+        truths = np.array([
+            transform.resize(s['label/segmentation'][..., 0],
+                             shape,
+                             preserve_range=True).astype(np.uint8) for s in dl
+        ])
+        fpr, tpr, _ = roc_curve(truths.flatten(), pm_scores_fg.flatten())
+        precision, recall, _ = precision_recall_curve(truths.flatten(),
+                                                      pm_scores_fg.flatten())
+        f1 = (2 * (precision * recall) / (precision + recall)).max()
+        auc_ = auc(fpr, tpr)
+        scores['f1'] = f1
+        scores['auc'] = auc_
+        scores['fpr'] = fpr
+        scores['tpr'] = tpr
 
     if (cfg.do_all):
         cfg.fin = np.arange(len(dl))
@@ -65,7 +88,8 @@ def main(cfg):
 
             entrance_probas = np.zeros(link_agent.labels.shape[1:])
             label_in = link_agent.labels[fin, i_in, j_in]
-            for l in np.unique(link_agent.labels[fin]):
+            # for l in np.unique(link_agent.labels[fin]):
+            for l in range(np.unique(link_agent.labels[fin]).shape[0]):
                 proba = link_agent.get_proba(fin, label_in, fin, l, desc_df)
                 entrance_probas[link_agent.labels[fin] == l] = proba
 
@@ -79,12 +103,12 @@ def main(cfg):
                                            shape=im1.shape)
             pos_labels = dl[fin]['pos_labels']
             pos_sps = [
-                dl[fin]['labels'] == l
-                for l in pos_labels[pos_labels['from_aug'] == False]
+                dl[fin]['labels'].squeeze() == l
+                for l in pos_labels[pos_labels['from_aug'] == False]['label']
             ]
             aug_sps = [
-                dl[fin]['labels'] == l
-                for l in pos_labels[pos_labels['from_aug']]
+                dl[fin]['labels'].squeeze() == l
+                for l in pos_labels[pos_labels['from_aug']]['label']
             ]
             pos_ct = [segmentation.find_boundaries(p) for p in pos_sps]
             aug_ct = [segmentation.find_boundaries(p) for p in aug_sps]
@@ -106,7 +130,6 @@ def main(cfg):
             ims_.append(colorize(pm_scores_fg[fin]))
             ims_.append(
                 colorize((pm_scores_fg[fin] > cfg.pm_thr).astype(float)))
-            ims_.append(cluster_maps[fin])
             ims_.append(colorize(entrance_probas))
             ims.append(ims_)
 
@@ -118,7 +141,6 @@ def main(cfg):
             ims_.append(colorize(pm_scores_fg[fin]))
             ims_.append(
                 colorize((pm_scores_fg[fin] > cfg.pm_thr).astype(float)))
-            ims_.append(cluster_maps[fin])
             ims_.append(colorize(np.zeros_like(pm_scores_fg[fin])))
             ims.append(ims_)
 
@@ -136,20 +158,19 @@ def main(cfg):
             pbar.update(1)
         pbar.close()
 
-    if (cfg.return_dict):
-        ims_dicts = []
-        for ims_ in ims:
-            dict_ = {
-                'image': ims_[0],
-                'pm': ims_[1],
-                'pm_thr': ims_[2],
-                'clusters': ims_[3],
-                'entrance': ims_[4]
-            }
-            ims_dicts.append(dict_)
-        return ims_dicts
-
-    return np.concatenate([np.concatenate(im, axis=1) for im in ims], axis=0)
+    res = dict()
+    ims_dicts = []
+    for ims_ in ims:
+        dict_ = {
+            'image': ims_[0],
+            'pm': ims_[1],
+            'pm_thr': ims_[2],
+            'entrance': ims_[3]
+        }
+        ims_dicts.append(dict_)
+    res['images'] = ims_dicts
+    res['scores'] = scores
+    return res
 
 
 if __name__ == "__main__":
@@ -159,6 +180,7 @@ if __name__ == "__main__":
     p.add('--use-siam-pred', default=False, action='store_true')
     p.add('--use-siam-trans', default=False, action='store_true')
     p.add('--use-aug-trees', default=False, action='store_true')
+    p.add('--do-scores', default=False, action='store_true')
     p.add('--n-augs', type=int, default=0)
     p.add('--fin', nargs='+', type=int, default=[0])
     p.add('--save-path', default='')

@@ -188,9 +188,9 @@ class PbHierarchyExtractor:
     def do_pb(self):
 
         path = pjoin(self.root_path, 'precomp_desc', 'pb')
-        print('getting probability boundaries...')
+        # print('getting probability boundaries...')
         if (os.path.exists(path)):
-            print('found directory {}. Delete to re-run'.format(path))
+            # print('found directory {}. Delete to re-run'.format(path))
             return
         else:
             os.makedirs(path)
@@ -226,22 +226,22 @@ class PbHierarchyExtractor:
         path_leaf_graphs = pjoin(self.root_path, 'precomp_desc',
                                  'pb_leaf_graphs')
         path_maps = pjoin(self.root_path, 'precomp_desc', 'pb_maps')
-        print('doing probability boundaries hierarchies...')
+        # print('doing probability boundaries hierarchies...')
         if (os.path.exists(path_trees)):
-            print('found directory {}. Delete to re-run'.format(path_trees))
+            # print('found directory {}. Delete to re-run'.format(path_trees))
             return
         else:
             os.makedirs(path_trees)
 
         if (os.path.exists(path_leaf_graphs)):
-            print('found directory {}. Delete to re-run'.format(
-                path_leaf_graphs))
+            # print('found directory {}. Delete to re-run'.format(
+            #     path_leaf_graphs))
             return
         else:
             os.makedirs(path_leaf_graphs)
 
         if (os.path.exists(path_maps)):
-            print('found directory {}. Delete to re-run'.format(path_maps))
+            # print('found directory {}. Delete to re-run'.format(path_maps))
             return
         else:
             os.makedirs(path_maps)

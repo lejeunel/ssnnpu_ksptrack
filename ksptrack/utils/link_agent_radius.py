@@ -11,9 +11,13 @@ class LinkAgentRadius(LinkAgent):
                  data_path,
                  thr_entrance=0.5,
                  sigma=0.07,
-                 entrance_radius=None):
+                 sp_labels_fname='sp_labels.npy',
+                 entrance_radius=0.05):
 
-        super().__init__(csv_path, data_path, thr_entrance)
+        super().__init__(csv_path,
+                         data_path,
+                         thr_entrance=thr_entrance,
+                         sp_labels_fname=sp_labels_fname)
 
         self.entrance_radius = entrance_radius
         self.thr_entrance = thr_entrance

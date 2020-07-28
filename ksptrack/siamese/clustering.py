@@ -142,12 +142,14 @@ def get_features(model,
                 features[k][f] = res[k][start:end].detach().cpu().numpy()
             distribs[f] = res['clusters'][start:end].detach().cpu().numpy()
 
-            clicked_labels = data['pos_labels'][data['pos_labels']['frame'] ==
-                                                f]['label'].tolist()
-            to_add = np.zeros(
-                np.unique(
-                    data['labels'][i].cpu().numpy()).shape[0]).astype(bool)
-            to_add[clicked_labels] = True
+            clicked_labels = tuple(data['pos_labels'][
+                data['pos_labels']['frame'] == f]['label'].tolist())
+            unq_labels = np.unique(data['labels'][i].cpu().numpy())
+            idx_clicked = [
+                np.argwhere(unq_labels == c) for c in clicked_labels
+            ]
+            to_add = np.zeros(unq_labels.shape[0]).astype(bool)
+            to_add[tuple(idx_clicked)] = True
             labels_pos_mask[f] = to_add
 
             start += end

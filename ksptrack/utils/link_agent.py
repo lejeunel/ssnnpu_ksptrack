@@ -20,13 +20,14 @@ class LinkAgent(ABC):
     def __init__(self,
                  csv_path,
                  data_path,
-                 thr_entrance=0.5):
+                 thr_entrance=0.5,
+                 sp_labels_fname='sp_labels.npy'):
 
         super().__init__()
 
         self.dset = LocPriorDataset(data_path,
                                     normalization='rescale',
-                                    resize_shape=512)
+                                    sp_labels_fname=sp_labels_fname)
 
         self.labels_ = np.squeeze(np.array([s['labels'] for s in self.dset]))
         self.shape = self.labels.shape[1:]
@@ -75,12 +76,11 @@ class LinkAgent(ABC):
         find in label maps the label whose centroid is the closest to 
         """
         loc_compare = self.locs.loc[self.locs['frame'] == sp['frame']]
-        if(loc_compare.shape[0] == 0):
+        if (loc_compare.shape[0] == 0):
             return None
 
         dists = [
-            np.linalg.norm(
-                np.array((sp['x'], sp['y'])) - np.array(r_compare))
+            np.linalg.norm(np.array((sp['x'], sp['y'])) - np.array(r_compare))
             for r_compare in [(
                 x, y) for x, y in zip(loc_compare['x'], loc_compare['y'])]
         ]
@@ -111,14 +111,16 @@ class LinkAgent(ABC):
                                           k=k,
                                           embedding_type=embedding_type)
             probas = pm['proba'].values
-            if((probas < threshs[0]).sum() < n_samps):
+            if ((probas < threshs[0]).sum() < n_samps):
                 sorted_probas = np.sort(probas)
                 threshs[0] = sorted_probas[n_samps]
-                warnings.warn('Not enough negatives. Setting thr to {}'.format(threshs[0]))
-            if((probas > threshs[1]).sum() < n_samps):
+                warnings.warn('Not enough negatives. Setting thr to {}'.format(
+                    threshs[0]))
+            if ((probas > threshs[1]).sum() < n_samps):
                 sorted_probas = np.sort(probas)[::-1]
                 threshs[1] = sorted_probas[n_samps]
-                warnings.warn('Not enough positives. Setting thr to {}'.format(threshs[1]))
+                warnings.warn('Not enough positives. Setting thr to {}'.format(
+                    threshs[1]))
             self.trans_transform.fit(descs_cat, pm['proba'].values, threshs,
                                      n_samps)
 

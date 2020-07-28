@@ -16,6 +16,20 @@ from scipy import ndimage as nd
 import networkx as nx
 
 
+def relabel(labels):
+
+    sorted_labels = np.asarray(sorted(np.unique(labels).ravel()))
+    if (np.any((sorted_labels[1:] - sorted_labels[0:-1]) > 1)):
+        mapping = sorted_labels[..., None]
+        mapping = np.concatenate((np.unique(labels)[..., None], mapping),
+                                 axis=1)
+        _, ind = np.unique(labels, return_inverse=True)
+        shape = labels.shape
+        labels = mapping[ind, 1:].reshape((shape[0], shape[1]))
+
+    return labels
+
+
 def loc_apply_augs(im, labels, truth, keypoints, aug):
 
     im, labels, truth = base_apply_augs(im, labels, truth, aug)
@@ -93,7 +107,7 @@ class LocPriorDataset(BaseDataset):
                  sp_labels_fname='sp_labels.npy',
                  csv_fname='video1.csv',
                  sig_prior=0.04):
-        super().__init__(root_path=root_path)
+        super().__init__(root_path=root_path, sp_labels_fname=sp_labels_fname)
         self.sig_prior = sig_prior
 
         locs2d_path = pjoin(self.root_path, 'gaze-measurements', csv_fname)
@@ -138,6 +152,9 @@ class LocPriorDataset(BaseDataset):
             'label/segmentation'], keypoints = loc_apply_augs(
                 sample['image'], sample['labels'],
                 sample['label/segmentation'], keypoints, aug_det)
+
+        sample['labels'] = relabel(sample['labels'])
+
         shape = sample['image'].shape[:2]
         keypoints = ia.KeypointsOnImage([
             ia.Keypoint(np.clip(k.x, a_min=0, a_max=shape[1] - 1),
@@ -154,7 +171,7 @@ class LocPriorDataset(BaseDataset):
             l,
             'n_labels':
             np.unique(sample['labels']).shape[0]
-        } for l in keypoints.labels])
+        } for l in np.concatenate(keypoints.labels).flatten()])
 
         sample['loc_keypoints'] = keypoints
         sample['pos_labels'] = pos_labels

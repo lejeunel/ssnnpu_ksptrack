@@ -19,8 +19,10 @@ from ksptrack.siamese import utils as utls
 from ksptrack.siamese.loader import Loader
 from ksptrack.siamese.losses import TreePULoss
 from ksptrack.siamese.modeling.siamese import Siamese
-from ksptrack.siamese.tree_set_explorer import TreeSetExplorer
+from ksptrack.siamese.set_explorer import SetExplorer
 from ksptrack.utils.bagging import calc_bagging
+from ksptrack.utils.my_utils import get_pm_array
+from skimage.transform import resize
 
 
 def make_data_aug(cfg):
@@ -98,7 +100,7 @@ def train_one_epoch(model, dataloader, optimizers, device, epoch, lr_sch, cfg,
 def train(cfg, model, device, dataloaders, run_path):
 
     cp_fname = 'cp_{}.pth.tar'.format(cfg.exp_name)
-    rags_prevs_path = pjoin(run_path, 'prevs_{}'.format(cfg.exp_name))
+    out_path = pjoin(run_path, 'prevs_{}'.format(cfg.exp_name))
 
     path_ = pjoin(run_path, 'checkpoints',
                   'init_dec_{}.pth.tar'.format(cfg.siamese))
@@ -122,6 +124,13 @@ def train(cfg, model, device, dataloaders, run_path):
                           bag_max_depth=cfg.bag_max_depth,
                           bag_n_feats=cfg.bag_n_feats,
                           n_jobs=1)
+    probas_arr = get_pm_array(dataloaders['init'].dataset.labels, probas)
+    all_labels = [
+        np.array(s['labels']).squeeze()
+        for s in dataloaders['init_noresize'].dataset
+    ]
+    # dataloaders['train'].dataset.make_candidates(probas_arr, all_labels)
+
     probas = torch.from_numpy(probas)
 
     # setting objectness prior (https://leimao.github.io/blog/Focal-Loss-Explained/)
@@ -134,21 +143,17 @@ def train(cfg, model, device, dataloaders, run_path):
         torch.tensor(prior).to(device))
 
     n_labels = [m.shape[0] for m in pos_masks]
-    all_labels = [
-        np.array(s['labels']).squeeze() for s in dataloaders['init'].dataset
-    ]
     probas = torch.split(probas, n_labels)
-    dataloaders['train'].dataset.make_candidates(probas, all_labels)
 
-    all_pos = dataloaders['train'].dataset.positives
-    n_pos = all_pos[np.logical_not(all_pos['from_aug'])].shape[0]
+    n_pos = dataloaders['train'].dataset.n_pos
+    print(dataloaders['train'].dataset.n_pos)
     max_n_augs = int(cfg.unlabeled_ratio *
                      (pos_freq * np.concatenate(pos_masks).shape[0]) - n_pos)
 
     aug_step = max_n_augs // (cfg.epochs_dist - cfg.epochs_pre_pred)
 
-    if (not os.path.exists(rags_prevs_path)):
-        os.makedirs(rags_prevs_path)
+    if (not os.path.exists(out_path)):
+        os.makedirs(out_path)
 
     p_ksp = params_ksp.get_params('../cfgs')
     p_ksp.add('--siam-path', default='')
@@ -168,7 +173,18 @@ def train(cfg, model, device, dataloaders, run_path):
     cfg_ksp.in_path = pjoin(cfg.in_root, 'Dataset' + cfg.train_dir)
     cfg_ksp.precomp_desc_path = pjoin(cfg_ksp.in_path, 'precomp_desc')
     cfg_ksp.fin = dataloaders['prev']
+    cfg_ksp.sp_labels_fname = 'sp_labels.npy'
+    cfg_ksp.do_scores = True
+    cfg_ksp.n_augs = 0
+    cfg_ksp.use_aug_trees = False
 
+    res = prev_trans_costs.main(cfg_ksp)
+    prev_ims = np.concatenate([
+        np.concatenate((s['image'], s['pm'], s['pm_thr']), axis=1)
+        for s in res['images']
+    ],
+                              axis=0)
+    io.imsave(pjoin(out_path, 'ep_{:04d}.png'.format(0)), prev_ims)
     writer = SummaryWriter(run_path, flush_secs=1)
 
     best_loss = float('inf')
@@ -180,9 +196,10 @@ def train(cfg, model, device, dataloaders, run_path):
         'feats':
         optim.Adam(model.dec.autoencoder.parameters(),
                    lr=1e-3,
-                   weight_decay=1e-4),
+                   weight_decay=cfg.decay),
         'pred':
-        optim.Adam(model.rho_dec.parameters(), lr=1e-3, weight_decay=1e-4),
+        optim.Adam(model.rho_dec.parameters(), lr=1e-3,
+                   weight_decay=cfg.decay),
     }
 
     lr_sch = {
@@ -208,29 +225,44 @@ def train(cfg, model, device, dataloaders, run_path):
                     'best_loss': best_loss,
                 }, path)
         # save previews
+        n_pos = dataloaders['train'].dataset.n_pos
+        n_aug = dataloaders['train'].dataset.n_aug
         if (epoch % cfg.prev_period == 0) and epoch > 0:
-            out_path = rags_prevs_path
-
             print('generating previews to {}'.format(out_path))
 
             cfg_ksp.siam_path = pjoin(run_path, 'checkpoints', cp_fname)
             cfg_ksp.use_siam_pred = True
-            cfg_ksp.use_aug_trees = True
+            cfg_ksp.use_aug_trees = False
+            cfg_ksp.do_scores = True
+            cfg_ksp.sp_labels_fname = 'sp_labels.npy'
             cfg_ksp.n_augs = n_aug
-            prev_ims = prev_trans_costs.main(cfg_ksp)
+            res = prev_trans_costs.main(cfg_ksp)
+            prev_ims = np.concatenate([
+                np.concatenate((s['image'], s['pm'], s['pm_thr']), axis=1)
+                for s in res['images']
+            ],
+                                      axis=0)
             io.imsave(pjoin(out_path, 'ep_{:04d}.png'.format(epoch)), prev_ims)
+            writer.add_scalar('F1', res['scores']['f1'], epoch)
+            writer.add_scalar('auc', res['scores']['auc'], epoch)
 
         print('epoch {}/{}. Mode: {}'.format(epoch, cfg.epochs_dist, 'pred'))
-        if (epoch % cfg.unlabeled_period == 0) and epoch > 0:
+        if (epoch % cfg.unlabeled_period == 0) and epoch > cfg.epochs_pre_pred:
             print('augmenting positive set')
+            _, _, probas_ = clst.get_features(model,
+                                              dataloaders['train'],
+                                              device,
+                                              return_obj_preds=True)
+            labels = [
+                s['labels'].squeeze() for s in dataloaders['train'].dataset
+            ]
+            dataloaders['train'].dataset.make_candidates(probas_, labels)
             dataloaders['train'].dataset.augment_positives(aug_step)
-            pos_df = dataloaders['train'].positives
-            n_pos = pos_df[np.logical_not(pos_df['from_aug'])].shape[0]
-            n_aug = pos_df[pos_df['from_aug']].shape[0]
-            print('n_positives: {}'.format(n_pos))
-            print('n_augmented: {}'.format(n_aug))
-            writer.add_scalar('n_aug', n_aug, epoch)
-            writer.add_scalar('n_pos', n_aug, epoch)
+            print(dataloaders['train'].dataset)
+            writer.add_scalar('n_aug', dataloaders['train'].dataset.n_aug,
+                              epoch)
+            writer.add_scalar('n_pos', dataloaders['train'].dataset.n_pos,
+                              epoch)
 
         train_one_epoch(model,
                         dataloaders['train'],
@@ -260,14 +292,19 @@ def main(cfg):
 
     transf = make_data_aug(cfg)
 
-    dl_train = TreeSetExplorer(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
-                               normalization='rescale',
-                               augmentations=transf,
-                               resize_shape=cfg.in_shape)
+    dl_train = SetExplorer(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
+                           normalization='rescale',
+                           augmentations=transf,
+                           sp_labels_fname='sp_labels.npy',
+                           resize_shape=cfg.in_shape)
+    dl_init_noresize = SetExplorer(pjoin(cfg.in_root,
+                                         'Dataset' + cfg.train_dir),
+                                   normalization='rescale',
+                                   sp_labels_fname='sp_labels.npy')
 
-    dl_init = TreeSetExplorer(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
-                              normalization='rescale',
-                              loader_class=Loader)
+    dl_init = Loader(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
+                     normalization='rescale',
+                     sp_labels_fname='sp_labels.npy')
 
     frames_tnsr_brd = np.linspace(0,
                                   len(dl_train) - 1,
@@ -279,10 +316,14 @@ def main(cfg):
     dataloader_train = DataLoader(dl_train,
                                   collate_fn=dl_train.collate_fn,
                                   shuffle=True,
+                                  batch_size=2,
                                   num_workers=cfg.n_workers)
+    dataloader_init_noresize = DataLoader(dl_init_noresize,
+                                          collate_fn=dl_train.collate_fn)
 
     dataloaders = {
         'train': dataloader_train,
+        'init_noresize': dataloader_init_noresize,
         'init': dataloader_init,
         'prev': frames_tnsr_brd
     }

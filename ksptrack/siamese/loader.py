@@ -63,18 +63,20 @@ def linearize_labels(label_map, labels=None):
         assert (len(label_map) == len(labels)
                 ), print('label_map and labels must have same length')
 
+    new_labels = label_map.clone()
+
     max_label = 0
     for b in range(len(label_map)):
 
-        label_map[b] += max_label
+        new_labels[b] += max_label
+        max_label += label_map[b].max() + 1
         if labels is not None:
             labels[b] = [l + max_label for l in labels[b]]
-        max_label += label_map[b].max() + 1
 
     if labels is not None:
-        return label_map, labels
+        return new_labels, labels
     else:
-        return label_map
+        return new_labels
 
 
 def delinearize_labels(label_map, labels):
@@ -349,25 +351,15 @@ if __name__ == "__main__":
          iaa.Rot90((1, 3))])
     import matplotlib.pyplot as plt
 
-    dset = StackLoader(
+    dset = Loader(
         root_path=pjoin(root_path, 'data/medical-labeling/Dataset30'),
         # depth=2,
         augmentations=transf,
         normalization='rescale',
         resize_shape=512)
+    dl = DataLoader(dset, collate_fn=dset.collate_fn, batch_size=4)
 
-    for s in dset:
-        plt.subplot(231)
-        plt.imshow(s['image'][0])
-        plt.subplot(232)
-        plt.imshow(s['labels'][0].squeeze())
-        plt.subplot(233)
-        plt.imshow(s['label/segmentation'][0].squeeze())
-
-        plt.subplot(234)
-        plt.imshow(s['image'][1])
-        plt.subplot(235)
-        plt.imshow(s['labels'][1].squeeze())
-        plt.subplot(236)
-        plt.imshow(s['label/segmentation'][1].squeeze())
-        plt.show()
+    for s in dl:
+        import pdb
+        pdb.set_trace()  ## DEBUG ##
+        labels = linearize_labels(s['labels'])

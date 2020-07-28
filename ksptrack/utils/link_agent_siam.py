@@ -50,6 +50,7 @@ class LinkAgentSiam(LinkAgentRadius):
                  n_clusters,
                  sigma_max=0.1,
                  siamese='gcn',
+                 sp_labels_fname='sp_labels.npy',
                  cuda=False):
 
         super().__init__(csv_path, data_path)
@@ -77,7 +78,8 @@ class LinkAgentSiam(LinkAgentRadius):
         }
 
         self.dset = StackLoader(data_path,
-                                normalization='rescale_histeq',
+                                normalization='rescale',
+                                sp_labels_fname=sp_labels_fname,
                                 depth=2,
                                 resize_shape=512)
 

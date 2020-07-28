@@ -57,6 +57,7 @@ def make_link_agent(cfg):
                                    n_clusters=cfg_siam.n_clusters,
                                    entrance_radius=cfg.norm_neighbor_in,
                                    siamese=cfg_siam.siamese,
+                                   sp_labels_fname=cfg.sp_labels_fname,
                                    cuda=cfg.cuda)
     else:
         link_agent = LinkAgentGMM(csv_path=pjoin(cfg.in_path, cfg.locs_dir,
@@ -66,18 +67,22 @@ def make_link_agent(cfg):
                                   embedded_dims=cfg_siam.embedded_dims,
                                   n_clusters=cfg_siam.n_clusters,
                                   entrance_radius=cfg.norm_neighbor_in,
+                                  sp_labels_fname=cfg.sp_labels_fname,
                                   cuda=cfg.cuda)
     # compute features
     path_feats = pjoin(cfg.in_path, cfg.precomp_dir, 'sp_desc_siam.p')
     path_centroids = pjoin(cfg.in_path, cfg.precomp_dir, 'centroids_loc_df.p')
 
     print('computing features to {}'.format(path_feats))
-    centroids = pd.read_pickle(path_centroids)
+    # centroids = pd.read_pickle(path_centroids)
     feats = link_agent.feats['pooled_feats']
-    feats = [f.tolist() for f in feats]
-    feats = [item for sublist in feats for item in sublist]
-    feats = centroids.assign(desc=feats)
+    feats = [{
+        'frame': f,
+        'label': l,
+        'desc': feats[f][l]
+    } for f in range(len(feats)) for l in range(len(feats[f]))]
     print('Saving features to {}'.format(path_feats))
+    feats = pd.DataFrame(feats)
     feats.to_pickle(path_feats)
 
     return link_agent, feats

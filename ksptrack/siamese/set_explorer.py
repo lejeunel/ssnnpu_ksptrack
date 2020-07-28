@@ -9,30 +9,25 @@ from torch.utils import data
 from tqdm import tqdm
 
 from ksptrack.siamese.loader import Loader
-from ksptrack.siamese.tree_explorer import TreeExplorer
-from ksptrack.utils import pb_hierarchy_extractor as pbh
 from ksptrack.utils.loc_prior_dataset import relabel
+from skimage.measure import regionprops
+from skimage import transform
 
 
-class TreeSetExplorer(data.Dataset):
+class SetExplorer(data.Dataset):
     """
     """
     def __init__(self,
                  data_dir,
-                 thr=0.5,
-                 thr_mode='upper',
-                 ascending=False,
                  loader_class=Loader,
-                 sp_labels_fname='sp_labels_pb.npy',
+                 sp_labels_fname='sp_labels.npy',
                  *args,
                  **kwargs):
         """
         predictions is a [NxWxH] numpy array of foreground predictions (logits)
         """
 
-        super(TreeSetExplorer, self).__init__()
-        self.pbex = pbh.PbHierarchyExtractor(data_dir,
-                                             normalization='rescale_histeq')
+        super(SetExplorer, self).__init__()
 
         self.dl = loader_class(data_dir, *args, **kwargs)
 
@@ -44,10 +39,6 @@ class TreeSetExplorer(data.Dataset):
 
         self.dl.labels = np.load(label_path, mmap_mode='r')
 
-        self.thr = thr
-        self.thr_mode = thr_mode
-        self.ascending = ascending
-        self.trees = []
         self.unlabeled = None
         self.positives = None
 
@@ -73,10 +64,10 @@ class TreeSetExplorer(data.Dataset):
 
     def __str__(self):
         if self.positives is not None:
-            return 'TreeSetExplorer. num. of positives: {}, num. of augmented: {}'.format(
+            return 'SetExplorer. num. of positives: {}, num. of augmented: {}'.format(
                 self.n_pos, self.n_aug)
         else:
-            return 'TreeSetExplorer. run make_candidates first!'
+            return 'SetExplorer. run make_candidates first!'
 
     def collate_fn(self, samples):
 
@@ -87,36 +78,34 @@ class TreeSetExplorer(data.Dataset):
         predictions is a [NxWxH] numpy array of foreground predictions (logits)
         """
         # build one merge tree per frame
-        self.trees = []
-        self.positives = []
+        self.candidates = []
+        self.positives = pd.concat([s['pos_labels'] for s in self.dl])
+        self.positives['from_aug'] = False
 
-        print('building all merge trees')
-        pbar = tqdm(total=len(self.pbex))
-        for i, s in enumerate(self.pbex):
-            positives = np.fliplr(
-                s['loc_keypoints'].to_xy_array()).astype(int).tolist()
+        pbar = tqdm(total=len(self.dl))
+        for i, s in enumerate(self.dl):
 
-            labels_ = relabel(labels[i])
-            t = TreeExplorer(s['tree'],
-                             labels_,
-                             predictions[i],
-                             positives,
-                             ascending=self.ascending)
-            self.trees.append(t)
-            clicked = [labels_[p[0], p[1]] for p in positives]
-            self.positives.extend([{
-                'frame': i,
-                'label': l,
-                'n_labels': np.unique(labels_).shape[0],
-                'from_aug': False
-            } for l in clicked])
+            pred_ = transform.resize(predictions[i],
+                                     labels[i].shape,
+                                     preserve_range=True)
+            self.candidates.extend(
+                [{
+                    'frame': i,
+                    'label': p['label'] - 1,
+                    'weight': p['mean_intensity'],
+                    'n_labels': np.unique(labels[i]).shape[0],
+                    'from_aug': False
+                } for p in regionprops(labels[i] + 1, intensity_image=pred_)
+                 if p['label'] not in s['pos_labels']['label']])
             pbar.update(1)
 
         pbar.close()
 
-        self.positives = pd.DataFrame(self.positives)
-
-        self.make_unlabeled_candidates()
+        self.unlabeled = pd.DataFrame(self.candidates)
+        # sort by weight
+        self.unlabeled.sort_values(by=['weight'],
+                                   ascending=False,
+                                   inplace=True)
 
     @property
     def n_pos(self):
@@ -184,15 +173,13 @@ class TreeSetExplorer(data.Dataset):
         for i, row in self.unlabeled.iterrows():
             if (added >= n_samples):
                 break
-            for j, n in enumerate(self.trees[int(row['frame'])][int(
-                    row['parent_idx'])]['nodes']):
-                dict_ = dict()
-                dict_['frame'] = int(row['frame'])
-                dict_['n_labels'] = int(row['n_labels'])
-                dict_['label'] = n
-                dict_['from_aug'] = True
-                augs.append(dict_)
-                added += 1
+            dict_ = dict()
+            dict_['frame'] = int(row['frame'])
+            dict_['n_labels'] = int(row['n_labels'])
+            dict_['label'] = int(row['label'])
+            dict_['from_aug'] = True
+            augs.append(dict_)
+            added += 1
             idx_to_delete.append(i)
 
         augs = pd.DataFrame(augs)

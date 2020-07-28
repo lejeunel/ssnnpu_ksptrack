@@ -2,6 +2,7 @@
 import numpy as np
 from skimage.measure import regionprops
 import higra as hg
+from ksptrack.utils.loc_prior_dataset import relabel
 
 
 def candidate_subtrees(tree, label_map, leaves_weights, clicked_coords=[]):
@@ -62,13 +63,10 @@ class TreeExplorer:
                  label_map,
                  leaves_weights,
                  clicked_coords=[],
-                 thr=None,
-                 thr_mode='upper',
                  ascending=False):
 
-        thr_options = ['upper', 'lower']
-        assert (thr_mode in thr_options
-                ), 'thr_mode must be in {}'.format(thr_options)
+        label_map = relabel(label_map)
+
         self.leaves = np.unique(label_map)
         self.tree = tree
         self.label_map = label_map
@@ -92,16 +90,6 @@ class TreeExplorer:
         self.parents_weights.sort(key=lambda x: x['weight'])
         if ascending == False:
             self.parents_weights = self.parents_weights[::-1]
-
-        if (thr is not None):
-            if (thr_mode == 'upper'):
-                self.parents_weights = [
-                    paw for paw in self.parents_weights if paw['weight'] >= thr
-                ]
-            else:
-                self.parents_weights = [
-                    paw for paw in self.parents_weights if paw['weight'] <= thr
-                ]
 
     def __len__(self):
         return len(self.parents_weights)

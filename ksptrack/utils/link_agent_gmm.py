@@ -57,9 +57,13 @@ class LinkAgentGMM(LinkAgentRadius):
                  embedded_dims,
                  n_clusters,
                  entrance_radius=0.1,
+                 sp_labels_fname='sp_labels.npy',
                  cuda=False):
 
-        super().__init__(csv_path, data_path, entrance_radius=entrance_radius)
+        super().__init__(csv_path,
+                         data_path,
+                         entrance_radius=entrance_radius,
+                         sp_labels_fname=sp_labels_fname)
 
         self.device = torch.device('cuda' if cuda else 'cpu')
         self.data_path = data_path
@@ -82,8 +86,8 @@ class LinkAgentGMM(LinkAgentRadius):
         }
 
         self.dset = Loader(data_path,
-                           normalization='rescale_adapthist',
-                           resize_shape=512)
+                           normalization='rescale',
+                           sp_labels_fname=sp_labels_fname)
 
         self.dl = DataLoader(self.dset, collate_fn=self.dset.collate_fn)
 

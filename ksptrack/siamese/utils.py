@@ -27,7 +27,10 @@ def df_to_tgt(df):
         else:
             target_pos[r['frame']][r['label']] = 1.
 
-    frames = list(set([r['frame'] for _, r in df.iterrows()]))
+    frames = list(set())
+    frames = [r['frame'] for _, r in df.iterrows()]
+    idx_f = np.unique(frames, return_index=True)[1]
+    frames = [frames[idx] for idx in sorted(idx_f)]
     target_pos = torch.cat([target_pos[f] for f in frames])
     target_aug = torch.cat([target_aug[f] for f in frames])
     target_neg = torch.zeros_like(target_pos)
