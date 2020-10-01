@@ -1,25 +1,19 @@
 import os
+from os.path import join as pjoin
+
+import numpy as np
+import tqdm
+from skimage import draw, io, segmentation, transform
+from sklearn.metrics import auc, precision_recall_curve, roc_curve
+
+from ksptrack.cfgs import params
 from ksptrack.iterative_ksp import make_link_agent
+from ksptrack.pu.im_utils import colorize
+from ksptrack.pu.set_explorer import SetExplorer
+from ksptrack.pu.tree_set_explorer import TreeSetExplorer
 from ksptrack.utils import csv_utils as csv
 from ksptrack.utils import my_utils as utls
 from ksptrack.utils.data_manager import DataManager
-from ksptrack.cfgs import params
-import numpy as np
-from skimage import (color, io, segmentation, draw)
-from ksptrack.utils.link_agent_gmm import LinkAgentGMM
-from ksptrack.siamese.tree_set_explorer import TreeSetExplorer
-import matplotlib.pyplot as plt
-import tqdm
-from os.path import join as pjoin
-from sklearn.metrics import (f1_score, roc_curve, auc, precision_recall_curve)
-from skimage import transform
-
-
-def colorize(map_):
-    cmap = plt.get_cmap('viridis')
-    map_colorized = (cmap(map_)[..., :3] * 255).astype(np.uint8)
-
-    return map_colorized
 
 
 def main(cfg):
@@ -32,8 +26,8 @@ def main(cfg):
 
     link_agent, desc_df = make_link_agent(cfg)
 
-    if (cfg.use_siam_pred):
-        print('will use DEC/siam objectness probabilities')
+    if cfg.use_model_pred:
+        print('will use model foreground probabilities')
         probas = link_agent.obj_preds
         pm_scores_fg = utls.get_pm_array(link_agent.labels, probas)
     else:
@@ -43,32 +37,63 @@ def main(cfg):
             cfg.bag_jobs)
         pm_scores_fg = utls.get_pm_array(link_agent.labels, probas)
 
-    if cfg.use_aug_trees:
-        dl = TreeSetExplorer(cfg.in_path,
-                             normalization='rescale',
-                             csv_fname=cfg.csv_fname,
-                             sp_labels_fname='sp_labels_pb.npy')
-        if cfg.n_augs > 0:
-            dl.make_candidates(probas, dl.labels)
-            dl.augment_positives(cfg.n_augs)
+    if cfg.aug_method == 'none':
+        dl = SetExplorer(cfg.in_path,
+                         normalization='rescale',
+                         csv_fname=cfg.csv_fname,
+                         sp_labels_fname='sp_labels.npy')
     else:
         dl = TreeSetExplorer(cfg.in_path,
                              normalization='rescale',
                              csv_fname=cfg.csv_fname,
                              sp_labels_fname='sp_labels.npy')
+    # if cfg.aug_ratio > 0:
+
+    #     # compute num of augmentables using bagger
+    #     n_pos = dl.n_pos
+    #     probas = utls.calc_pm(desc_df, np.concatenate(link_agent.labels_pos),
+    #                           cfg.bag_n_feats, cfg.bag_t, cfg.bag_max_depth,
+    #                           cfg.bag_max_samples, cfg.bag_jobs)['proba']
+    #     pos_freq = np.sum(probas >= 0.5).astype(float) / probas.size
+    #     n_augs = cfg.aug_ratio * (pos_freq * probas.size) - n_pos
+    #     n_augs = int(max(n_augs, 0))
+
+    #     print('n_augs: {}, pos_freq: {}'.format(n_augs, pos_freq))
+
+    #     # compute predictions using model
+    #     probas = link_agent.obj_preds
+    #     losses = [-np.log(1 - o + 1e-8) for o in probas]
+    #     dl.make_candidates(losses)
+    #     dl.augment_positives(n_augs)
+
+    if cfg.n_augs > 0:
+
+        losses = [-np.log(1 - o + 1e-8) for o in probas]
+        dl.make_candidates(losses)
+        dl.augment_positives(cfg.n_augs)
+        print(dl)
 
     scores = dict()
     if cfg.do_scores:
         shape = pm_scores_fg.shape[1:]
         truths = np.array([
-            transform.resize(s['label/segmentation'][..., 0],
+            transform.resize(s['label/segmentation'],
                              shape,
                              preserve_range=True).astype(np.uint8) for s in dl
         ])
         fpr, tpr, _ = roc_curve(truths.flatten(), pm_scores_fg.flatten())
-        precision, recall, _ = precision_recall_curve(truths.flatten(),
-                                                      pm_scores_fg.flatten())
-        f1 = (2 * (precision * recall) / (precision + recall)).max()
+        precision, recall, _ = precision_recall_curve(
+            truths.flatten(),
+            pm_scores_fg.flatten() >= 0.5)
+        precision = precision[1]
+        recall = recall[1]
+        nom = 2 * (precision * recall)
+        denom = (precision + recall)
+        if denom > 0:
+            f1 = nom / denom
+        else:
+            f1 = 0.
+
         auc_ = auc(fpr, tpr)
         scores['f1'] = f1
         scores['auc'] = auc_
@@ -93,7 +118,7 @@ def main(cfg):
                 proba = link_agent.get_proba(fin, label_in, fin, l, desc_df)
                 entrance_probas[link_agent.labels[fin] == l] = proba
 
-            truth = dl[fin]['label/segmentation'][..., 0]
+            truth = dl[fin]['label/segmentation']
             truth_ct = segmentation.find_boundaries(truth, mode='thick')
             im1 = (255 * dl[fin]['image']).astype(np.uint8)
             rr, cc = draw.circle_perimeter(i_in,
@@ -113,10 +138,10 @@ def main(cfg):
             pos_ct = [segmentation.find_boundaries(p) for p in pos_sps]
             aug_ct = [segmentation.find_boundaries(p) for p in aug_sps]
 
+            for p in aug_ct:
+                im1[p, ...] = (0, 255, 255)
             for p in pos_ct:
                 im1[p, ...] = (0, 255, 0)
-            for p in aug_ct:
-                im1[p, ...] = (0, 0, 255)
 
             im1[truth_ct, ...] = (255, 0, 0)
 
@@ -134,8 +159,8 @@ def main(cfg):
             ims.append(ims_)
 
         else:
-            im1 = dl[fin]['image_unnormal']
 
+            im1 = (255 * dl[fin]['image']).astype(np.uint8)
             ims_ = []
             ims_.append(im1)
             ims_.append(colorize(pm_scores_fg[fin]))
@@ -176,10 +201,11 @@ def main(cfg):
 if __name__ == "__main__":
     p = params.get_params()
     p.add('--in-path', required=True)
-    p.add('--siam-path', default='')
-    p.add('--use-siam-pred', default=False, action='store_true')
-    p.add('--use-siam-trans', default=False, action='store_true')
-    p.add('--use-aug-trees', default=False, action='store_true')
+    p.add('--model-path', default='')
+    p.add('--trans-path', default='')
+    p.add('--use-model-pred', default=False, action='store_true')
+    p.add('--trans', default='lfda')
+    p.add('--aug-method', default='none', type=str)
     p.add('--do-scores', default=False, action='store_true')
     p.add('--n-augs', type=int, default=0)
     p.add('--fin', nargs='+', type=int, default=[0])
