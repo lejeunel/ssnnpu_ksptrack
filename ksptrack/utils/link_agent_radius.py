@@ -3,16 +3,25 @@ from skimage.draw import disk
 from ksptrack.utils.lfda import myLFDA
 from ksptrack.utils.link_agent import LinkAgent
 from ksptrack.utils import my_utils as utls
+from ksptrack.pu.modeling.unet import UNet
+import torch
+from ksptrack.pu.loader import Loader
+from torch.utils.data import DataLoader
+from ksptrack.pu.im_utils import get_features
 
 
 class LinkAgentRadius(LinkAgent):
     def __init__(self,
                  csv_path,
                  data_path,
+                 model_pred_path,
+                 model_trans_path='',
                  thr_entrance=0.5,
                  sigma=0.07,
                  sp_labels_fname='sp_labels.npy',
-                 entrance_radius=0.05):
+                 in_shape=512,
+                 entrance_radius=0.05,
+                 cuda=True):
 
         super().__init__(csv_path,
                          data_path,
@@ -23,18 +32,61 @@ class LinkAgentRadius(LinkAgent):
         self.thr_entrance = thr_entrance
         self.sigma = sigma
 
-    def get_all_entrance_sps(self, sp_desc_df):
+        self.device = torch.device('cuda' if cuda else 'cpu')
+        self.data_path = data_path
 
-        sps = []
+        self.model_pred = UNet(out_channels=1)
+        self.model_trans = UNet(out_channels=3, skip_mode='none')
 
-        for f in range(self.labels.shape[-1]):
-            if (f in self.locs['frame'].to_numpy()):
-                for i, loc in self.locs[self.locs['frame'] == f].iterrows():
-                    i, j = self.get_i_j(loc)
-                    label = self.labels[i, j, f]
-                    sps += [(f, label)]
+        print('loading checkpoint {}'.format(model_pred_path))
+        state_dict = torch.load(model_pred_path,
+                                map_location=lambda storage, loc: storage)
 
-        return sps
+        self.model_pred.load_state_dict(state_dict)
+        self.model_pred.to(self.device)
+        self.model_pred.eval()
+
+        if not model_trans_path:
+            model_trans_path = model_pred_path
+
+        print('loading checkpoint {}'.format(model_trans_path))
+        state_dict = torch.load(model_trans_path,
+                                map_location=lambda storage, loc: storage)
+
+        self.model_trans.load_state_dict(state_dict, strict=False)
+        self.model_trans.to(self.device)
+        self.model_trans.eval()
+
+        self.batch_to_device = lambda batch: {
+            k: v.to(self.device) if (isinstance(v, torch.Tensor)) else v
+            for k, v in batch.items()
+        }
+
+        self.dset = Loader(data_path,
+                           normalization='rescale',
+                           resize_shape=in_shape,
+                           sp_labels_fname=sp_labels_fname)
+
+        self.dl = DataLoader(self.dset, collate_fn=self.dset.collate_fn)
+
+        self.prepare_feats()
+
+    def prepare_feats(self):
+        print('preparing features for linkAgent')
+
+        res = get_features(self.model_pred, self.dl, self.device)
+
+        self.feats = res['feats']
+        self.labels_pos = res['labels_pos_mask']
+        self.obj_preds = res['outs']
+        self.pos = res['pos']
+
+        res = get_features(self.model_trans, self.dl, self.device)
+        self.feats_trans = res['feats']
+
+    def get_all_entrance_sps(self, *args):
+
+        return np.concatenate(self.labels_pos)
 
     def make_entrance_mask(self, frame):
         mask = np.zeros(self.shape, dtype=bool)
@@ -76,9 +128,9 @@ class LinkAgentRadius(LinkAgent):
 
     def get_distance(self, sp_desc, f1, l1, f2, l2, p=2):
         d1 = sp_desc.loc[(sp_desc['frame'] == f1) & (sp_desc['label'] == l1),
-                         'desc'].values[0][None, ...]
+                         'desc_trans'].values[0][None, ...]
         d2 = sp_desc.loc[(sp_desc['frame'] == f2) & (sp_desc['label'] == l2),
-                         'desc'].values[0][None, ...]
+                         'desc_trans'].values[0][None, ...]
         d1 = self.trans_transform.transform(d1)
         d2 = self.trans_transform.transform(d2)
 
@@ -94,20 +146,20 @@ class LinkAgentRadius(LinkAgent):
         return proba
 
     def update_trans_transform(self,
-                               features,
-                               probas,
-                               threshs,
-                               n_samps,
-                               n_dims,
-                               k,
+                               threshs=[0.3, 0.7],
+                               n_samps=500,
+                               n_dims=15,
+                               k=7,
                                embedding_type='orthonormalized'):
 
-        # threshs = utls.check_thrs(threshs, probas, n_samps)
+        X = np.concatenate(self.feats)
+        y = np.concatenate(self.obj_preds)
+        threshs = utls.check_thrs(threshs, y, n_samps)
 
-        # X, y = utls.sample_features(features, probas, threshs, n_samps)
+        X, y = utls.sample_features(X, y, threshs, n_samps)
 
         self.trans_transform = myLFDA(n_components=n_dims,
                                       n_components_prestage=n_dims,
-                                      k=None,
+                                      k=k,
                                       embedding_type=embedding_type)
-        self.trans_transform.fit(features, probas, threshs, n_samps)
+        self.trans_transform.fit(X, y, threshs, n_samps)

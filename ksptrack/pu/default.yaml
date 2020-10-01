@@ -1,0 +1,71 @@
+frames: []
+
+epochs-autoenc: 150
+epochs-pred: 100
+epochs-dec: 100
+epochs-dist: 80
+
+# generate previews every x epochs
+prev-period: 10
+tgt-update-period: 999
+cc-update-period: 10
+proba-update-period: 999
+cp-period: 2
+unlabeled-period: 10
+unlabeled-ratio: 0.15
+nnpu-ascent: False
+aug-reset: False
+pred-init-fname: ''
+
+aug-method: 'set'
+neg-mode: single
+loss-obj-pred: 'pu'
+
+sec-phase: False
+
+# optimizer
+lr-dist: 1e-4
+lr-autoenc: 1e-4
+lr-assign: 1e-4
+decay : 2e-4
+lr-power : 0.99
+lr-epoch-milestone-0 : 50
+lr-epoch-milestone-1 : 100
+lr-gamma : 0.1
+momentum: 0.9
+
+# clustering
+pi-mul: 1.
+
+# batch
+batch-size: 2
+batch-norm: True
+
+# dataloader
+cuda: False
+n-ims-test: 5
+
+# network input size
+in-shape: 512
+n-frames-epoch: 100
+
+# augmentation
+aug-noise: 0.06
+aug-blur-color-low: 100
+aug-blur-color-high: 150
+aug-blur-space-low: 100
+aug-blur-space-high: 150
+aug-gamma-low: 1.0
+aug-gamma-high: 2.0
+aug-flip-proba: 0.5
+aug-some: 2
+aug-scale: 0.3
+aug-rotate: 10.
+aug-shear: 20.
+
+reduc-method: 'pca'
+ml-up-thr: 0.5
+ml-down-thr: 0.5
+bag-t: 300
+bag-n-feats : 0.1
+bag-max-depth : 50

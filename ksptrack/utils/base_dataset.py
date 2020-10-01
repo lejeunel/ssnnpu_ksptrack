@@ -19,8 +19,8 @@ def base_apply_augs(im, labels, truth, aug):
     labels = ia.SegmentationMapsOnImage(labels, shape=labels.shape)
 
     im = aug(image=im)
-    truth = aug(segmentation_maps=truth).get_arr()[..., None]
-    labels = aug(segmentation_maps=labels).get_arr()[..., None]
+    truth = aug(segmentation_maps=truth).get_arr()
+    labels = aug(segmentation_maps=labels).get_arr()
 
     return im, labels, truth
 
@@ -214,9 +214,13 @@ class BaseDataset(data.Dataset):
         for k in data[0].keys():
             if (k in to_collate):
                 out[k] = torch.stack([
-                    torch.from_numpy(np.rollaxis(data[i][k], -1)).float()
+                    torch.from_numpy(
+                        np.rollaxis(data[i][k], -1)
+                        if data[i][k].ndim > 2 else data[i][k]).float()
                     for i in range(len(data))
                 ])
+                if out[k].ndim == 3:
+                    out[k] = out[k].unsqueeze(1)
             else:
                 out[k] = [data[i][k] for i in range(len(data))]
 
@@ -234,11 +238,18 @@ if __name__ == "__main__":
     ])
 
     dl = BaseDataset(pjoin('/home/ubelix/lejeune/data/medical-labeling',
-                           'Dataset00'),
+                           'Dataset10'),
                      normalization='rescale',
                      augmentations=transf,
                      resize_shape=512)
 
-    for sample in dl:
-        plt.imshow(sample['image'])
-        plt.show()
+    frames = np.linspace(0, len(dl) - 1, num=5, dtype=int)
+    import pdb
+    pdb.set_trace()  ## DEBUG ##
+
+    ims = [dl[f]['image'] for f in frames]
+
+    im = np.concatenate(ims, axis=1)
+
+    plt.imshow(im)
+    plt.show()

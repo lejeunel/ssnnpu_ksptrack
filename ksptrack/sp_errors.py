@@ -14,34 +14,37 @@ def myformat_tex(r):
 
     return r
 
+
 def myformat(r):
     r['F1'] = r['F1'].apply(str) + ' ± ' + r['_F1'].apply(str)
 
     return r
 
+
 def main(cfg):
     for idx in cfg.dset_idx:
-        run_path = pjoin(cfg.out_root, 'Dataset'+idx)
-        if(not os.path.exists(run_path)):
+        run_path = pjoin(cfg.out_root, 'Dataset' + idx)
+        if (not os.path.exists(run_path)):
             os.makedirs(run_path)
 
         df_path = pjoin(run_path, 'scores.csv')
 
         print('run_path: {}'.format(run_path))
 
-        if(not os.path.exists(df_path)):
+        if (not os.path.exists(df_path)):
             truths = []
             truths_sp = []
-            in_path = pjoin(cfg.in_root, 'Dataset'+idx)
+            in_path = pjoin(cfg.in_root, 'Dataset' + idx)
             dl = BaseDataset(in_path)
             pbar = tqdm.tqdm(total=len(dl))
             for s in dl:
-                labels = s['labels'][..., 0]
-                truth = s['label/segmentation'][..., 0]
-                regions = regionprops(labels+1, intensity_image=truth)
-                pos = np.array([p['mean_intensity'] > 0.5 for p in regions])[..., None]
+                labels = s['labels']
+                truth = s['label/segmentation']
+                regions = regionprops(labels + 1, intensity_image=truth)
+                pos = np.array([p['mean_intensity'] > 0.5
+                                for p in regions])[..., None]
                 mapping = np.concatenate((np.unique(labels)[..., None], pos),
-                                        axis=1)
+                                         axis=1)
 
                 _, ind = np.unique(labels, return_inverse=True)
                 truth_sp = mapping[ind, 1:].reshape(labels.shape)
@@ -52,27 +55,25 @@ def main(cfg):
 
             print('computing f1 to {}'.format(df_path))
 
-            f1 = f1_score(np.array(truths).ravel(),
-                        np.array(truths_sp).ravel())
+            f1 = f1_score(
+                np.array(truths).ravel(),
+                np.array(truths_sp).ravel())
             data = {'f1': f1}
             df = pd.Series(data)
             df.to_csv(df_path)
         else:
             print('score file {} exists'.format(df_path))
 
+
 def make_tables(cfg):
     records = []
     for idx in cfg.dset_idx:
-        run_path = pjoin(cfg.out_root, 'Dataset'+idx)
+        run_path = pjoin(cfg.out_root, 'Dataset' + idx)
         df_path = pjoin(run_path, 'scores.csv')
 
-        df = pd.read_csv(df_path,
-                         index_col=0,
-                         header=None,
-                         squeeze=True)
-        records.append((params.datasetdir_to_type('Dataset'+idx),
-                        'Dataset'+idx,
-                        df['f1']))
+        df = pd.read_csv(df_path, index_col=0, header=None, squeeze=True)
+        records.append((params.datasetdir_to_type('Dataset' + idx),
+                        'Dataset' + idx, df['f1']))
 
     df_all = pd.DataFrame.from_records(records,
                                        columns=('Types', 'dset', 'F1'))
@@ -85,13 +86,19 @@ def make_tables(cfg):
     df_all = df_all.groupby(['Types'])
     df_all_tex = df_all.apply(myformat_tex).drop(columns=['_F1'])
 
-    latex_path = pjoin(cfg.out_root, 'sp_errors.tex')
+    df_all_tex.index.names = [None]
 
-    latex = df_all_tex.to_latex(escape=False,
-                    column_format='lp{1.8cm}',
-                    multirow=True,
-                    caption='Superpixelization errors',
-                    label='tab:sp_errors')
+    latex_path = cfg.out_tex
+
+    latex = df_all_tex.to_latex(
+        escape=False,
+        column_format='lp{1.8cm}',
+        multirow=True,
+        caption=
+        'For each type of sequence, we report the maximum F1-score achievable given the early stage superpixel segmentation.',
+        label='tab:sp_errors')
+
+    print('writing to {}'.format(latex_path))
 
     with open(latex_path, 'w') as tf:
         tf.write(latex)
@@ -101,13 +108,14 @@ def make_tables(cfg):
     html = df_all_html.to_html()
     with open(html_path, 'w') as tf:
         tf.write(html)
-    
+
 
 if __name__ == "__main__":
 
     p = params.get_params()
 
     p.add('--out-root', required=True)
+    p.add('--out-tex', required=True)
     p.add('--in-root', required=True)
     p.add('--dset-idx', nargs='+', required=True)
 

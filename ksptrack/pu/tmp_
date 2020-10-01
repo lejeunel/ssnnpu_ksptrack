@@ -1,0 +1,19 @@
+#!/bin/env bash
+
+#SBATCH --job-name=sm0
+#SBATCH --mem-per-cpu=40G
+#SBATCH --time=24:00:00
+#SBATCH --cpus-per-task=1
+#SBATCH --partition=gpu
+#SBATCH --gres=gpu
+#SBATCH --output=/home/ubelix/artorg/lejeune/runs/logs/%x.out
+
+simg=$HOME/mleval-ubelix.simg
+pyversion=my-3.7
+
+export OMP_NUM_THREADS=1
+
+args="--cuda --out-root $HOME/runs/siamese_dec --in-root $HOME/data/medical-labeling --train-dirs 00 01 02 03 10 11 12 13 --run-dirs Dataset00 Dataset01 Dataset02 Dataset03 Dataset10 Dataset11 Dataset12 Dataset13"
+
+singularity exec --nv $simg /bin/bash -c "source $HOME/.bashrc && conda activate my && cd $HOME/Documents/software/ksptrack/ksptrack/siamese && python train_all_type_grid.py $args"
+

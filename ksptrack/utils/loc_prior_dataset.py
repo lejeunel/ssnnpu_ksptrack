@@ -162,16 +162,28 @@ class LocPriorDataset(BaseDataset):
             for k in keypoints
         ], shape)
         keypoints.labels = [
-            sample['labels'][k.y_int, k.x_int, 0] for k in keypoints.keypoints
+            np.squeeze(sample['labels'])[k.y_int, k.x_int]
+            for k in keypoints.keypoints
         ]
-        pos_labels = pd.DataFrame([{
-            'frame':
-            idx,
-            'label':
-            l,
-            'n_labels':
-            np.unique(sample['labels']).shape[0]
-        } for l in np.concatenate(keypoints.labels).flatten()])
+
+        if len(keypoints.labels) > 0:
+            pos_labels = pd.DataFrame([{
+                'frame':
+                idx,
+                'label':
+                int(l),
+                'n_labels':
+                np.unique(sample['labels']).shape[0]
+            } for l in keypoints.labels])
+        else:
+            pos_labels = pd.DataFrame([{
+                'frame':
+                idx,
+                'label':
+                np.nan,
+                'n_labels':
+                np.unique(sample['labels']).shape[0]
+            }])
 
         sample['loc_keypoints'] = keypoints
         sample['pos_labels'] = pos_labels
@@ -190,35 +202,31 @@ class LocPriorDataset(BaseDataset):
 
 
 if __name__ == "__main__":
+
     transf = iaa.Sequential([
-        iaa.Affine(scale={
-            "x": (1 - 0.3, 1 + 0.3),
-            "y": (1 - 0.3, 1 + 0.3)
-        },
-                   rotate=(-10, 10),
-                   shear=(-10, 10)),
-        iaa.Fliplr(p=0.5),
-        iaa.Flipud(p=0.5),
+        iaa.OneOf([
+            iaa.BilateralBlur(d=8,
+                              sigma_color=(100, 150),
+                              sigma_space=(100, 150)),
+            iaa.AdditiveGaussianNoise(scale=(0, 0.06 * 255)),
+            iaa.GammaContrast((1.0, 2.0))
+        ])
+        # iaa.Flipud(p=0.5),
+        # iaa.Fliplr(p=.5),
+        # iaa.Rot90((1, 3))
     ])
 
     dset = LocPriorDataset(root_path=pjoin(
-        '/home/ubelix/lejeune/data/medical-labeling/Dataset00'),
+        '/home/ubelix/lejeune/data/medical-labeling/Dataset10'),
                            normalization='rescale',
                            augmentations=transf,
                            resize_shape=512)
     dl = DataLoader(dset, collate_fn=dset.collate_fn)
+    n = 50
+    f = 97
 
-    cmap = plt.get_cmap('viridis')
-    for data in dl:
+    for _ in range(n):
 
-        im = (255 * np.rollaxis(data['image'].squeeze().detach().cpu().numpy(),
-                                0, 3)).astype(np.uint8)
-        labels = data['labels'].squeeze().detach().cpu().numpy()
-        # labels = (cmap((labels.astype(float) / labels.max() * 255).astype(
-        #     np.uint8))[..., :3] * 255).astype(np.uint8)
-        print(data['loc_keypoints'])
-        plt.subplot(121)
+        im = dset[f]['image']
         plt.imshow(im)
-        plt.subplot(122)
-        plt.imshow(labels)
         plt.show()

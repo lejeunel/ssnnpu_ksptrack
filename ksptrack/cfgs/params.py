@@ -37,8 +37,10 @@ def get_params(path='cfgs'):
     """
     p = configargparse.ArgParser(
         config_file_parser_class=configargparse.YAMLConfigFileParser,
-        default_config_files=[pjoin(path, 'default.yaml'),
-                              pjoin(path, 'feat.yaml')])
+        default_config_files=[
+            pjoin(path, 'default.yaml'),
+            pjoin(path, 'feat.yaml')
+        ])
 
     p.add('-v', help='verbose', action='store_true')
 
@@ -59,6 +61,7 @@ def get_params(path='cfgs'):
     p.add('--hoof-n-bins', type=int)
 
     #Superpixel segmentation
+    p.add('--sp-labels-fname', type=str)
     p.add('--slic-compactness', type=float)
     p.add('--slic-size', type=float)
     p.add('--slic-n-sp', type=int)

@@ -17,27 +17,27 @@ def main(cfg, out_path, logger=None):
 
     logger.info('Writing result frames to: ' + out_path)
 
-    res = np.load(
-        os.path.join(out_path, 'results.npz'))
+    res = np.load(os.path.join(out_path, 'results.npz'))
 
     frame_dir = os.path.join(out_path, 'results')
-    if(not os.path.exists(frame_dir)):
+    if (not os.path.exists(frame_dir)):
         logger.info('Creating output frame dir: {}'.format(frame_dir))
         os.makedirs(frame_dir)
 
-    scores = (res['ksp_scores_mat'].astype('uint8'))*255
+    scores = (res['ksp_scores_mat'].astype('uint8')) * 255
 
     for i in range(scores.shape[0]):
-        logger.info('{}/{}'.format(i+1,scores.shape[0]))
+        logger.info('{}/{}'.format(i + 1, scores.shape[0]))
         io.imsave(os.path.join(frame_dir, 'im_{:04d}.png'.format(i)),
                   scores[i])
 
-    if('pm_scores_mat' in res.keys()):
-        scores_pm = (res['pm_scores_mat']*255.).astype('uint8')
+    if ('pm_scores_mat' in res.keys()):
+        scores_pm = (res['pm_scores_mat'] * 255.).astype('uint8')
         for i in range(scores.shape[0]):
-            logger.info('{}/{}'.format(i+1,scores.shape[0]))
+            logger.info('{}/{}'.format(i + 1, scores.shape[0]))
             io.imsave(os.path.join(frame_dir, 'im_pb_{}.png'.format(i)),
                       scores_pm[i])
+
 
 if __name__ == "__main__":
     p = params.get_params()
@@ -45,4 +45,4 @@ if __name__ == "__main__":
     p.add('--out-path', required=True)
 
     cfg = p.parse_args()
-    main(cfg)
+    main(cfg, cfg.out_path)

@@ -11,13 +11,12 @@ import yaml
 import ksptrack.graph_tracking as gtrack
 import ksptrack.sp_manager as spm
 from ksptrack.cfgs import params
-from ksptrack.siamese.modeling.siamese import Siamese
+from ksptrack.pu.modeling.unet import UNet
 from ksptrack.utils import comp_scores
 from ksptrack.utils import my_utils as utls
 from ksptrack.utils import write_frames_results
 from ksptrack.utils.data_manager import DataManager
-from ksptrack.utils.link_agent_gmm import LinkAgentGMM
-from ksptrack.utils.link_agent_siam import LinkAgentSiam
+from ksptrack.utils.link_agent_radius import LinkAgentRadius
 
 
 class Bunch(object):
@@ -42,50 +41,44 @@ def merge_positives(sp_desc_df, pos_for, pos_back):
 
 def make_link_agent(cfg):
 
-    cfg_path = os.path.split(cfg.siam_path)[0]
+    cfg_path = os.path.split(cfg.model_path)[0]
     cfg_path = os.path.split(cfg_path)[0]
     cfg_path = pjoin(cfg_path, 'cfg.yml')
     with open(cfg_path) as f:
         cfg_siam = Bunch(yaml.load(f, Loader=yaml.FullLoader))
 
-    if (cfg.use_siam_trans):
-        link_agent = LinkAgentSiam(csv_path=pjoin(cfg.in_path, cfg.locs_dir,
-                                                  cfg.csv_fname),
-                                   data_path=cfg.in_path,
-                                   model_path=cfg.siam_path,
-                                   embedded_dims=cfg_siam.embedded_dims,
-                                   n_clusters=cfg_siam.n_clusters,
-                                   entrance_radius=cfg.norm_neighbor_in,
-                                   siamese=cfg_siam.siamese,
-                                   sp_labels_fname=cfg.sp_labels_fname,
-                                   cuda=cfg.cuda)
-    else:
-        link_agent = LinkAgentGMM(csv_path=pjoin(cfg.in_path, cfg.locs_dir,
-                                                 cfg.csv_fname),
-                                  data_path=cfg.in_path,
-                                  model_path=cfg.siam_path,
-                                  embedded_dims=cfg_siam.embedded_dims,
-                                  n_clusters=cfg_siam.n_clusters,
-                                  entrance_radius=cfg.norm_neighbor_in,
-                                  sp_labels_fname=cfg.sp_labels_fname,
-                                  cuda=cfg.cuda)
+    link_agent = LinkAgentRadius(csv_path=pjoin(cfg.in_path, cfg.locs_dir,
+                                                cfg.csv_fname),
+                                 data_path=cfg.in_path,
+                                 entrance_radius=cfg.norm_neighbor_in,
+                                 sp_labels_fname=cfg.sp_labels_fname,
+                                 model_pred_path=cfg.model_path,
+                                 model_trans_path=cfg.trans_path,
+                                 cuda=cfg.cuda)
+    link_agent.update_trans_transform()
+
     # compute features
     path_feats = pjoin(cfg.in_path, cfg.precomp_dir, 'sp_desc_siam.p')
-    path_centroids = pjoin(cfg.in_path, cfg.precomp_dir, 'centroids_loc_df.p')
 
     print('computing features to {}'.format(path_feats))
     # centroids = pd.read_pickle(path_centroids)
-    feats = link_agent.feats['pooled_feats']
-    feats = [{
+    feats = link_agent.feats
+    positions = link_agent.pos
+    positive = link_agent.labels_pos
+    rows = [{
         'frame': f,
         'label': l,
-        'desc': feats[f][l]
+        'x': positions[f][l, 0],
+        'y': positions[f][l, 1],
+        'positive': positive[f][l],
+        'desc': feats[f][l],
+        'desc_trans': link_agent.feats_trans[f][l]
     } for f in range(len(feats)) for l in range(len(feats[f]))]
     print('Saving features to {}'.format(path_feats))
-    feats = pd.DataFrame(feats)
-    feats.to_pickle(path_feats)
+    df = pd.DataFrame(rows)
+    df.to_pickle(path_feats)
 
-    return link_agent, feats
+    return link_agent, df
 
 
 def main(cfg):
@@ -132,11 +125,8 @@ def main(cfg):
                                     init_radius=cfg.sp_trans_init_radius,
                                     hoof_n_bins=cfg.hoof_n_bins)
 
-    locs2d_sps = link_agent.get_all_entrance_sps(desc_df)
-    desc_df['positive'] = locs2d_sps
-
-    if (cfg.use_siam_pred):
-        logger.info('Using foreground model from siamese model')
+    if cfg.use_model_pred:
+        logger.info('Using foreground model from model')
         pm = utls.probas_to_df(link_agent.labels, link_agent.obj_preds)
     else:
         logger.info('Using foreground model from bagging model')
@@ -290,10 +280,10 @@ if __name__ == "__main__":
 
     p.add('--out-path', required=True)
     p.add('--in-path', required=True)
-    p.add('--siam-path', default='')
-    p.add('--siam-path-clst', default='')
-    p.add('--use-siam-pred', default=False, action='store_true')
-    p.add('--use-siam-trans', default=False, action='store_true')
+    p.add('--pred-path', default='')
+    p.add('--trans-path', default='')
+    p.add('--use-model-pred', default=False, action='store_true')
+    p.add('--trans', default='lfda', type=str)
 
     cfg = p.parse_args()
 

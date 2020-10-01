@@ -12,6 +12,7 @@ csv-fname : 'video1.csv'
 feats-dir : 'precomp_descriptors'
 
 # Superpixel segmentation
+sp-labels-fname : 'sp_labels.npy'
 slic-compactness : 20.0
 slic-size : 1000
 slic-n-sp : 1200
@@ -59,7 +60,7 @@ ml-embedding : 'orthonormalized'
 pca : False  #Overrides LFDA and computes PCA with n-components:lfda-dims
 
 # Graph parameters
-norm-neighbor : 0.02
+norm-neighbor : 0.05
 norm-neighbor-in : 0.08
 thr-entrance : 0.8
 

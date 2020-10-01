@@ -11,7 +11,27 @@ import numpy as np
 types = ['Tweezer', 'Cochlea', 'Slitlamp', 'Brain']
 root_path = pjoin('/home/ubelix/lejeune/runs/ksptrack')
 out_path = '/home/laurent/Documents/papers/aapu/tables/results.tex'
-exp_names = ['bce', 'pu', 'aapu', 'treeaapu']
+
+pimul = '1.0'
+ur = '0.2'
+
+exp_names = {
+    'bce': 'bce_pimul_{}_pr_bag'.format(pimul),
+    'nnpu': 'pu_pimul_{}_pr_bag'.format(pimul),
+    'aapu': 'aapu_pimul_{}_ur_{}_pr_bag'.format(pimul, ur),
+    'treeaapu': 'treeaapu_pimul_{}_ur_{}_pr_bag'.format(pimul, ur)
+}
+
+order = {
+    exp_names['treeaapu']: 'KSPTrack/aaPUtrees',
+    exp_names['aapu']: 'KSPTrack/aaPU',
+    exp_names['nnpu']: 'KSPTrack/nnPU',
+    exp_names['bce']: 'KSPTrack/BBCE',
+    'KSP': 'KSPTrack',
+    'mic17': 'EEL',
+    'gaze2': 'Gaze2Segment',
+    'wtp': 'DL-prior',
+}
 
 path_18 = pjoin(root_path, 'plots_results', 'all_self.csv')
 df_18 = pd.read_csv(path_18)
@@ -35,7 +55,7 @@ for i, t in enumerate(types):
     dset_paths = sorted(glob.glob(pjoin(root_path, 'Dataset' + str(i) + '*')))
     for dset_path in dset_paths[:max_seqs]:
         dset_dir = os.path.split(dset_path)[-1]
-        exp_paths = [pjoin(dset_path, x) for x in exp_names]
+        exp_paths = [pjoin(dset_path, x) for x in exp_names.values()]
         for exp_path in exp_paths:
             score_path = pjoin(exp_path, 'scores.csv')
             if (os.path.exists(score_path)):
@@ -67,17 +87,6 @@ df = pd.concat((df_mean, df_std), axis=1)
 df_all = pd.concat((df, df_18), axis=0, levels=1).sort_index(0)
 df_all = df_all.round(decimals=2)
 
-# Methods
-order = {
-    'treeaapu': 'KSPTrack/aaPUtrees',
-    'aapu': 'KSPTrack/aaPU',
-    'pu': 'KSPTrack/nnPU',
-    'bce': 'KSPTrack/BBCE',
-    'KSP': 'KSPTrack',
-    'mic17': 'EEL',
-    'gaze2': 'Gaze2Segment',
-    'wtp': 'DL-prior',
-}
 # drop some methods
 df_all = df_all.drop('KSPopt', level='Methods')
 

@@ -21,39 +21,36 @@ def main(cfg):
     out_path = pjoin(cfg.out_path, cfg.exp_name)
     logger.info('Writing scores to: ' + out_path)
 
-    res = np.load(
-        os.path.join(out_path, 'results.npz'))
+    res = np.load(os.path.join(out_path, 'results.npz'))
 
-    dset = BaseDataset(cfg.in_path, resize_shape=512)
+    dset = BaseDataset(cfg.in_path)
 
     truths = np.array([s['label/segmentation'] for s in dset])
 
     fpr, tpr, _ = roc_curve(truths.ravel(), res['ksp_scores_mat'].ravel())
-    precision, recall, _ = precision_recall_curve(truths.ravel(),
-                                                    res['ksp_scores_mat'].ravel())
+    precision, recall, _ = precision_recall_curve(
+        truths.ravel(), res['ksp_scores_mat'].ravel())
     f1 = f1_score(truths.ravel(), res['ksp_scores_mat'].ravel())
 
-    data = {'f1_ksp': f1,
-            'fpr_ksp': fpr[1],
-            'tpr_ksp': tpr[1],
-            'pr_ksp': precision[1],
-            'rc_ksp': recall[1]}
+    data = {
+        'f1_ksp': f1,
+        'fpr_ksp': fpr[1],
+        'tpr_ksp': tpr[1],
+        'pr_ksp': precision[1],
+        'rc_ksp': recall[1]
+    }
 
     precision, recall, _ = precision_recall_curve(truths.ravel(),
                                                   res['pm_scores_mat'].ravel())
     f1 = (2 * (precision * recall) / (precision + recall)).max()
     auc_ = auc(fpr, tpr)
 
-    data.update({'f1_pm': f1,
-                 'auc_pm': auc_})
+    data.update({'f1_pm': f1, 'auc_pm': auc_})
 
     df = pd.Series(data)
     df.to_csv(pjoin(out_path, 'scores.csv'))
 
-    data = {'pr_pm': precision,
-            'rc_pm': recall,
-            'tpr_pm': tpr,
-            'fpr_pm': fpr}
+    data = {'pr_pm': precision, 'rc_pm': recall, 'tpr_pm': tpr, 'fpr_pm': fpr}
 
     np.savez(pjoin(out_path, 'scores_curves.npz'), **data)
 

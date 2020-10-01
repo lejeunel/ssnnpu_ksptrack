@@ -1,0 +1,93 @@
+import configargparse
+import argparse
+from os.path import join as pjoin
+
+
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
+
+def get_params(path='.'):
+    p = configargparse.ArgParser(
+        config_file_parser_class=configargparse.YAMLConfigFileParser,
+        default_config_files=[pjoin(path, 'default.yaml')])
+
+    p.add('-v', help='verbose', action='store_true')
+
+    p.add('--data-type')
+    p.add('--frames', action='append', type=int)
+    p.add('--n-patches', type=int)
+    p.add('--epochs-autoenc', type=int)
+    p.add('--epochs-aug', type=int)
+    p.add('--epochs-pred', type=int)
+    p.add('--epochs-dist', type=int)
+    p.add('--epochs-dec', type=int)
+    p.add('--prev-period', type=int)
+    p.add('--proba-update-period', type=int)
+    p.add('--cp-period', type=int)
+    p.add('--unlabeled-period', type=int)
+    p.add('--unlabeled-ratio', type=float)
+    p.add('--tgt-update-period', type=int)
+    p.add('--cc-update-period', type=int)
+    p.add('--neg-mode', type=str)
+    p.add('--loss-obj-pred', type=str)
+    p.add('--aug-method', type=str)
+    p.add('--pred-init-fname', type=str)
+    p.add('--nnpu-ascent', default=False, action='store_true')
+    p.add('--aug-reset', default=False, action='store_true')
+
+    p.add('--sec-phase', default=False, action='store_true')
+
+    p.add('--n-frames-epoch', type=int)
+    p.add('--momentum', type=float)
+    p.add('--lr-dist', type=float)
+    p.add('--lr-autoenc', type=float)
+    p.add('--lr-assign', type=float)
+    p.add('--lr-power', type=float)
+    p.add('--lr-epoch-milestone-0', type=int)
+    p.add('--lr-epoch-milestone-1', type=int)
+    p.add('--lr-gamma', type=float)
+    p.add('--decay', type=float)
+
+    p.add('--lr', type=float)
+    p.add('--ds-split', type=float)
+    p.add('--ds-shuffle', type=bool)
+    p.add('--batch-size', type=int)
+    p.add('--batch-norm', type=bool)
+    p.add('--cuda', default=False, action='store_true')
+    p.add('--in-shape', type=int)
+
+    p.add('--n-ims-test', type=int)
+
+    p.add('--aug-noise', type=float)
+    p.add('--aug-scale', type=float)
+    p.add('--aug-blur-color-low', type=int)
+    p.add('--aug-blur-color-high', type=int)
+    p.add('--aug-blur-space-low', type=int)
+    p.add('--aug-blur-space-high', type=int)
+    p.add('--aug-gamma-low', type=float)
+    p.add('--aug-gamma-high', type=float)
+    p.add('--aug-rotate', type=float)
+    p.add('--aug-shear', type=float)
+    p.add('--aug-flip-proba', type=float)
+    p.add('--aug-some', type=int)
+
+    p.add('--exp-name', type=str)
+
+    p.add('--reduc-method')
+    p.add('--ml-up-thr', type=float)
+    p.add('--ml-down-thr', type=float)
+    p.add('--bag-t', type=int)
+    p.add('--bag-n-feats', type=float)
+    p.add('--bag-max-depth', type=float)
+
+    p.add('--pi-mul', type=float)
+
+    return p

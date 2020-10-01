@@ -136,7 +136,6 @@ class Rescale(Augmenter):
         super(Rescale, self).__init__(name=name, random_state=random_state)
         self.min_ = min_
         self.max_ = max_
-        self.n_chans = len(self.min_)
 
     def _augment_images(self, images, random_state, parents, hooks):
         nb_images = len(images)
@@ -144,9 +143,9 @@ class Rescale(Augmenter):
             if (images[i].dtype == np.uint8):
                 images[i] = images[i] / 255
 
+            n_chans = 1 if images[i].ndim == 2 else images[i].shape[-1]
             images[i] = [(images[i][..., c] - self.min_[c]) /
-                         (self.max_[c] - self.min_[c])
-                         for c in range(self.n_chans)]
+                         (self.max_[c] - self.min_[c]) for c in range(n_chans)]
 
             images[i] = np.moveaxis(np.array(images[i]), 0, -1)
             images[i] = images[i].astype(float)

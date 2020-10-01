@@ -101,8 +101,9 @@ def get_pm_array(labels, probas):
         # Find elements that need replacement
         mask = np.isin(scores[f], replace[0, :])
         # Replace elements
-        scores[f, mask] = replace[
-            1, np.searchsorted(replace[0, :], scores[f, mask])]
+        scores[f, mask] = replace[1,
+                                  np.searchsorted(replace[0, :], scores[f,
+                                                                        mask])]
         i += 1
         bar.update(1)
     bar.close()
@@ -131,13 +132,13 @@ def check_thrs(threshs, y, n_samp):
         dthresh = threshs[1] - threshs[0]
         sorted_probas = np.sort(y)[::-1]
         threshs[1] = sorted_probas[n_samp]
-        threshs[0] = threshs[1] - dthresh
+        threshs[0] = sorted_probas[::-1][n_samp]
         warnings.warn('changed thresholds to {}'.format(threshs))
 
     return threshs
 
 
-def sample_features(X, y, threshs, n_samp, check_thr=False, n_bins=None):
+def sample_features(X, y, threshs, n_samp, check_thr=True, n_bins=None):
     """
     X: features matrix
     y: probability values
@@ -862,8 +863,8 @@ def score_path_sets(kspSet,
     with progressbar.ProgressBar(maxval=len(nodes)) as bar:
         for n in range(len(nodes)):
             bar.update(n)
-            scores[..., nodes[n][0]] += labels[:, :, nodes[n]
-                                               [0]] == nodes[n][1]
+            scores[..., nodes[n][0]] += labels[:, :,
+                                               nodes[n][0]] == nodes[n][1]
 
     return scores
 

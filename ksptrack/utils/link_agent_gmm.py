@@ -1,5 +1,4 @@
 import numpy as np
-from ksptrack.siamese.clustering import get_features
 import torch
 from ksptrack.utils.link_agent_radius import LinkAgentRadius
 from torch.utils.data import DataLoader
@@ -7,7 +6,6 @@ import tqdm
 from sklearn.mixture import GaussianMixture
 import matplotlib.pyplot as plt
 from ksptrack.siamese.loader import Loader
-from ksptrack.siamese.modeling.siamese import Siamese
 
 
 def make_clusters(labels, predictions):
@@ -62,52 +60,13 @@ class LinkAgentGMM(LinkAgentRadius):
 
         super().__init__(csv_path,
                          data_path,
+                         model_path,
+                         embedded_dims=embedded_dims,
+                         n_clusters=n_clusters,
                          entrance_radius=entrance_radius,
                          sp_labels_fname=sp_labels_fname)
 
-        self.device = torch.device('cuda' if cuda else 'cpu')
-        self.data_path = data_path
-
-        self.model = Siamese(embedded_dims=embedded_dims,
-                             cluster_number=n_clusters,
-                             backbone='unet',
-                             siamese='none')
-        print('loading checkpoint {}'.format(model_path))
-        state_dict = torch.load(model_path,
-                                map_location=lambda storage, loc: storage)
-
-        self.model.load_state_dict(state_dict, strict=False)
-        self.model.to(self.device)
-        self.model.eval()
-
-        self.batch_to_device = lambda batch: {
-            k: v.to(self.device) if (isinstance(v, torch.Tensor)) else v
-            for k, v in batch.items()
-        }
-
-        self.dset = Loader(data_path,
-                           normalization='rescale',
-                           sp_labels_fname=sp_labels_fname)
-
-        self.dl = DataLoader(self.dset, collate_fn=self.dset.collate_fn)
-
-        self.prepare_feats()
-
         self.fit_gmm()
-
-    def prepare_feats(self):
-        print('preparing features for linkAgentGMM')
-
-        self.feats, self.labels_pos, self.assignments, self.obj_preds = get_features(
-            self.model,
-            self.dl,
-            self.device,
-            return_distribs=True,
-            return_obj_preds=True)
-
-    def get_all_entrance_sps(self, *args):
-
-        return np.concatenate(self.labels_pos)
 
     def fit_gmm(self):
         print('fitting GMM...')
