@@ -24,17 +24,25 @@ def main(cfg):
     dm = DataManager(cfg.in_path, cfg.precomp_dir)
     dm.calc_superpix(cfg.slic_compactness, cfg.slic_n_sp)
 
-    link_agent, desc_df = make_link_agent(cfg)
+    link_agent, _ = make_link_agent(cfg)
 
     if cfg.use_model_pred:
         print('will use model foreground probabilities')
         probas = link_agent.obj_preds
         pm_scores_fg = utls.get_pm_array(link_agent.labels, probas)
     else:
-        probas = utls.calc_pm(
-            desc_df, np.array(link_agent.get_all_entrance_sps(desc_df)),
-            cfg.bag_n_feats, cfg.bag_t, cfg.bag_max_depth, cfg.bag_max_samples,
-            cfg.bag_jobs)
+        import pandas as pd
+        rows = [{
+            'frame': f,
+            'label': l,
+            'desc': link_agent.feats_bag[f][l],
+        } for f in range(len(link_agent.feats_bag))
+                for l in range(len(link_agent.feats_bag[f]))]
+        desc_df = pd.DataFrame(rows)
+        probas = utls.calc_pm(desc_df,
+                              np.array(link_agent.get_all_entrance_sps()),
+                              cfg.bag_n_feats, cfg.bag_t, cfg.bag_max_depth,
+                              cfg.bag_max_samples, cfg.bag_jobs)
         pm_scores_fg = utls.get_pm_array(link_agent.labels, probas)
 
     if cfg.aug_method == 'none':
@@ -115,7 +123,7 @@ def main(cfg):
             label_in = link_agent.labels[fin, i_in, j_in]
             # for l in np.unique(link_agent.labels[fin]):
             for l in range(np.unique(link_agent.labels[fin]).shape[0]):
-                proba = link_agent.get_proba(fin, label_in, fin, l, desc_df)
+                proba = link_agent.get_proba(fin, label_in, fin, l)
                 entrance_probas[link_agent.labels[fin] == l] = proba
 
             truth = dl[fin]['label/segmentation']

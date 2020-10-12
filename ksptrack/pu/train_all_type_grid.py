@@ -20,7 +20,7 @@ if __name__ == "__main__":
 
     param_grid = {
         # 'unlabeled_ratio': [0.2, 0.1, 0.3],
-        'unlabeled_ratio': [0.2],
+        'unlabeled_ratio': [0.12, 0.2],
         # 'pi_mul': [1., 0.9, 1.1],
         'pi_mul': [1.]
     }
@@ -42,15 +42,17 @@ if __name__ == "__main__":
     p_ksp.add('--trans-path', default='')
     p_ksp.add('--use-model-pred', default=False, action='store_true')
     p_ksp.add('--siam-trans', default='lfda', type=str)
+    p_ksp.add('--coordconv', default=False, action='store_true')
     cfg_ksp = p_ksp.parse_known_args(env_vars=None)[0]
 
     cfg.nnpu_ascent = True
-    cfg.aug_reset = True
+    cfg.pi_filt = True
+    cfg.coordconv = False
+    cfg_ksp.coordconv = False
 
     for param in param_grid:
         for run_dir, train_dir in zip(cfg.run_dirs, cfg.train_dirs):
-            cfg.sec_phase = False
-            cfg.pred_init_fname = ''
+            cfg.pred_init_dir = ''
 
             cfg.run_dir = run_dir
             cfg.train_dir = train_dir
@@ -62,10 +64,31 @@ if __name__ == "__main__":
             pi_mul = float(param['pi_mul'])
             unlabeled_ratio = float(param['unlabeled_ratio'])
 
-            cfg_ksp.trans_path = pjoin(cfg.out_root, cfg.run_dir,
-                                       'checkpoints', 'cp_autoenc.pth.tar')
+            cfg_ksp.trans_path = pjoin(cfg.out_root, 'autoenc', 'cp.pth.tar')
+            cfg_ksp.trans_path = pjoin(cfg.out_root, cfg.run_dir, 'autoenc',
+                                       'cp.pth.tar')
+
+            cfg.true_prior = False
+            cfg.sec_phase = False
+
             print('------------------------')
-            print('nnPU + LFDA')
+            print('nnPU + bagger prior')
+            cfg.exp_name = 'pu_pimul_{}_pr_{}'.format(
+                pi_mul, phase_bool_to_str(cfg.sec_phase))
+            print('exp_name: {}'.format(cfg.exp_name))
+            print('in_path: {}'.format(cfg_ksp.in_path))
+            print('------------------------')
+            cfg.unlabeled_ratio = 0.
+            cfg.pi_mul = pi_mul
+            cfg.loss_obj_pred = 'pu'
+            cfg.aug_method = 'none'
+            cfg.pred_init_dir = ''
+            train_all.main(cfg)
+
+            cfg.pred_init_dir = cfg.exp_name
+
+            print('------------------------')
+            print('nnPU + model prior')
             cfg.exp_name = 'pu_pimul_{}_pr_{}'.format(
                 pi_mul, phase_bool_to_str(cfg.sec_phase))
             print('exp_name: {}'.format(cfg.exp_name))
@@ -78,33 +101,10 @@ if __name__ == "__main__":
             cfg_ksp.exp_name = cfg.exp_name
             cfg_ksp.use_model_pred = True
             cfg_ksp.trans = 'lfda'
-            train_all.main(cfg)
-            cfg_ksp.model_path = pjoin(
-                cfg.out_root, cfg.run_dir, 'checkpoints',
-                'cp_{}.pth.tar'.format(cfg_ksp.exp_name))
-            # iterative_ksp.main(cfg_ksp)
-
-            cfg.pred_init_fname = 'cp_{}.pth.tar'.format(cfg_ksp.exp_name)
             cfg.sec_phase = True
-
-            print('------------------------')
-            print('nnPU + LFDA')
-            cfg.exp_name = 'pu_pimul_{}_pr_{}'.format(
-                pi_mul, phase_bool_to_str(cfg.sec_phase))
-            print('exp_name: {}'.format(cfg.exp_name))
-            print('in_path: {}'.format(cfg_ksp.in_path))
-            print('------------------------')
-            cfg.unlabeled_ratio = 0.
-            cfg.pi_mul = pi_mul
-            cfg.loss_obj_pred = 'pu'
-            cfg.aug_method = 'none'
-            cfg_ksp.exp_name = cfg.exp_name
-            cfg_ksp.use_model_pred = True
-            cfg_ksp.trans = 'lfda'
             train_all.main(cfg)
-            cfg_ksp.model_path = pjoin(
-                cfg.out_root, cfg.run_dir, 'checkpoints',
-                'cp_{}.pth.tar'.format(cfg_ksp.exp_name))
+            cfg_ksp.model_path = pjoin(cfg.out_root, cfg.run_dir,
+                                       cfg_ksp.exp_name, 'cp.pth.tar')
             iterative_ksp.main(cfg_ksp)
 
             print('------------------------')
@@ -121,10 +121,12 @@ if __name__ == "__main__":
             cfg_ksp.exp_name = cfg.exp_name
             cfg_ksp.use_model_pred = True
             cfg_ksp.trans = 'lfda'
+            cfg.sec_phase = True
             train_all.main(cfg)
-            cfg_ksp.model_path = pjoin(
-                cfg.out_root, cfg.run_dir, 'checkpoints',
-                'cp_{}.pth.tar'.format(cfg_ksp.exp_name))
+            cfg_ksp.model_path = pjoin(cfg.out_root, cfg.run_dir,
+                                       cfg_ksp.exp_name, 'cp.pth.tar')
+            cfg_ksp.trans_path = pjoin(cfg.out_root, cfg.run_dir, 'autoenc',
+                                       'cp.pth.tar')
             iterative_ksp.main(cfg_ksp)
 
             print('------------------------')
@@ -141,10 +143,38 @@ if __name__ == "__main__":
             cfg_ksp.exp_name = cfg.exp_name
             cfg_ksp.use_model_pred = True
             cfg_ksp.trans = 'lfda'
+            cfg.sec_phase = True
             train_all.main(cfg)
-            cfg_ksp.model_path = pjoin(
-                cfg.out_root, cfg.run_dir, 'checkpoints',
-                'cp_{}.pth.tar'.format(cfg_ksp.exp_name))
+            cfg_ksp.model_path = pjoin(cfg.out_root, cfg.run_dir,
+                                       cfg_ksp.exp_name, 'cp.pth.tar')
+            cfg_ksp.trans_path = pjoin(cfg.out_root, cfg.run_dir, 'autoenc',
+                                       'cp.pth.tar')
+            iterative_ksp.main(cfg_ksp)
+
+            print('------------------------')
+            print('nnPU + true prior')
+            cfg.exp_name = 'pu_pimul_{}_pr_true_ph1'.format(pi_mul)
+            print('exp_name: {}'.format(cfg.exp_name))
+            print('in_path: {}'.format(cfg_ksp.in_path))
+            print('------------------------')
+            cfg.unlabeled_ratio = 0.
+            cfg.pi_mul = pi_mul
+            cfg.loss_obj_pred = 'pu'
+            cfg.aug_method = 'none'
+            cfg.true_prior = True
+            cfg.sec_phase = False
+            train_all.main(cfg)
+            cfg.sec_phase = True
+            cfg.pred_init_dir = cfg.exp_name
+            cfg.exp_name = 'pu_pimul_{}_pr_true_ph2'.format(pi_mul)
+            train_all.main(cfg)
+
+            cfg_ksp.exp_name = cfg.exp_name
+            cfg_ksp.use_model_pred = True
+            cfg_ksp.trans = 'lfda'
+
+            cfg_ksp.model_path = pjoin(cfg.out_root, cfg.run_dir,
+                                       cfg_ksp.exp_name, 'cp.pth.tar')
             iterative_ksp.main(cfg_ksp)
 
             # print('------------------------')

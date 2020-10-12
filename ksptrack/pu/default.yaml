@@ -1,6 +1,6 @@
 frames: []
 
-epochs-autoenc: 150
+epochs-autoenc: 80
 epochs-pred: 100
 epochs-dec: 100
 epochs-dist: 80
@@ -14,8 +14,8 @@ cp-period: 2
 unlabeled-period: 10
 unlabeled-ratio: 0.15
 nnpu-ascent: False
-aug-reset: False
-pred-init-fname: ''
+aug-in-neg: False
+pred-init-dir: ''
 
 aug-method: 'set'
 neg-mode: single
@@ -24,7 +24,8 @@ loss-obj-pred: 'pu'
 sec-phase: False
 
 # optimizer
-lr-dist: 1e-4
+lr1: 5e-5
+lr2: 1e-6
 lr-autoenc: 1e-4
 lr-assign: 1e-4
 decay : 2e-4
@@ -69,3 +70,9 @@ ml-down-thr: 0.5
 bag-t: 300
 bag-n-feats : 0.1
 bag-max-depth : 50
+
+pi-filt-size: 15
+pi-filt: False
+true-prior: False
+
+coordconv: False

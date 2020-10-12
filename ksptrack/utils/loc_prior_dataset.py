@@ -59,7 +59,7 @@ def make_2d_gauss(shape, std, center):
 
     g = g_x * g_y
 
-    return g / np.sum(g)
+    return g / g.max()
 
 
 def coord2Pixel(x, y, width, height):
@@ -106,7 +106,7 @@ class LocPriorDataset(BaseDataset):
                  resize_shape=None,
                  sp_labels_fname='sp_labels.npy',
                  csv_fname='video1.csv',
-                 sig_prior=0.04):
+                 sig_prior=0.15):
         super().__init__(root_path=root_path, sp_labels_fname=sp_labels_fname)
         self.sig_prior = sig_prior
 
@@ -167,6 +167,12 @@ class LocPriorDataset(BaseDataset):
         ]
 
         if len(keypoints.labels) > 0:
+            loc_prior = [
+                make_2d_gauss(sample['labels'].shape,
+                              self.sig_prior * sample['labels'].shape[0],
+                              (k.y_int, k.x_int)) for k in keypoints.keypoints
+            ]
+            sample['loc_prior'] = np.stack(loc_prior).sum(axis=0)
             pos_labels = pd.DataFrame([{
                 'frame':
                 idx,
@@ -184,6 +190,7 @@ class LocPriorDataset(BaseDataset):
                 'n_labels':
                 np.unique(sample['labels']).shape[0]
             }])
+            sample['loc_prior'] = np.zeros(sample['labels'])
 
         sample['loc_keypoints'] = keypoints
         sample['pos_labels'] = pos_labels
@@ -197,6 +204,9 @@ class LocPriorDataset(BaseDataset):
 
         out['loc_keypoints'] = [d['loc_keypoints'] for d in data]
         out['pos_labels'] = pd.concat(out['pos_labels'])
+        out['loc_prior'] = torch.stack([
+            torch.from_numpy(d['loc_prior'][None, ...]).float() for d in data
+        ])
 
         return out
 
@@ -217,16 +227,18 @@ if __name__ == "__main__":
     ])
 
     dset = LocPriorDataset(root_path=pjoin(
-        '/home/ubelix/lejeune/data/medical-labeling/Dataset10'),
+        '/home/ubelix/lejeune/data/medical-labeling/Dataset32'),
                            normalization='rescale',
                            augmentations=transf,
                            resize_shape=512)
     dl = DataLoader(dset, collate_fn=dset.collate_fn)
-    n = 50
-    f = 97
 
-    for _ in range(n):
+    for s in dset:
 
-        im = dset[f]['image']
+        im = s['image']
+        prior = s['loc_prior']
+        plt.subplot(121)
         plt.imshow(im)
+        plt.subplot(122)
+        plt.imshow(prior)
         plt.show()

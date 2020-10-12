@@ -39,9 +39,9 @@ def get_params(path='.'):
     p.add('--neg-mode', type=str)
     p.add('--loss-obj-pred', type=str)
     p.add('--aug-method', type=str)
-    p.add('--pred-init-fname', type=str)
+    p.add('--pred-init-dir', type=str)
     p.add('--nnpu-ascent', default=False, action='store_true')
-    p.add('--aug-reset', default=False, action='store_true')
+    p.add('--aug-in-neg', default=False, action='store_true')
 
     p.add('--sec-phase', default=False, action='store_true')
 
@@ -56,7 +56,8 @@ def get_params(path='.'):
     p.add('--lr-gamma', type=float)
     p.add('--decay', type=float)
 
-    p.add('--lr', type=float)
+    p.add('--lr1', type=float)
+    p.add('--lr2', type=float)
     p.add('--ds-split', type=float)
     p.add('--ds-shuffle', type=bool)
     p.add('--batch-size', type=int)
@@ -89,5 +90,9 @@ def get_params(path='.'):
     p.add('--bag-max-depth', type=float)
 
     p.add('--pi-mul', type=float)
+    p.add('--pi-filt-size', type=int)
+    p.add('--pi-filt', default=False, action='store_true')
+    p.add('--true-prior', default=False, action='store_true')
+    p.add('--coordconv', default=False, action='store_true')
 
     return p

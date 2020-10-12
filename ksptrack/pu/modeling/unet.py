@@ -6,10 +6,19 @@ from ksptrack.pu.modeling.coordconv import CoordConv2d
 
 
 @torch.no_grad()
-def init_weights(m):
+def init_weights_unif(m):
     if type(m) == nn.Linear:
         m.weight.fill_(1.0)
     if (type(m) == nn.Conv2d or type(m) == CoordConv2d):
+        nn.init.kaiming_uniform_(m.weight)
+
+
+@torch.no_grad()
+def init_weights_normal(m):
+    if type(m) == nn.Linear:
+        m.weight.fill_(1.0)
+    if (type(m) == nn.Conv2d or type(m) == CoordConv2d):
+        # nn.init.kaiming_uniform_(m.weight)
         nn.init.kaiming_normal_(m.weight)
 
 
@@ -46,7 +55,8 @@ class MultiResBlock(nn.Module):
                  in_channels,
                  num_filters,
                  convObject=nn.Conv2d,
-                 batchNormObject=nn.BatchNorm2d):
+                 batchNormObject=nn.BatchNorm2d,
+                 dropout=0.):
         super(MultiResBlock, self).__init__()
 
         self.alpha = 1.67
@@ -78,6 +88,7 @@ class MultiResBlock(nn.Module):
                                    out_filt_conv7x7)
         self.bn1 = batchNormObject(out_filt_conv3x3 + out_filt_conv5x5 + \
                                    out_filt_conv7x7)
+        self.dropout = nn.Dropout2d(dropout)
 
     def forward(self, input):
         shortcut = self.shortcut(input)
@@ -88,6 +99,7 @@ class MultiResBlock(nn.Module):
         out = self.bn0(out)
         out += shortcut
         out = self.bn1(out)
+        out = self.dropout(out)
         out = F.relu(out)
         return out
 
@@ -136,7 +148,8 @@ class ConvolutionalEncoder(nn.Module):
                  in_channels=3,
                  start_filts=32,
                  depth=5,
-                 convObject=nn.Conv2d):
+                 convObject=nn.Conv2d,
+                 dropout=0.):
         """
         n_features_input (int): number of intput features
         num_hidden_features (list(int)): number of features for each stage
@@ -154,7 +167,12 @@ class ConvolutionalEncoder(nn.Module):
         self.stages = nn.ModuleList()
 
         # input convolution block
-        block = [MultiResBlock(3, self.filts_dims[0], convObject=convObject)]
+        block = [
+            MultiResBlock(3,
+                          self.filts_dims[0],
+                          convObject=convObject,
+                          dropout=dropout)
+        ]
         self.stages.append(nn.Sequential(*block))
 
         # layers
@@ -164,7 +182,8 @@ class ConvolutionalEncoder(nn.Module):
                 nn.MaxPool2d(2),
                 MultiResBlock(self.stages[i][-1].out_filts,
                               self.filts_dims[i + 1],
-                              convObject=convObject)
+                              convObject=convObject,
+                              dropout=dropout)
             ]
             self.stages.append(nn.Sequential(*block))
 
@@ -194,7 +213,8 @@ class ConvolutionalDecoder(nn.Module):
                  out_channels=3,
                  skip_mode='res',
                  convObject=nn.Conv2d,
-                 batchNormObject=nn.BatchNorm2d):
+                 batchNormObject=nn.BatchNorm2d,
+                 dropout=0.):
         """
         n_features_output (int): number of output features
         num_hidden_features (list(int)): number of features for each stage
@@ -288,7 +308,8 @@ class UNet(nn.Module):
                  depth=5,
                  start_filts=32,
                  skip_mode='res',
-                 use_coordconv=False):
+                 use_coordconv=False,
+                 dropout=0.):
         """
         initialize the model
         Args:
@@ -310,7 +331,9 @@ class UNet(nn.Module):
 
         self.encoder = ConvolutionalEncoder(in_channels=in_channels,
                                             start_filts=start_filts,
-                                            depth=depth)
+                                            depth=depth,
+                                            convObject=self.convObject,
+                                            dropout=dropout)
 
         filts_dims = [stage[-1].out_filts
                       for stage in self.encoder.stages][::-1]
@@ -318,9 +341,11 @@ class UNet(nn.Module):
         self.decoder = ConvolutionalDecoder(filts_dims,
                                             start_filts=start_filts,
                                             out_channels=out_channels,
-                                            skip_mode=skip_mode)
+                                            skip_mode=skip_mode,
+                                            convObject=self.convObject,
+                                            dropout=dropout)
 
-        self.apply(init_weights)
+        self.apply(init_weights_normal)
 
     def forward(self, x):
 
@@ -338,12 +363,3 @@ class UNet(nn.Module):
                           align_corners=True)
 
         return {'output': x, 'feats': feats, 'skips': skips}
-
-    def to_predictor(self):
-
-        in_dim = self.decoder.filts_dims[-1]
-        kernel_size = self.decoder.output_convolution[0].kernel_size
-        padding = self.decoder.output_convolution[0].padding
-        stride = self.decoder.output_convolution[0].stride
-        new_out = self.convObject(in_dim, 1, kernel_size, stride, padding)
-        self.decoder.output_convolution = torch.nn.Sequential(new_out)

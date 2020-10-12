@@ -11,7 +11,6 @@ import yaml
 import ksptrack.graph_tracking as gtrack
 import ksptrack.sp_manager as spm
 from ksptrack.cfgs import params
-from ksptrack.pu.modeling.unet import UNet
 from ksptrack.utils import comp_scores
 from ksptrack.utils import my_utils as utls
 from ksptrack.utils import write_frames_results
@@ -41,12 +40,6 @@ def merge_positives(sp_desc_df, pos_for, pos_back):
 
 def make_link_agent(cfg):
 
-    cfg_path = os.path.split(cfg.model_path)[0]
-    cfg_path = os.path.split(cfg_path)[0]
-    cfg_path = pjoin(cfg_path, 'cfg.yml')
-    with open(cfg_path) as f:
-        cfg_siam = Bunch(yaml.load(f, Loader=yaml.FullLoader))
-
     link_agent = LinkAgentRadius(csv_path=pjoin(cfg.in_path, cfg.locs_dir,
                                                 cfg.csv_fname),
                                  data_path=cfg.in_path,
@@ -54,7 +47,8 @@ def make_link_agent(cfg):
                                  sp_labels_fname=cfg.sp_labels_fname,
                                  model_pred_path=cfg.model_path,
                                  model_trans_path=cfg.trans_path,
-                                 cuda=cfg.cuda)
+                                 cuda=cfg.cuda,
+                                 coordconv=cfg.coordconv)
     link_agent.update_trans_transform()
 
     # compute features
@@ -72,7 +66,7 @@ def make_link_agent(cfg):
         'y': positions[f][l, 1],
         'positive': positive[f][l],
         'desc': feats[f][l],
-        'desc_trans': link_agent.feats_trans[f][l]
+        'desc_trans': link_agent.feats_bag[f][l]
     } for f in range(len(feats)) for l in range(len(feats[f]))]
     print('Saving features to {}'.format(path_feats))
     df = pd.DataFrame(rows)
@@ -284,6 +278,7 @@ if __name__ == "__main__":
     p.add('--trans-path', default='')
     p.add('--use-model-pred', default=False, action='store_true')
     p.add('--trans', default='lfda', type=str)
+    p_ksp.add('--coordconv', default=False, action='store_true')
 
     cfg = p.parse_args()
 

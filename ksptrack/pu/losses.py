@@ -204,12 +204,12 @@ class PULoss(nn.Module):
     """
     https://arxiv.org/abs/2002.04672
     """
-    def __init__(self, pi=0.25, do_ascent=False, beta=0, gamma=2):
+    def __init__(self, pi=0.25, do_ascent=False, beta=0, aug_in_neg=False):
         super(PULoss, self).__init__()
         self.pi = pi
         self.do_ascent = do_ascent
         self.beta = beta
-        self.gamma = gamma
+        self.aug_in_neg = aug_in_neg
 
     def forward(self, input, target, pi=None, pi_mul=1.):
         """
@@ -230,8 +230,12 @@ class PULoss(nn.Module):
             in_u_minus = in_[target_neg.bool()]
             Ru_minus = cross_entropy_logits(in_u_minus, 0)
 
-            in_p_minus = in_[target_pos.bool()]
-            Rp_minus = cross_entropy_logits(in_p_minus, 0)
+            if self.aug_in_neg:
+                in_p_minus = in_[(target_pos + target_aug).bool()]
+                Rp_minus = cross_entropy_logits(in_p_minus, 0)
+            else:
+                in_p_minus = in_[target_pos.bool()]
+                Rp_minus = cross_entropy_logits(in_p_minus, 0)
 
             loss_p_plus = pi_mul * pi_ * Rp_plus
             loss_u_minus = Ru_minus

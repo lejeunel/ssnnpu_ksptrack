@@ -82,6 +82,7 @@ def calc_bagging(feats,
     print('number of positives samples: {}'.format(NP))
     print('max tree depth: {}'.format(bag_max_depth))
     print('max num feats: {}'.format(bag_n_feats))
+    print('input features dims: {}'.format(data_U.shape[1]))
 
     np.random.seed(0)
 

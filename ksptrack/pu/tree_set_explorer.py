@@ -189,7 +189,6 @@ class TreeSetExplorer(data.Dataset):
         # get one row per label
         augs = []
         added = 0
-        idx_to_delete = []
         for i, row in self.unlabeled.iterrows():
             if (added >= n_samples):
                 break

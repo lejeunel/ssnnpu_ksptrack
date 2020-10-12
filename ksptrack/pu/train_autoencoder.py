@@ -1,28 +1,58 @@
-from ksptrack.utils.loc_prior_dataset import LocPriorDataset
-from torch.utils.data import DataLoader, Subset
-import torch.optim as optim
-import params
-import torch
 import os
 from os.path import join as pjoin
-import yaml
-from tensorboardX import SummaryWriter
-import ksptrack.pu.utils as utls
-import tqdm
-from ksptrack.pu.modeling.unet import UNet
-from ksptrack.pu import im_utils
-from skimage import io
+
 import numpy as np
-from torch.nn.functional import sigmoid
-from ksptrack.utils.bagging import calc_bagging
-from ksptrack.utils.my_utils import get_pm_array
 import pandas as pd
+import torch
+import torch.optim as optim
+import tqdm
+import yaml
+from skimage import io, segmentation
+from tensorboardX import SummaryWriter
+from torch.nn.functional import sigmoid
+from torch.utils.data import DataLoader, Subset
+
+import ksptrack.pu.utils as utls
+import params
+from ksptrack.pu import im_utils
 from ksptrack.pu.im_utils import colorize, get_features
+from ksptrack.pu.modeling.unet import UNet
+from ksptrack.utils.bagging import calc_bagging
+from ksptrack.utils.loc_prior_dataset import LocPriorDataset
+from ksptrack.utils.my_utils import get_pm_array
+from imgaug import augmenters as iaa
+from ksptrack.models.my_augmenters import rescale_augmenter
+
+
+def make_data_aug(cfg, do_resize=False):
+    transf = iaa.Sequential([
+        iaa.BilateralBlur(d=8,
+                          sigma_color=(cfg.aug_blur_color_low,
+                                       cfg.aug_blur_color_high),
+                          sigma_space=(cfg.aug_blur_space_low,
+                                       cfg.aug_blur_space_high)),
+        iaa.Affine(scale={
+            "x": (1 - cfg.aug_scale, 1 + cfg.aug_scale),
+            "y": (1 - cfg.aug_scale, 1 + cfg.aug_scale)
+        },
+                   rotate=(-cfg.aug_rotate, cfg.aug_rotate),
+                   shear=(-cfg.aug_shear, cfg.aug_shear)),
+        iaa.AdditiveGaussianNoise(scale=(0, cfg.aug_noise * 255))
+        # iaa.Fliplr(p=0.5),
+        # iaa.Flipud(p=0.5),
+    ])
+
+    transf_normal = iaa.Sequential([rescale_augmenter])
+
+    if (do_resize):
+        transf_normal.add(iaa.size.Resize(cfg.in_shape))
+
+    return transf, transf_normal
 
 
 def make_pm_prevs(model, dataloaders, cfg, centroids, all_labels, device):
     res = get_features(model, dataloaders['all'], device)
-    feats = res['feats']
+    feats = res['feats_bag']
     labels_pos = res['labels_pos_mask']
 
     probas = calc_bagging(np.concatenate(feats),
@@ -39,15 +69,31 @@ def make_pm_prevs(model, dataloaders, cfg, centroids, all_labels, device):
     scores_thr = [(s > 0.5).astype(float) for s in scores]
     scores = [colorize(s) for s in scores]
     scores_thr = [colorize(s) for s in scores_thr]
+
     images = [
         np.rollaxis(
             (255 * s['image'].squeeze().cpu().numpy()).astype(np.uint8), 0, 3)
         for s in dataloaders['prev']
     ]
-    all_images = (np.concatenate(images, axis=1)).astype(np.uint8)
-    all_scores = np.concatenate(scores, axis=1)
-    all_scores_thr = np.concatenate(scores_thr, axis=1)
-    all = np.concatenate((all_images, all_scores, all_scores_thr), axis=0)
+    truths = [
+        s['label/segmentation'].squeeze().cpu().numpy().astype(np.uint8)
+        for s in dataloaders['prev']
+    ]
+    truths_ct = [segmentation.find_boundaries(t, mode='thick') for t in truths]
+    for im, ct in zip(images, truths_ct):
+        im[ct, :] = (255, 0, 0)
+
+    images_recons = [
+        np.rollaxis((255 * res['outs_unpooled'][f]).astype(np.uint8), 0, 3)
+        for f in frames
+    ]
+    all_images = (np.concatenate(images, axis=0)).astype(np.uint8)
+    all_images_recons = (np.concatenate(images_recons,
+                                        axis=0)).astype(np.uint8)
+    all_scores = np.concatenate(scores, axis=0)
+    all_scores_thr = np.concatenate(scores_thr, axis=0)
+    all = np.concatenate(
+        (all_images, all_images_recons, all_scores, all_scores_thr), axis=1)
 
     return all
 
@@ -77,17 +123,14 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
         for k, v in batch.items()
     }
 
-    check_cp_exist = pjoin(run_path, 'checkpoints', 'cp_autoenc.pth.tar')
+    check_cp_exist = pjoin(run_path, 'cp.pth.tar')
     if (os.path.exists(check_cp_exist)):
         print('found checkpoint at {}. Skipping.'.format(check_cp_exist))
         return
 
-    test_im_dir = pjoin(run_path, 'recons')
-    pm_im_dir = pjoin(run_path, 'recons_pm')
-    if (not os.path.exists(test_im_dir)):
-        os.makedirs(test_im_dir)
-    if (not os.path.exists(pm_im_dir)):
-        os.makedirs(pm_im_dir)
+    prev_dir = pjoin(run_path, 'prevs')
+    if (not os.path.exists(prev_dir)):
+        os.makedirs(prev_dir)
 
     # cfg.prev_period = 2
 
@@ -153,7 +196,7 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
                 if (loss_ < best_loss):
                     is_best = True
                     best_loss = loss_
-                path = pjoin(run_path, 'checkpoints', 'cp_autoenc.pth.tar')
+                path = pjoin(run_path, 'cp.pth.tar')
                 utls.save_checkpoint(
                     {
                         'epoch': epoch + 1,
@@ -168,35 +211,28 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
             if ((phase == 'prev') & ((epoch + 1) % cfg.prev_period == 0)):
 
                 # save previews
-                prev_ims = np.vstack(
-                    [prev_ims[k] for k in sorted(prev_ims.keys())])
-                prev_ims_recons = np.vstack([
-                    prev_ims_recons[k] for k in sorted(prev_ims_recons.keys())
-                ])
-                all = np.concatenate((prev_ims, prev_ims_recons), axis=1)
-
-                io.imsave(pjoin(test_im_dir, 'ep_{:04d}.png'.format(epoch)),
-                          all)
-
                 all = make_pm_prevs(model, dataloaders, cfg, centroids,
                                     all_labels, device)
 
-                io.imsave(pjoin(pm_im_dir, 'ep_{:04d}.png'.format(epoch)), all)
+                io.imsave(pjoin(prev_dir, 'ep_{:04d}.png'.format(epoch)), all)
 
 
 def main(cfg):
 
     device = torch.device('cuda' if cfg.cuda else 'cpu')
 
-    model = UNet(depth=5, skip_mode='none', use_coordconv=True)
+    model = UNet(depth=5,
+                 skip_mode='none',
+                 use_coordconv=cfg.coordconv,
+                 dropout=0.1)
     model.to(device)
 
-    run_path = pjoin(cfg.out_root, cfg.run_dir)
+    run_path = pjoin(cfg.out_root, cfg.run_dir, 'autoenc')
 
     if (not os.path.exists(run_path)):
         os.makedirs(run_path)
 
-    transf, _ = im_utils.make_data_aug(cfg)
+    transf, _ = make_data_aug(cfg)
 
     dl = LocPriorDataset(pjoin(cfg.in_root, 'Dataset' + cfg.train_dir),
                          augmentations=transf,
@@ -235,7 +271,7 @@ def main(cfg):
         params=[
             {
                 'params': model.parameters(),
-                'lr': 1e-4
+                'lr': 5e-4
             },
         ],
         weight_decay=cfg.decay,
