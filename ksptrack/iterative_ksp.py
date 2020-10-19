@@ -47,8 +47,9 @@ def make_link_agent(cfg):
                                  sp_labels_fname=cfg.sp_labels_fname,
                                  model_pred_path=cfg.model_path,
                                  model_trans_path=cfg.trans_path,
-                                 cuda=cfg.cuda,
-                                 coordconv=cfg.coordconv)
+                                 loc_prior=cfg.loc_prior,
+                                 use_coordconv=cfg.coordconv,
+                                 cuda=cfg.cuda)
     link_agent.update_trans_transform()
 
     # compute features
@@ -65,8 +66,7 @@ def make_link_agent(cfg):
         'x': positions[f][l, 0],
         'y': positions[f][l, 1],
         'positive': positive[f][l],
-        'desc': feats[f][l],
-        'desc_trans': link_agent.feats_bag[f][l]
+        'desc': feats[f][l]
     } for f in range(len(feats)) for l in range(len(feats[f]))]
     print('Saving features to {}'.format(path_feats))
     df = pd.DataFrame(rows)
@@ -277,8 +277,9 @@ if __name__ == "__main__":
     p.add('--pred-path', default='')
     p.add('--trans-path', default='')
     p.add('--use-model-pred', default=False, action='store_true')
+    p.add('--loc-prior', default=False, action='store_true')
+    p.add('--coordconv', default=False, action='store_true')
     p.add('--trans', default='lfda', type=str)
-    p_ksp.add('--coordconv', default=False, action='store_true')
 
     cfg = p.parse_args()
 

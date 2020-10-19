@@ -105,7 +105,8 @@ class SetExplorer(data.Dataset):
                 'label': int(l),
                 'weight': p,
                 'n_labels': n_labels,
-                'from_aug': False
+                'from_aug': False,
+                'epoch': 0
             } for l, p in lab_pred])
 
             pbar.update(1)
@@ -150,7 +151,7 @@ class SetExplorer(data.Dataset):
                                    inplace=True)
         self.positives = self.positives[self.positives['from_aug'] == False]
 
-    def augment_positives(self, n_samples):
+    def augment_positives(self, n_samples, priors, ratio):
         """
         if pos_set is None, take self.P
         n_samples: if float, will take it as a ratio of unlabeled
@@ -177,25 +178,28 @@ class SetExplorer(data.Dataset):
         for i, row in self.unlabeled.iterrows():
             if (added >= n_samples):
                 break
-            dict_ = dict()
-            dict_['frame'] = int(row['frame'])
-            dict_['n_labels'] = int(row['n_labels'])
-            dict_['label'] = int(row['label'])
-            dict_['from_aug'] = True
-            dict_['tp'] = is_sp_positive(
-                self.dl[dict_['frame']]['label/segmentation'],
-                self.dl[dict_['frame']]['labels'], dict_['label'])
-            augs.append(dict_)
-            added += 1
-            idx_to_delete.append(i)
 
-        augs = pd.DataFrame(augs)
+            frame = int(row['frame'])
+            frame_has_enough = np.round(
+                row['n_labels'] * priors[frame] *
+                ratio) < (self.positives['frame'] == frame).sum()
+
+            if not frame_has_enough:
+                dict_ = dict()
+                dict_['frame'] = int(row['frame'])
+                dict_['n_labels'] = int(row['n_labels'])
+                dict_['label'] = int(row['label'])
+                dict_['from_aug'] = True
+                dict_['tp'] = is_sp_positive(
+                    self.dl[dict_['frame']]['label/segmentation'],
+                    self.dl[dict_['frame']]['labels'], dict_['label'])
+                self.positives = pd.concat(
+                    (self.positives, pd.DataFrame([dict_])))
+                added += 1
+                idx_to_delete.append(i)
 
         # remove them from unlabeled
         self.unlabeled.drop(idx_to_delete, inplace=True)
-
-        # add to_aug to positives
-        self.positives = pd.concat((self.positives, augs))
 
         return self.positives[self.positives['from_aug']]
 

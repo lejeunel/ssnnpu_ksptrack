@@ -14,6 +14,7 @@ from ksptrack.pu.tree_set_explorer import TreeSetExplorer
 from ksptrack.utils import csv_utils as csv
 from ksptrack.utils import my_utils as utls
 from ksptrack.utils.data_manager import DataManager
+import pandas as pd
 
 
 def main(cfg):
@@ -31,7 +32,6 @@ def main(cfg):
         probas = link_agent.obj_preds
         pm_scores_fg = utls.get_pm_array(link_agent.labels, probas)
     else:
-        import pandas as pd
         rows = [{
             'frame': f,
             'label': l,
@@ -55,30 +55,8 @@ def main(cfg):
                              normalization='rescale',
                              csv_fname=cfg.csv_fname,
                              sp_labels_fname='sp_labels.npy')
-    # if cfg.aug_ratio > 0:
-
-    #     # compute num of augmentables using bagger
-    #     n_pos = dl.n_pos
-    #     probas = utls.calc_pm(desc_df, np.concatenate(link_agent.labels_pos),
-    #                           cfg.bag_n_feats, cfg.bag_t, cfg.bag_max_depth,
-    #                           cfg.bag_max_samples, cfg.bag_jobs)['proba']
-    #     pos_freq = np.sum(probas >= 0.5).astype(float) / probas.size
-    #     n_augs = cfg.aug_ratio * (pos_freq * probas.size) - n_pos
-    #     n_augs = int(max(n_augs, 0))
-
-    #     print('n_augs: {}, pos_freq: {}'.format(n_augs, pos_freq))
-
-    #     # compute predictions using model
-    #     probas = link_agent.obj_preds
-    #     losses = [-np.log(1 - o + 1e-8) for o in probas]
-    #     dl.make_candidates(losses)
-    #     dl.augment_positives(n_augs)
-
-    if cfg.n_augs > 0:
-
-        losses = [-np.log(1 - o + 1e-8) for o in probas]
-        dl.make_candidates(losses)
-        dl.augment_positives(cfg.n_augs)
+    if cfg.aug_df_path:
+        dl.positives = pd.read_pickle(cfg.aug_df_path)
         print(dl)
 
     scores = dict()
@@ -162,7 +140,7 @@ def main(cfg):
             ims_.append(im1)
             ims_.append(colorize(pm_scores_fg[fin]))
             ims_.append(
-                colorize((pm_scores_fg[fin] > cfg.pm_thr).astype(float)))
+                colorize((pm_scores_fg[fin] >= cfg.pm_thr).astype(float)))
             ims_.append(colorize(entrance_probas))
             ims.append(ims_)
 
@@ -173,7 +151,7 @@ def main(cfg):
             ims_.append(im1)
             ims_.append(colorize(pm_scores_fg[fin]))
             ims_.append(
-                colorize((pm_scores_fg[fin] > cfg.pm_thr).astype(float)))
+                colorize((pm_scores_fg[fin] >= cfg.pm_thr).astype(float)))
             ims_.append(colorize(np.zeros_like(pm_scores_fg[fin])))
             ims.append(ims_)
 
@@ -215,9 +193,10 @@ if __name__ == "__main__":
     p.add('--trans', default='lfda')
     p.add('--aug-method', default='none', type=str)
     p.add('--do-scores', default=False, action='store_true')
-    p.add('--n-augs', type=int, default=0)
+    p.add('--loc-prior', default=False, action='store_true')
     p.add('--fin', nargs='+', type=int, default=[0])
     p.add('--save-path', default='')
+    p.add('--aug-df-path', default='')
     p.add('--do-all', default=False, action='store_true')
     p.add('--return-dict', default=False, action='store_true')
     cfg = p.parse_args()

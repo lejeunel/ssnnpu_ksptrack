@@ -10,7 +10,7 @@ def init_weights_unif(m):
     if type(m) == nn.Linear:
         m.weight.fill_(1.0)
     if (type(m) == nn.Conv2d or type(m) == CoordConv2d):
-        nn.init.kaiming_uniform_(m.weight)
+        nn.init.kaiming_normal_(m.weight)
 
 
 @torch.no_grad()
@@ -70,17 +70,21 @@ class MultiResBlock(nn.Module):
 
         self.shortcut = nn.Sequential(*[
             convObject(in_channels, out_filt_shortcut, 1),
+            batchNormObject(out_filt_shortcut),
         ])
         self.conv3x3 = nn.Sequential(*[
             convObject(in_channels, out_filt_conv3x3, 3, padding=1),
+            batchNormObject(out_filt_conv3x3),
             nn.ReLU()
         ])
         self.conv5x5 = nn.Sequential(*[
             convObject(out_filt_conv3x3, out_filt_conv5x5, 3, padding=1),
+            batchNormObject(out_filt_conv5x5),
             nn.ReLU(),
         ])
         self.conv7x7 = nn.Sequential(*[
             convObject(out_filt_conv5x5, out_filt_conv7x7, 3, padding=1),
+            batchNormObject(out_filt_conv7x7),
             nn.ReLU(),
         ])
 
@@ -168,7 +172,7 @@ class ConvolutionalEncoder(nn.Module):
 
         # input convolution block
         block = [
-            MultiResBlock(3,
+            MultiResBlock(in_channels,
                           self.filts_dims[0],
                           convObject=convObject,
                           dropout=dropout)
@@ -272,9 +276,7 @@ class ConvolutionalDecoder(nn.Module):
                                   self.upconv_out_dims[i + 1]))
 
         # output convolution block
-        block = [
-            convObject(in_dims[-1], out_channels, kernel_size=1, stride=1)
-        ]
+        block = [nn.Conv2d(in_dims[-1], out_channels, kernel_size=1, stride=1)]
         self.output_convolution = nn.Sequential(*block)
 
     def forward(self, x, skips):

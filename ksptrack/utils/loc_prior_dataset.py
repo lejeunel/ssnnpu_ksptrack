@@ -14,6 +14,7 @@ from skimage.draw import circle
 from skimage import segmentation
 from scipy import ndimage as nd
 import networkx as nx
+import imgaug as ia
 
 
 def relabel(labels):
@@ -30,12 +31,14 @@ def relabel(labels):
     return labels
 
 
-def loc_apply_augs(im, labels, truth, keypoints, aug):
+def loc_apply_augs(im, labels, truth, keypoints, loc_prior, aug):
 
     im, labels, truth = base_apply_augs(im, labels, truth, aug)
 
     keypoints = aug.augment_keypoints(keypoints)
-    return im, labels, truth, keypoints
+    loc_prior = ia.HeatmapsOnImage(loc_prior, shape=loc_prior.shape)
+    loc_prior = aug.augment_heatmaps(loc_prior).get_arr()
+    return im, labels, truth, keypoints, loc_prior
 
 
 def make_1d_gauss(length, std, x0):
@@ -106,7 +109,7 @@ class LocPriorDataset(BaseDataset):
                  resize_shape=None,
                  sp_labels_fname='sp_labels.npy',
                  csv_fname='video1.csv',
-                 sig_prior=0.15):
+                 sig_prior=0.20):
         super().__init__(root_path=root_path, sp_labels_fname=sp_labels_fname)
         self.sig_prior = sig_prior
 
@@ -148,11 +151,6 @@ class LocPriorDataset(BaseDataset):
             [self.__reshaper, self.__augmentations, self.__normalization])
         aug_det = aug.to_deterministic()
 
-        sample['image'], sample['labels'], sample[
-            'label/segmentation'], keypoints = loc_apply_augs(
-                sample['image'], sample['labels'],
-                sample['label/segmentation'], keypoints, aug_det)
-
         sample['labels'] = relabel(sample['labels'])
 
         shape = sample['image'].shape[:2]
@@ -172,7 +170,8 @@ class LocPriorDataset(BaseDataset):
                               self.sig_prior * sample['labels'].shape[0],
                               (k.y_int, k.x_int)) for k in keypoints.keypoints
             ]
-            sample['loc_prior'] = np.stack(loc_prior).sum(axis=0)
+            sample['loc_prior'] = np.stack(loc_prior).sum(axis=0).astype(
+                np.float32)
             pos_labels = pd.DataFrame([{
                 'frame':
                 idx,
@@ -190,7 +189,16 @@ class LocPriorDataset(BaseDataset):
                 'n_labels':
                 np.unique(sample['labels']).shape[0]
             }])
-            sample['loc_prior'] = np.zeros(sample['labels'])
+            sample['loc_prior'] = np.ones(sample['labels'].shape,
+                                          dtype=np.float32) * 0.5
+
+        sample['image'], sample['labels'], sample[
+            'label/segmentation'], keypoints, sample[
+                'loc_prior'] = loc_apply_augs(sample['image'],
+                                              sample['labels'],
+                                              sample['label/segmentation'],
+                                              keypoints, sample['loc_prior'],
+                                              aug_det)
 
         sample['loc_keypoints'] = keypoints
         sample['pos_labels'] = pos_labels
@@ -205,7 +213,8 @@ class LocPriorDataset(BaseDataset):
         out['loc_keypoints'] = [d['loc_keypoints'] for d in data]
         out['pos_labels'] = pd.concat(out['pos_labels'])
         out['loc_prior'] = torch.stack([
-            torch.from_numpy(d['loc_prior'][None, ...]).float() for d in data
+            torch.from_numpy(np.rollaxis(d['loc_prior'], -1)).float()
+            for d in data
         ])
 
         return out
@@ -227,18 +236,27 @@ if __name__ == "__main__":
     ])
 
     dset = LocPriorDataset(root_path=pjoin(
-        '/home/ubelix/lejeune/data/medical-labeling/Dataset32'),
+        '/home/ubelix/lejeune/data/medical-labeling/Dataset10'),
                            normalization='rescale',
                            augmentations=transf,
                            resize_shape=512)
     dl = DataLoader(dset, collate_fn=dset.collate_fn)
 
-    for s in dset:
+    freqs = [
+        (s['label/segmentation'] >= 0.5).sum() / s['label/segmentation'].size
+        for s in dset
+    ]
 
-        im = s['image']
-        prior = s['loc_prior']
-        plt.subplot(121)
-        plt.imshow(im)
-        plt.subplot(122)
-        plt.imshow(prior)
-        plt.show()
+    plt.plot(freqs)
+    plt.grid()
+    plt.show()
+
+    # for s in dset:
+
+    #     im = s['image']
+    #     prior = s['label/segmentation']
+    #     plt.subplot(121)
+    #     plt.imshow(im)
+    #     plt.subplot(122)
+    #     plt.imshow(prior)
+    #     plt.show()

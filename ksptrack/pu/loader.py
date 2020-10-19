@@ -23,6 +23,7 @@ def apply_augs(im,
                labels,
                truth,
                keypoints,
+               loc_prior,
                fx,
                fy,
                fnorm,
@@ -31,6 +32,8 @@ def apply_augs(im,
                max_fx=2,
                min_fy=-2,
                max_fy=2):
+
+    warnings.simplefilter("ignore", UserWarning)
 
     aug_norescale = iaa.Sequential(aug[:-1])
     fnorm = ia.HeatmapsOnImage(fnorm,
@@ -53,10 +56,10 @@ def apply_augs(im,
     fnorm = np.squeeze(fnorm)[..., None]
     fx = np.squeeze(fx)[..., None]
     fy = np.squeeze(fy)[..., None]
-    im, labels, truth, keypoints = loc_apply_augs(im, labels, truth, keypoints,
-                                                  aug)
+    im, labels, truth, keypoints, loc_prior = loc_apply_augs(
+        im, labels, truth, keypoints, loc_prior, aug)
 
-    return im, labels, truth, keypoints, fx, fy, fnorm
+    return im, labels, truth, keypoints, loc_prior, fx, fy, fnorm
 
 
 def linearize_labels(label_map, labels=None):
@@ -158,10 +161,12 @@ class Loader(LocPriorDataset):
         aug = aug.to_deterministic()
         sample['image'], sample['labels'], sample[
             'label/segmentation'], sample['loc_keypoints'], sample[
-                'fx'], sample['fy'], sample['fnorm'] = apply_augs(
-                    sample['image'], sample['labels'].squeeze(),
-                    sample['label/segmentation'].squeeze(),
-                    sample['loc_keypoints'], fx, fy, fnorm, aug)
+                'loc_prior'], sample['fx'], sample['fy'], sample[
+                    'fnorm'] = apply_augs(
+                        sample['image'], sample['labels'].squeeze(),
+                        sample['label/segmentation'].squeeze(),
+                        sample['loc_keypoints'], sample['loc_prior'], fx, fy,
+                        fnorm, aug)
 
         return sample
 

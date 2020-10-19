@@ -211,7 +211,7 @@ class PULoss(nn.Module):
         self.beta = beta
         self.aug_in_neg = aug_in_neg
 
-    def forward(self, input, target, pi=None, pi_mul=1.):
+    def forward(self, input, target, pi=None, pi_mul=1., epoch=0):
         """
         """
         if pi is None:

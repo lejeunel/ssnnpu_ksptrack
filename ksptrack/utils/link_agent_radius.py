@@ -16,13 +16,14 @@ class LinkAgentRadius(LinkAgent):
                  data_path,
                  model_pred_path,
                  model_trans_path='',
+                 loc_prior=False,
+                 use_coordconv=False,
                  thr_entrance=0.5,
                  sigma=0.07,
                  sp_labels_fname='sp_labels.npy',
                  in_shape=512,
                  entrance_radius=0.05,
-                 cuda=True,
-                 coordconv=True):
+                 cuda=True):
 
         super().__init__(csv_path,
                          data_path,
@@ -36,10 +37,11 @@ class LinkAgentRadius(LinkAgent):
         self.device = torch.device('cuda' if cuda else 'cpu')
         self.data_path = data_path
 
-        self.model_pred = UNet(out_channels=1, use_coordconv=coordconv)
-        self.model_trans = UNet(out_channels=3,
-                                skip_mode='none',
-                                use_coordconv=coordconv)
+        self.loc_prior = loc_prior
+        self.model_pred = UNet(in_channels=3 + (1 if loc_prior else 0),
+                               out_channels=1,
+                               use_coordconv=use_coordconv)
+        self.model_trans = UNet(out_channels=3, skip_mode='none')
 
         print('loading checkpoint {}'.format(model_pred_path))
         state_dict = torch.load(model_pred_path,
@@ -49,16 +51,16 @@ class LinkAgentRadius(LinkAgent):
         self.model_pred.to(self.device)
         self.model_pred.eval()
 
-        if not model_trans_path:
-            model_trans_path = model_pred_path
+        # if not model_trans_path:
+        #     model_trans_path = model_pred_path
 
-        print('loading checkpoint {}'.format(model_trans_path))
-        state_dict = torch.load(model_trans_path,
-                                map_location=lambda storage, loc: storage)
+        # print('loading checkpoint {}'.format(model_trans_path))
+        # state_dict = torch.load(model_trans_path,
+        #                         map_location=lambda storage, loc: storage)
 
-        self.model_trans.load_state_dict(state_dict, strict=False)
-        self.model_trans.to(self.device)
-        self.model_trans.eval()
+        # self.model_trans.load_state_dict(state_dict, strict=False)
+        # self.model_trans.to(self.device)
+        # self.model_trans.eval()
 
         self.batch_to_device = lambda batch: {
             k: v.to(self.device) if (isinstance(v, torch.Tensor)) else v
@@ -77,16 +79,19 @@ class LinkAgentRadius(LinkAgent):
     def prepare_feats(self):
         print('preparing features for linkAgent')
 
-        res = get_features(self.model_pred, self.dl, self.device)
+        res = get_features(self.model_pred,
+                           self.dl,
+                           self.device,
+                           loc_prior=self.loc_prior)
 
         self.feats = res['feats']
         self.labels_pos = res['labels_pos_mask']
         self.obj_preds = res['outs']
         self.pos = res['pos']
 
-        res = get_features(self.model_trans, self.dl, self.device)
-        self.feats_trans = res['feats']
-        self.feats_bag = res['feats_bag']
+        # res = get_features(self.model_trans, self.dl, self.device)
+        # self.feats_trans = res['feats']
+        # self.feats_bag = res['feats_bag']
 
     def get_all_entrance_sps(self, *args):
 
@@ -130,7 +135,7 @@ class LinkAgentRadius(LinkAgent):
 
         return proba
 
-    def get_distance(self, f1, l1, f2, l2, p=2):
+    def get_distance_(self, f1, l1, f2, l2, p=2):
         d1 = self.feats_trans[f1][l1][None, ...]
         d2 = self.feats_trans[f2][l2][None, ...]
         # d1 = sp_desc.loc[(sp_desc['frame'] == f1) & (sp_desc['label'] == l1),
@@ -151,7 +156,7 @@ class LinkAgentRadius(LinkAgent):
 
         return proba
 
-    def dummy_get_distance(self, *args, **kwargs):
+    def get_distance(self, *args, **kwargs):
         return 0
 
     def update_trans_transform(self,
@@ -161,18 +166,20 @@ class LinkAgentRadius(LinkAgent):
                                k=7,
                                embedding_type='orthonormalized'):
 
-        X = np.concatenate(self.feats_trans)
-        y = np.concatenate(self.obj_preds)
-        threshs = utls.check_thrs(threshs, y, n_samps)
+        pass
 
-        try:
-            X, y = utls.sample_features(X, y, threshs, n_samps)
+        # X = np.concatenate(self.feats_trans)
+        # y = np.concatenate(self.obj_preds)
+        # threshs = utls.check_thrs(threshs, y, n_samps)
 
-            self.trans_transform = myLFDA(n_components=n_dims,
-                                          n_components_prestage=n_dims,
-                                          k=k,
-                                          embedding_type=embedding_type)
-            self.trans_transform.fit(X, y, threshs, n_samps)
-        except ValueError as e:
-            print('setting all distances to 0')
-            self.get_distance = self.dummy_get_distance
+        # try:
+        #     X, y = utls.sample_features(X, y, threshs, n_samps)
+
+        #     self.trans_transform = myLFDA(n_components=n_dims,
+        #                                   n_components_prestage=n_dims,
+        #                                   k=k,
+        #                                   embedding_type=embedding_type)
+        #     self.trans_transform.fit(X, y, threshs, n_samps)
+        # except ValueError as e:
+        #     print('setting all distances to 0')
+        #     self.get_distance = self.dummy_get_distance

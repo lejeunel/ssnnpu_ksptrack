@@ -55,6 +55,7 @@ class TreeSetExplorer(data.Dataset):
         self.positives = pd.concat([s['pos_labels'] for s in self.dl])
         self.positives['from_aug'] = False
         self.positives['tp'] = True
+        self.positives['epoch'] = 0
 
     @property
     def labels(self):
@@ -169,7 +170,7 @@ class TreeSetExplorer(data.Dataset):
 
         self.positives = self.positives[self.positives['from_aug'] == False]
 
-    def augment_positives(self, n_samples, pos_set=None):
+    def augment_positives(self, n_samples, priors, ratio, pos_set=None):
         """
         if pos_set is None, take self.P
         n_samples: if float, will take it as a ratio of unlabeled
@@ -200,7 +201,11 @@ class TreeSetExplorer(data.Dataset):
                 already_there = ((self.positives['frame'] == frame)
                                  & (self.positives['label'] == n)).any()
 
-                if not already_there:
+                frame_has_enough = np.round(
+                    row['n_labels'] * priors[frame] *
+                    ratio) < (self.positives['frame'] == frame).sum()
+
+                if not already_there and not frame_has_enough:
                     dict_ = dict()
                     dict_['frame'] = frame
                     dict_['n_labels'] = int(row['n_labels'])

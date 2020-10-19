@@ -134,8 +134,8 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
 
     # cfg.prev_period = 2
 
-    criterion = torch.nn.MSELoss()
-    # criterion = PriorMSELoss()
+    # criterion = torch.nn.MSELoss()
+    criterion = PriorMSELoss()
     writer = SummaryWriter(run_path)
     lr_sch = torch.optim.lr_scheduler.ExponentialLR(optimizer, cfg.lr_power)
     best_loss = float('inf')
@@ -162,7 +162,8 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
                     # zero the parameter gradients
                     optimizer.zero_grad()
 
-                    loss = criterion(sigmoid(res['output']), data['image'])
+                    loss = criterion(sigmoid(res['output']), data['image'],
+                                     data['loc_prior'])
 
                     loss.backward()
                     optimizer.step()

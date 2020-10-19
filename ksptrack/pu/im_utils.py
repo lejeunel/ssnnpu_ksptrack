@@ -68,7 +68,7 @@ def get_positions_labels(labels):
     return res
 
 
-def get_features(model, dataloader, device):
+def get_features(model, dataloader, device, loc_prior=False):
     # form initial cluster centres
     labels_pos_mask = []
     features = []
@@ -80,12 +80,16 @@ def get_features(model, dataloader, device):
 
     model.eval()
     model.to(device)
-    print('getting features')
+    # print('getting features')
     pbar = tqdm.tqdm(total=len(dataloader))
     for index, data in enumerate(dataloader):
         data = utls.batch_to_device(data, device)
         with torch.no_grad():
-            res = model(data['image'])
+            if loc_prior:
+                res = model(
+                    torch.cat((data['image'], data['loc_prior']), dim=1))
+            else:
+                res = model(data['image'])
 
         f = data['frame_idx']
 
@@ -112,7 +116,8 @@ def get_features(model, dataloader, device):
         f = sp_pool(res['feats'], data['labels'])
         out = sp_pool(res['output'].sigmoid(), data['labels'])
         out_unpooled = res['output'].sigmoid()
-        truth = sp_pool(data['label/segmentation'], data['labels']) >= 0.5
+        truth = sp_pool(data['label/segmentation'], data['labels'])
+        truth = truth >= 0.5
 
         upsamp = nn.UpsamplingBilinear2d(data['labels'].size()[-2:])
         coords = make_coord_map(1, data['labels'].shape[3],
@@ -128,6 +133,7 @@ def get_features(model, dataloader, device):
         features_bagger.append(f_bag.detach().cpu().numpy().squeeze())
         outputs.append(out.detach().cpu().numpy().squeeze())
         outputs_unpooled.append(out_unpooled.detach().cpu().numpy().squeeze())
+        pbar.set_description('[fwd pass]')
         pbar.update(1)
     pbar.close()
 

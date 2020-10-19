@@ -1,6 +1,6 @@
 frames: []
 
-epochs-autoenc: 80
+epochs-autoenc: 150
 epochs-pred: 100
 epochs-dec: 100
 epochs-dist: 80
@@ -9,12 +9,13 @@ epochs-dist: 80
 prev-period: 10
 tgt-update-period: 999
 cc-update-period: 10
-proba-update-period: 999
+prior-period: 1
 cp-period: 2
 unlabeled-period: 10
 unlabeled-ratio: 0.15
 nnpu-ascent: False
 aug-in-neg: False
+aug-reset: False
 pred-init-dir: ''
 
 aug-method: 'set'
@@ -24,19 +25,27 @@ loss-obj-pred: 'pu'
 sec-phase: False
 
 # optimizer
-lr1: 5e-5
+lr1: 1e-4
 lr2: 1e-6
+lr-gamma : 0.1
 lr-autoenc: 1e-4
 lr-assign: 1e-4
 decay : 2e-4
 lr-power : 0.99
 lr-epoch-milestone-0 : 50
 lr-epoch-milestone-1 : 100
-lr-gamma : 0.1
 momentum: 0.9
 
 # clustering
-pi-mul: 1.
+pi-mul: 1.0
+init-pi: 0.15
+pi-xi: 0.005
+pi-min: 0.005
+pi-gamma: 0.1
+pi-alpha: 1.0
+pi-eta: 0.1
+
+loc-prior: False
 
 # batch
 batch-size: 2

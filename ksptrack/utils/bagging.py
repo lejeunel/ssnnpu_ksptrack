@@ -59,8 +59,8 @@ def calc_logistic(feats, class_labels):
 def calc_bagging(feats,
                  class_labels,
                  T,
-                 bag_max_depth,
-                 bag_n_feats,
+                 bag_max_depth=None,
+                 bag_n_feats=0.1,
                  bag_max_samples=500,
                  n_jobs=1):
     #marked_arr: has index of frame and corresponding superpixel label. Taken as positive samples

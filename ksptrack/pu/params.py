@@ -30,7 +30,7 @@ def get_params(path='.'):
     p.add('--epochs-dist', type=int)
     p.add('--epochs-dec', type=int)
     p.add('--prev-period', type=int)
-    p.add('--proba-update-period', type=int)
+    p.add('--prior-period', type=int)
     p.add('--cp-period', type=int)
     p.add('--unlabeled-period', type=int)
     p.add('--unlabeled-ratio', type=float)
@@ -42,6 +42,7 @@ def get_params(path='.'):
     p.add('--pred-init-dir', type=str)
     p.add('--nnpu-ascent', default=False, action='store_true')
     p.add('--aug-in-neg', default=False, action='store_true')
+    p.add('--aug-reset', default=False, action='store_true')
 
     p.add('--sec-phase', default=False, action='store_true')
 
@@ -90,6 +91,13 @@ def get_params(path='.'):
     p.add('--bag-max-depth', type=float)
 
     p.add('--pi-mul', type=float)
+    p.add('--init-pi', type=float)
+    p.add('--pi-xi', type=float)
+    p.add('--pi-min', type=float)
+    p.add('--pi-gamma', type=float)
+    p.add('--pi-alpha', type=float)
+    p.add('--pi-eta', type=float)
+    p.add('--loc-prior', default=False, action='store_true')
     p.add('--pi-filt-size', type=int)
     p.add('--pi-filt', default=False, action='store_true')
     p.add('--true-prior', default=False, action='store_true')
