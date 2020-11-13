@@ -112,7 +112,7 @@ def main(cfg):
                                            int(cfg.norm_neighbor_in *
                                                im1.shape[1]),
                                            shape=im1.shape)
-            pos_labels = dl[fin]['pos_labels']
+            pos_labels = dl[fin]['annotations']
             pos_sps = [
                 dl[fin]['labels'].squeeze() == l
                 for l in pos_labels[pos_labels['from_aug'] == False]['label']

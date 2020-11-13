@@ -42,7 +42,7 @@ class SetExplorer(data.Dataset):
         label_path = pjoin(data_dir, 'precomp_desc', sp_labels_fname)
 
         self.unlabeled = None
-        self.positives = pd.concat([s['pos_labels'] for s in self.dl])
+        self.positives = pd.concat([s['annotations'] for s in self.dl])
         self.positives['from_aug'] = False
         self.positives['tp'] = True
 
@@ -58,11 +58,11 @@ class SetExplorer(data.Dataset):
 
         # this will add "augmented set" to user-defined positives
         if self.positives is not None:
-            sample['pos_labels'] = pd.concat(
+            sample['annotations'] = pd.concat(
                 self.positives[self.positives['frame'] == f]
                 for f in np.array(sample['frame_idx']).flat)
         else:
-            sample['pos_labels']['from_aug'] = False
+            sample['annotations']['from_aug'] = False
 
         return sample
 

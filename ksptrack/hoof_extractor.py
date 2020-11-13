@@ -20,15 +20,14 @@ class HOOFExtractor:
     """
     def __init__(self,
                  root_path,
-                 desc_dir,
                  labels,
+                 desc_dir='precomp_desc',
                  n_bins=30,
                  directions=['forward', 'backward']):
 
         self.directions = directions
         self.root_path = root_path
         self.desc_path = pjoin(root_path, desc_dir)
-        self.path_flow = self.desc_path
         self.labels = labels
         self.n_bins_hoof = n_bins
 
@@ -37,7 +36,7 @@ class HOOFExtractor:
         Compute HOOF on _grid_ labels
         """
 
-        if (not os.path.exists(self.path_flow)):
+        if (not os.path.exists(self.desc_path)):
             self.calc_oflow()
 
         file_hoof = os.path.join(self.desc_path, 'hoof.p')
@@ -153,11 +152,10 @@ class HOOFExtractor:
 
     def get_flows(self):
         flows = dict()
-        npzfile = np.load(self.path_flow)
-        flows['bvx'] = npzfile['bvx']
-        flows['fvx'] = npzfile['fvx']
-        flows['bvy'] = npzfile['bvy']
-        flows['fvy'] = npzfile['fvy']
+        flows['bvx'] = np.load(pjoin(self.desc_path, 'flows_bvx.npy'))
+        flows['fvx'] = np.load(pjoin(self.desc_path, 'flows_fvx.npy'))
+        flows['bvy'] = np.load(pjoin(self.desc_path, 'flows_bvy.npy'))
+        flows['fvy'] = np.load(pjoin(self.desc_path, 'flows_fvy.npy'))
         return flows
 
     def calc_oflow(self):

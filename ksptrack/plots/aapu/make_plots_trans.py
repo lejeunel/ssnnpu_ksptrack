@@ -3,7 +3,6 @@ import glob
 import pandas as pd
 import os
 import yaml
-import seaborn as sns
 import matplotlib.pyplot as plt
 from ksptrack.exps import results_dirs as rd
 import numpy as np

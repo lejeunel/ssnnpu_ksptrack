@@ -35,13 +35,12 @@ class SuperpixelManager:
     def make_dicts(self):
         #self.dict_init = self.make_init_dicts()
         self.graph = self.make_transition_constraint()
-        file_hoof_sps = os.path.join(self.root_path,
-                                     self.desc_dir,
+        file_hoof_sps = os.path.join(self.root_path, self.desc_dir,
                                      'hoof_inters_graph.npz')
 
         hoof_extr = HOOFExtractor(self.root_path,
-                                  self.desc_dir,
                                   self.labels,
+                                  desc_dir=self.desc_dir,
                                   n_bins=self.hoof_n_bins)
 
         # This will add fields in original graph
@@ -54,8 +53,7 @@ class SuperpixelManager:
         Makes a first "gross" filtering of transition.
         """
 
-        file_graph = os.path.join(self.root_path,
-                                  self.desc_dir,
+        file_graph = os.path.join(self.root_path, self.desc_dir,
                                   'transition_constraint.p')
         if (not os.path.exists(file_graph)):
             f = self.c_loc['frame']
@@ -103,29 +101,28 @@ class SuperpixelManager:
                 concat_ = np.concatenate((l_0, l_1), axis=-1)
                 concat_ = concat_.reshape((-1, 2))
                 ovl = np.asarray(list(set(list(map(tuple, concat_)))))
-                df_overlap = pd.DataFrame(data=ovl, columns=['label_0',
-                                                             'label_1'])
+                df_overlap = pd.DataFrame(data=ovl,
+                                          columns=['label_0', 'label_1'])
                 df_overlap['frame_0'] = f0
                 df_overlap['frame_1'] = f1
                 df_overlap['overlap'] = True
 
                 # set overlap values
-                df_all = pd.merge(df_dists,
-                                  df_overlap,
-                                  how='left',
-                                  on=['frame_0', 'label_0',
-                                      'frame_1', 'label_1']).fillna(False)
+                df_all = pd.merge(
+                    df_dists,
+                    df_overlap,
+                    how='left',
+                    on=['frame_0', 'label_0', 'frame_1',
+                        'label_1']).fillna(False)
 
                 # add edges
-                edges = np.stack((df_all['frame_0'].values,
-                                  df_all['label_0'].values,
-                                  df_all['frame_1'].values,
-                                  df_all['label_1'].values,
-                                  df_all['dist'].values,
-                                  df_all['overlap'])).T.astype(np.float16)
+                edges = np.stack(
+                    (df_all['frame_0'].values, df_all['label_0'].values,
+                     df_all['frame_1'].values, df_all['label_1'].values,
+                     df_all['dist'].values,
+                     df_all['overlap'])).T.astype(np.float16)
                 edges = [((e[0], e[1]), (e[2], e[3]),
-                          dict(dist=e[4], overlap=e[5]))
-                         for e in edges]
+                          dict(dist=e[4], overlap=e[5])) for e in edges]
                 g.add_edges_from(edges)
 
             bar.close()
@@ -145,8 +142,7 @@ class SuperpixelManager:
         Makes a first "gross" filtering of transition.
         """
 
-        file_graph = os.path.join(self.root_path,
-                                  self.desc_dir,
+        file_graph = os.path.join(self.root_path, self.desc_dir,
                                   'overlap_constraint.p')
         if (not os.path.exists(file_graph)):
             f = self.c_loc['frame']

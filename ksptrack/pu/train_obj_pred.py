@@ -1,7 +1,11 @@
 import os
+from glob import glob
 from os.path import join as pjoin
 
+import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+import seaborn as sns
 import torch
 import torch.optim as optim
 import yaml
@@ -18,99 +22,13 @@ from ksptrack.pu import utils as utls
 from ksptrack.pu.im_utils import get_features, sp_pool
 from ksptrack.pu.loader import Loader
 from ksptrack.pu.losses import BalancedBCELoss, PULoss
-from ksptrack.pu.modeling.unet import UNet, init_weights_normal, init_weights_unif
+from ksptrack.pu.modeling.unet import UNet, init_weights_normal
+from ksptrack.pu.plots import freq_vs_epc
 from ksptrack.pu.set_explorer import SetExplorer
 from ksptrack.pu.tree_set_explorer import TreeSetExplorer
-from ksptrack.utils.bagging import calc_bagging
-from scipy.signal import medfilt
-import matplotlib.pyplot as plt
-import numpy as np
+from pykalman import KalmanFilter
 
 torch.backends.cudnn.benchmark = True
-
-
-def update_priors(model, dl, device, priors, pi_0, writer, out_path_plots,
-                  out_path_data, epoch, cfg):
-    # print('recomputing priors')
-
-    res = get_features(model, dl, device, loc_prior=cfg.loc_prior)
-    probas = res['outs']
-
-    new_priors = np.array(
-        [np.sum(cfg.pi_mul * p >= 0.5) / p.size for p in probas])
-    idx_invalids = new_priors > cfg.init_pi
-
-    d_priors = cfg.pi_eta * (new_priors - priors[-1])
-    if len(priors) > 1:
-        d_priors += cfg.pi_alpha * (priors[-1] - priors[-2])
-
-    d_priors = np.clip(d_priors, a_min=-cfg.pi_min, a_max=cfg.pi_min)
-    new_priors = priors[-1] + d_priors
-
-    # new_priors = np.clip(new_priors, a_max=cfg.init_pi, a_min=None)
-
-    pi_0_ = np.copy(pi_0)
-    pi_0_[idx_invalids] = np.clip(pi_0_[idx_invalids] - cfg.pi_xi,
-                                  a_min=cfg.pi_min,
-                                  a_max=None)
-    new_priors[idx_invalids] = pi_0_[idx_invalids]
-
-    # new_priors[idx_invalids_high_der] = prev_priors[
-    #     idx_invalids_high_der] + cfg.pi_xi * np.sign(
-    #         d_priors[idx_invalids_high_der])
-    # new_priors[idx_invalids_high_val] = pi_0
-    # new_priors[idx_invalids_high_val] = pi_0[idx_invalids_high_val]
-
-    # print('new prior: {}'.format(priors))
-
-    freq = np.array([np.sum(p >= 0.5) / p.size for p in res['outs']])
-    new_priors_filt = medfilt(new_priors, kernel_size=cfg.pi_filt_size)
-    priors.append(new_priors_filt)
-
-    true_pi = np.array([np.sum(p >= 0.5) / p.size for p in res['truths']])
-
-    plt.plot(true_pi, 'b--', label='true')
-    plt.plot(freq, 'r-', label='freq')
-    plt.plot(new_priors_filt, 'g-', label='priors_filt')
-    plt.plot(priors[-1], 'm-', label='priors')
-    plt.grid()
-    plt.legend()
-    plt.xlabel('frame')
-    plt.ylabel('frequency')
-    plt.savefig(pjoin(out_path_plots, 'ep_{:04d}.png'.format(epoch)))
-    plt.close()
-
-    # variance of predictions on unlabeled samples
-    vars_unl = np.mean([
-        np.var(p[np.logical_not(pos)])
-        for p, pos in zip(probas, res['labels_pos_mask'])
-    ])
-
-    # variance of predictions on unlabeled
-    vars_unl = np.mean([
-        np.var(p[np.logical_not(pos)])
-        for p, pos in zip(probas, res['labels_pos_mask'])
-    ])
-
-    # variance of predictions on pseudo-negatives
-    vars_pseudo_negs = np.mean([np.var(p[p < 0.5]) for p in probas])
-
-    np.savez(
-        pjoin(out_path_data, 'ep_{:04d}.npz'.format(epoch)), **{
-            'true_pi': true_pi,
-            'freq': freq,
-            'priors_filt': new_priors_filt,
-            'priors': new_priors
-        })
-
-    err = np.mean(np.abs(true_pi - freq))
-
-    writer.add_scalar('prior_err/{}'.format(cfg.exp_name), err, epoch)
-    writer.add_scalar('var_unl/{}'.format(cfg.exp_name), vars_unl, epoch)
-    writer.add_scalar('var_pseudo_neg/{}'.format(cfg.exp_name),
-                      vars_pseudo_negs, epoch)
-
-    return priors, pi_0_
 
 
 def do_previews(model, dataloaders, device, writer, out_paths, cfg, cfg_ksp,
@@ -162,7 +80,6 @@ def augment(model,
         print('resetting augmented set')
         dataloaders['train'].dataset.reset_augs()
         print('augmenting set by {} samples'.format(na))
-        # dataloaders['train'].dataset.augment_positives(na)
         dataloaders['train'].dataset.augment_positives(na, priors,
                                                        cfg.unlabeled_ratio)
 
@@ -205,8 +122,12 @@ def make_loss(cfg):
 
     if cfg.loss_obj_pred == 'pu':
 
+        if (cfg.unlabeled_ratio > 0) and cfg.pxls:
+            raise ValueError('when augmenting, set pxls to False')
+
         criterion = PULoss(do_ascent=cfg.nnpu_ascent,
-                           aug_in_neg=cfg.aug_in_neg)
+                           aug_in_neg=cfg.aug_in_neg,
+                           pxls=cfg.pxls)
 
     elif cfg.loss_obj_pred == 'bce':
 
@@ -231,25 +152,25 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch, lr_sch, cfg,
         with torch.set_grad_enabled(True):
             optimizer.zero_grad()
 
-            if cfg.loc_prior:
-                res = model(
-                    torch.cat((data['image'], data['loc_prior']), dim=1))
-            else:
-                res = model(data['image'])
+            res = model(data['image'])
 
             criterion = make_loss(cfg)
             frames = data['frame_idx']
             pi = [priors[-1][f] for f in frames]
-            n_labels = [
-                data['pos_labels'][data['pos_labels']['frame'] == f].iloc[0]
-                ['n_labels'] for f in frames
-            ]
-            inp = sp_pool(res['output'], data['labels'])
-            inp = torch.split(inp.squeeze(), n_labels)
             target = [
-                data['pos_labels'][data['pos_labels']['frame'] == f]
+                data['annotations'][data['annotations']['frame'] == f]
                 for f in frames
             ]
+            if not cfg.pxls:
+                n_labels = [
+                    data['annotations'][data['annotations']['frame'] ==
+                                        f].iloc[0]['n_labels'] for f in frames
+                ]
+                inp = sp_pool(res['output'], data['labels'])
+                inp = torch.split(inp.squeeze(), n_labels)
+            else:
+                inp = res['output']
+
             loss = criterion(inp, target, pi=pi)
 
             loss.backward()
@@ -279,7 +200,7 @@ def train(cfg, model, device, dataloaders, run_path):
         'curves': pjoin(run_path, 'curves'),
         'curves_data': pjoin(run_path, 'curves_data'),
         'aug_sets': pjoin(run_path, 'aug_sets'),
-        'test': pjoin(run_path, 'test')
+        'cps': pjoin(run_path, 'cps')
     }
     if not os.path.exists(run_path):
         os.makedirs(run_path)
@@ -288,16 +209,10 @@ def train(cfg, model, device, dataloaders, run_path):
         if not os.path.exists(p):
             os.makedirs(p)
 
-    check_cp_exist = pjoin(run_path, cp_fname)
+    check_cp_exist = pjoin(out_paths['cps'], 'cp_{:04d}.pth.tar'.format(0))
     if (os.path.exists(check_cp_exist)):
         print('found checkpoint at {}. Skipping.'.format(check_cp_exist))
         return
-
-    # path_ = pjoin(os.path.split(run_path)[0], 'autoenc', cp_fname)
-    # print('loading checkpoint {}'.format(path_))
-    # state_dict = torch.load(path_, map_location=lambda storage, loc: storage)
-    # state_dict = {k: v for k, v in state_dict.items() if 'encoder' in k}
-    # model.load_state_dict(state_dict, strict=False)
 
     print('computing priors')
     if cfg.true_prior:
@@ -306,57 +221,78 @@ def train(cfg, model, device, dataloaders, run_path):
                            dataloaders['init'],
                            device,
                            loc_prior=cfg.loc_prior)
-        truths = res['truths']
-        probas = torch.cat([torch.from_numpy(p) for p in truths])
+        truths = res['truths_unpooled'] if cfg.pxls else res['truths']
+        priors = np.array([(t > 0).sum() / t.size for t in truths])
+        priors = [priors]
+        cps = sorted(
+            glob(
+                pjoin(cfg.out_root, 'Dataset' + cfg.train_dir,
+                      cfg.pred_init_dir, 'cps', '*.pth.tar')))
+
+        path_ = pjoin(os.path.split(run_path)[0], cfg.pred_init_dir, cps[-1])
+        print('loading checkpoint {}'.format(path_))
+        state_dict = torch.load(path_,
+                                map_location=lambda storage, loc: storage)
+        model.load_state_dict(state_dict)
     elif cfg.sec_phase:
-        print('using model')
+        print('using model of alternate phase')
         assert cfg.pred_init_dir, 'give pred_init_dir'
+        from argparse import Namespace
+        cfg_prior = Namespace(root_path=cfg.out_root,
+                              train_dirs=['Dataset' + cfg.train_dir],
+                              exp_name=cfg.pred_init_dir,
+                              thr=cfg.var_thr,
+                              n_epc=cfg.var_epc,
+                              min_epc=cfg.min_var_epc,
+                              save=pjoin(run_path, 'priors.png'),
+                              title='',
+                              curves_dir='curves_data')
+        priors, ep = freq_vs_epc.main(cfg_prior)
+        priors = [priors[0]]
+        ep = ep[0]
+        print('taking priors from epoch {}'.format(ep))
+        cps = sorted(
+            glob(
+                pjoin(cfg.out_root, 'Dataset' + cfg.train_dir,
+                      cfg.pred_init_dir, 'cps', '*.pth.tar')))
+        cp_eps = np.array([
+            int(os.path.split(f)[-1].split('_')[-1].split('.')[0]) for f in cps
+        ])
+        cp_fname = cps[np.argmin(np.abs(cp_eps - ep))]
+
         path_ = pjoin(os.path.split(run_path)[0], cfg.pred_init_dir, cp_fname)
         print('loading checkpoint {}'.format(path_))
         state_dict = torch.load(path_,
                                 map_location=lambda storage, loc: storage)
         model.load_state_dict(state_dict)
-        res = get_features(model,
-                           dataloaders['init'],
-                           device,
-                           loc_prior=cfg.loc_prior)
-        probas = torch.cat([torch.from_numpy(p) for p in res['outs']])
-        print('multiplying priors by {}'.format(cfg.pi_mul))
-        pos_freq = ((probas >= 0.5).sum().float() / probas.numel()).item()
 
-        n_labels = [m.shape[0] for m in res['labels_pos_mask']]
-        probas = torch.split(probas, n_labels)
-        res['outs'] = [p.numpy() for p in probas]
-
-        priors = [((cfg.pi_mul * p >= 0.5).sum().float() / p.numel()).item()
-                  for p in probas]
     else:
-        # print('using bagger')
-        # res = get_features(model, dataloaders['init'], device)
-        # cat_features = np.concatenate(res['feats_bag'])
-        # cat_pos_mask = np.concatenate(res['labels_pos_mask'])
-
-        # probas = calc_bagging(cat_features,
-        #                       cat_pos_mask,
-        #                       600,
-        #                       bag_max_depth=cfg.bag_max_depth,
-        #                       bag_n_feats=cfg.bag_n_feats,
-        #                       n_jobs=1)
-        # probas = torch.from_numpy(probas)
         res = get_features(model,
                            dataloaders['init'],
                            device,
                            loc_prior=cfg.loc_prior)
+        truths = res['truths_unpooled'] if cfg.pxls else res['truths']
+        max_freq = cfg.pi_overspec_ratio * np.max([(truth.sum()) / truth.size
+                                                   for truth in truths])
+        cfg.init_pi = float(max_freq)
+        cfg.pi_xi = cfg.init_pi / 50
+        cfg.pi_min = cfg.pi_xi
         print('using constant priors: {}'.format(cfg.init_pi))
+        print('pi_xi: {}'.format(cfg.pi_xi))
+        print('gradients clipped to norms: {}'.format(cfg.pi_min))
         pi_0 = np.array([cfg.init_pi for _ in res['labels_pos_mask']])
         priors = [pi_0]
-
-        # priors = medfilt(priors, kernel_size=cfg.pi_filt_size)
+        model_priors = [pi_0]
 
     n_pos = dataloaders['train'].dataset.n_pos
     if (cfg.unlabeled_ratio > 0):
+        res = get_features(model,
+                           dataloaders['init'],
+                           device,
+                           loc_prior=cfg.loc_prior)
         max_n_augs = cfg.unlabeled_ratio * (
-            pos_freq * np.concatenate(res['labels_pos_mask']).shape[0]) - n_pos
+            np.mean(priors[-1]) *
+            np.concatenate(res['labels_pos_mask']).shape[0]) - n_pos
         max_n_augs = int(max(max_n_augs, 0))
     else:
         max_n_augs = 0
@@ -367,19 +303,16 @@ def train(cfg, model, device, dataloaders, run_path):
                          cfg.epochs_pred).astype(int)
     print('will add {} augmented samples.'.format(max_n_augs))
 
-    if cfg.pred_init_dir:
-        path_ = pjoin(os.path.split(run_path)[0], cfg.pred_init_dir, cp_fname)
-        print('loading checkpoint {}'.format(path_))
-        state_dict = torch.load(path_,
-                                map_location=lambda storage, loc: storage)
-        model.load_state_dict(state_dict)
-
-    path = pjoin(run_path, cp_fname)
+    path = pjoin(out_paths['cps'], 'cp_{:04d}.pth.tar'.format(0))
     utls.save_checkpoint({
         'epoch': 0,
         'model': model,
         'best_loss': 0,
     }, path)
+
+    # Save cfg
+    with open(pjoin(run_path, 'cfg.yml'), 'w') as outfile:
+        yaml.dump(cfg.__dict__, stream=outfile, default_flow_style=False)
 
     p_ksp = params_ksp.get_params('../cfgs')
     p_ksp.add('--model-path', default='')
@@ -420,22 +353,23 @@ def train(cfg, model, device, dataloaders, run_path):
 
         offset = -np.log((1 - cfg.init_pi) / cfg.init_pi)
         print('setting objectness prior to {}, p={}'.format(
-            offset, cfg.init_pi))
+            offset, cfg.init_pi / 2))
         model.decoder.output_convolution[0].bias.data.fill_(
             torch.tensor(offset).to(device))
 
     model.to(device)
 
-    optimizer = optim.Adam(model.parameters(),
-                           lr=cfg.lr2 if cfg.sec_phase else cfg.lr1,
-                           weight_decay=1e-2)
+    optimizer = optim.SGD(model.parameters(),
+                          lr=cfg.lr2 if cfg.sec_phase else cfg.lr1,
+                          weight_decay=1e-2)
 
     lr_sch = torch.optim.lr_scheduler.MultiStepLR(
         optimizer, milestones=[cfg.lr_epoch_milestone_0], gamma=cfg.lr_gamma)
 
     n_epochs = cfg.epochs_pred
 
-    pi_0 = np.array([cfg.init_pi] * len(dataloaders['init'].dataset))
+    model_priors = []
+
     for na, epoch in zip(n_augs, range(n_epochs)):
         if na > 0:
             if (epoch == 0) or (epoch % cfg.unlabeled_period == 0):
@@ -454,18 +388,37 @@ def train(cfg, model, device, dataloaders, run_path):
             epoch, n_epochs, 'pred',
             lr_sch.get_last_lr()[0]))
 
-        # save previews
-        if epoch % cfg.prev_period == 0:
-            if (not cfg.sec_phase) and (epoch > 0):
-                do_previews(model, dataloaders, device, writer, out_paths, cfg,
-                            cfg_ksp, epoch, priors[-1])
+        # save checkpoint
+        if (epoch > 0) and (epoch % cfg.cp_period == 0):
+            path_cp = pjoin(out_paths['cps'],
+                            'cp_{:04d}.pth.tar'.format(epoch))
+            utls.save_checkpoint(
+                {
+                    'epoch': epoch + 1,
+                    'model': model,
+                    'best_loss': best_loss,
+                }, path_cp)
+            cfg_ksp.model_path = path_cp
+        if (epoch % (2 * cfg.cp_period) == 0) and (epoch > 0):
+            do_previews(model, dataloaders, device, writer, out_paths, cfg,
+                        cfg_ksp, epoch, priors[-1])
 
         if (not cfg.sec_phase) and (epoch > 0) and (not cfg.true_prior) and (
-                epoch % cfg.prior_period == 0):
-            priors, pi_0 = update_priors(model, dataloaders['init'], device,
-                                         priors, pi_0, writer,
-                                         out_paths['curves'],
-                                         out_paths['curves_data'], epoch, cfg)
+                epoch %
+                cfg.prior_period == 0) and (epoch > cfg.epochs_pre_pred):
+            priors, model_priors = update_priors(model,
+                                                 dataloaders['init'],
+                                                 device,
+                                                 priors,
+                                                 model_priors,
+                                                 writer,
+                                                 out_paths['curves'],
+                                                 out_paths['curves_data'],
+                                                 epoch,
+                                                 cfg,
+                                                 grad_method='clip',
+                                                 inval_mode='copydecrease',
+                                                 decrease_pimax=False)
 
         train_one_epoch(model,
                         dataloaders['train'],
@@ -476,15 +429,6 @@ def train(cfg, model, device, dataloaders, run_path):
                         cfg,
                         priors=priors,
                         writer=writer)
-        # save checkpoint
-        if (epoch % cfg.cp_period == 0):
-            path = pjoin(run_path, cp_fname)
-            utls.save_checkpoint(
-                {
-                    'epoch': epoch + 1,
-                    'model': model,
-                    'best_loss': best_loss,
-                }, path)
 
     # save previews
     do_previews(model, dataloaders, device, writer, out_paths, cfg, cfg_ksp,
@@ -554,10 +498,6 @@ def main(cfg):
         'init': dataloader_init,
         'prev': frames_tnsr_brd
     }
-
-    # Save cfg
-    with open(pjoin(run_path, 'cfg.yml'), 'w') as outfile:
-        yaml.dump(cfg.__dict__, stream=outfile, default_flow_style=False)
 
     model = train(cfg, model, device, dataloaders, run_path)
 

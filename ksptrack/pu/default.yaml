@@ -1,7 +1,8 @@
 frames: []
 
 epochs-autoenc: 150
-epochs-pred: 100
+epochs-pred: 80
+epochs-pre-pred: 20
 epochs-dec: 100
 epochs-dist: 80
 
@@ -10,13 +11,14 @@ prev-period: 10
 tgt-update-period: 999
 cc-update-period: 10
 prior-period: 1
-cp-period: 2
+cp-period: 5
 unlabeled-period: 10
 unlabeled-ratio: 0.15
 nnpu-ascent: False
 aug-in-neg: False
 aug-reset: False
 pred-init-dir: ''
+pxls: False
 
 aug-method: 'set'
 neg-mode: single
@@ -25,25 +27,29 @@ loss-obj-pred: 'pu'
 sec-phase: False
 
 # optimizer
-lr1: 1e-4
-lr2: 1e-6
+lr1: 1e-2
+lr2: 1e-2
 lr-gamma : 0.1
 lr-autoenc: 1e-4
 lr-assign: 1e-4
 decay : 2e-4
 lr-power : 0.99
-lr-epoch-milestone-0 : 50
+lr-epoch-milestone-0 : 90
 lr-epoch-milestone-1 : 100
 momentum: 0.9
 
-# clustering
+# prior estimation
 pi-mul: 1.0
-init-pi: 0.15
+init-pi: 0.20
 pi-xi: 0.005
+pi-overspec-ratio: 1.5
 pi-min: 0.005
 pi-gamma: 0.1
 pi-alpha: 1.0
-pi-eta: 0.1
+pi-eta: 1.
+var-thr: 0.003
+var-epc: 1
+min-var-epc: 40
 
 loc-prior: False
 
@@ -76,7 +82,7 @@ aug-shear: 20.
 reduc-method: 'pca'
 ml-up-thr: 0.5
 ml-down-thr: 0.5
-bag-t: 300
+bag-t: 600
 bag-n-feats : 0.1
 bag-max-depth : 50
 

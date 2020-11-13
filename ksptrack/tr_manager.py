@@ -7,11 +7,7 @@ import logging
 class TrackletManager:
     # Makes dictionary of tracklets with in_frame and out_frame keys
 
-    def __init__(self,
-                 sps_man,
-                 direction,
-                 tls,
-                 n_frames):
+    def __init__(self, sps_man, direction, tls, n_frames):
 
         self.n_frames = 0
         self.dict_in = dict()
@@ -55,7 +51,10 @@ class TrackletManager:
         self.dict_in = dict_in
         self.dict_out = dict_out
 
-    def get_linkables(self, t_arg, rel_radius, hoof_tau_u,
+    def get_linkables(self,
+                      t_arg,
+                      rel_radius,
+                      hoof_tau_u,
                       direction='forward'):
         """
         t_arg: Tracklet for which we want linkable tracklets
@@ -68,25 +67,31 @@ class TrackletManager:
         # Get superpixels candidates
         sps = self.sps_man.graph[(t_arg.get_out_frame(),
                                   t_arg.get_out_label())]
-        if(direction == 'forward'):
-            keys = [k for k in sps.keys() if(k[0] > t_arg.get_out_frame())]
+        if (direction == 'forward'):
+            keys = [k for k in sps.keys() if (k[0] > t_arg.get_out_frame())]
         else:
-            keys = [k for k in sps.keys() if(k[0] < t_arg.get_out_frame())]
+            keys = [k for k in sps.keys() if (k[0] < t_arg.get_out_frame())]
 
-        sps = {key: value for key, value in sps.items() if(key in keys)}
+        sps = {key: value for key, value in sps.items() if (key in keys)}
 
         # filter sps that don't overlap or use distance
-        if(rel_radius == 0):
-            sps = {k: v for k, v in sps.items() if(sps[k]['overlap'])}
+        if (rel_radius == 0):
+            sps = {k: v for k, v in sps.items() if (sps[k]['overlap'])}
         else:
-            sps = {k: v for k, v in sps.items() if(sps[k]['dist'] < rel_radius)}
+            sps = {
+                k: v
+                for k, v in sps.items() if (sps[k]['dist'] < rel_radius)
+            }
 
-        sps = {k: v for k, v in sps.items() if(sps[k][direction] > hoof_tau_u)}
+        sps = {
+            k: v
+            for k, v in sps.items() if (sps[k][direction] > hoof_tau_u)
+        }
 
         # check hoof / radius / overlap conditions
         labels_filt = []
         for s, val in sps.items():
-            if(direction in val.keys()):
+            if (direction in val.keys()):
                 labels_filt.append(s[1])
 
         # Get tracklet

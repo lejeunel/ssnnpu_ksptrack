@@ -11,18 +11,23 @@ import torch
 from ksptrack.models.my_augmenters import Rescale, Normalize, HistEqualize, ContrastStretching, AdaptHistEqualize
 from ksptrack.models.my_augmenters import Normalize, rescale_augmenter
 
-np.random.bit_generator = np.random._bit_generator
 
-
-def base_apply_augs(im, labels, truth, aug):
-    truth = ia.SegmentationMapsOnImage(truth, shape=truth.shape)
-    labels = ia.SegmentationMapsOnImage(labels, shape=labels.shape)
+def base_apply_augs(sample, aug):
+    truth = ia.SegmentationMapsOnImage(
+        sample['label/segmentation'], shape=sample['label/segmentation'].shape)
+    labels = ia.SegmentationMapsOnImage(sample['labels'],
+                                        shape=sample['labels'].shape)
+    im = sample['image']
 
     im = aug(image=im)
     truth = aug(segmentation_maps=truth).get_arr()
     labels = aug(segmentation_maps=labels).get_arr()
 
-    return im, labels, truth
+    sample['label/segmentation'] = truth
+    sample['labels'] = labels
+    sample['image'] = im
+
+    return sample
 
 
 def batch_equalize_hist_calc(image, nbins=256, mask=None):
@@ -194,9 +199,7 @@ class BaseDataset(data.Dataset):
             [self._reshaper, self._augmentations, self._normalization])
         aug_det = aug.to_deterministic()
 
-        im, labels, truth = base_apply_augs(im, labels, truth, aug_det)
-
-        return {
+        sample = {
             'image': im,
             'frame_name': os.path.split(self.img_paths[idx])[-1],
             'labels': labels,
@@ -204,6 +207,10 @@ class BaseDataset(data.Dataset):
             'n_frames': self.__len__(),
             'label/segmentation': truth
         }
+
+        sample = base_apply_augs(sample, aug_det)
+
+        return sample
 
     @staticmethod
     def collate_fn(data):

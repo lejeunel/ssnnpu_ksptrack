@@ -1,26 +1,23 @@
-import numpy as np
-import os, sys, yaml
-from skimage import io
-from skimage import color
-import tqdm
-from skimage import (color, feature)
-from skimage.transform import resize
-from sklearn import (preprocessing, mixture, decomposition)
-from sklearn.metrics import confusion_matrix
-from scipy import cluster
 import datetime
 import glob
-from sklearn.metrics import f1_score
-import networkx as nx
-from itertools import combinations
 import logging
 import logging.config
-from scipy import interpolate
-import pandas as pd
-from . import csv_utils as csv
-import ksptrack
+import os
 import warnings
+
+import networkx as nx
+import numpy as np
+import pandas as pd
+import tqdm
+import yaml
+from scipy import interpolate
+from skimage import color, io
+from sklearn.metrics import f1_score
+
+import ksptrack
 from ksptrack.utils import bagging as bag
+
+from . import csv_utils as csv
 
 
 def probas_to_df(labels, probas):

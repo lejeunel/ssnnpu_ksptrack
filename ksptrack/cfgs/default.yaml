@@ -46,7 +46,7 @@ bag-jobs : 1
 
 use-hoof : True
 hoof-tau-u : -1 # set to -1 to disactivate!
-hoof-n-bins: 100
+hoof-n-bins: 30
 
 # Metric learning
 n-comp-pca : 3

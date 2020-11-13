@@ -15,6 +15,7 @@ from skimage import segmentation
 from scipy import ndimage as nd
 import networkx as nx
 import imgaug as ia
+import math
 
 
 def relabel(labels):
@@ -31,14 +32,40 @@ def relabel(labels):
     return labels
 
 
-def loc_apply_augs(im, labels, truth, keypoints, loc_prior, aug):
+def loc_apply_augs(sample, aug):
 
-    im, labels, truth = base_apply_augs(im, labels, truth, aug)
+    sample = base_apply_augs(sample, aug)
+
+    shape = (sample['annotations'].iloc[0].h, sample['annotations'].iloc[0].w)
+    keypoints = ia.KeypointsOnImage([
+        ia.Keypoint(np.clip(r.x, a_min=0, a_max=r.w - 1),
+                    np.clip(r.y, a_min=0, a_max=r.h - 1))
+        for _, r in sample['annotations'].iterrows()
+    ], shape)
 
     keypoints = aug.augment_keypoints(keypoints)
-    loc_prior = ia.HeatmapsOnImage(loc_prior, shape=loc_prior.shape)
-    loc_prior = aug.augment_heatmaps(loc_prior).get_arr()
-    return im, labels, truth, keypoints, loc_prior
+    annotations = pd.DataFrame([{
+        'frame':
+        r.frame,
+        'label':
+        math.nan if math.isnan(k.y) else int(r.label),
+        'n_labels':
+        int(r.n_labels),
+        'h':
+        keypoints.shape[0],
+        'w':
+        keypoints.shape[1],
+        'x':
+        math.nan if math.isnan(k.x) else k.x_int,
+        'y':
+        math.nan if math.isnan(k.y) else k.y_int
+    } for (_, r), k in zip(sample['annotations'].iterrows(), keypoints)])
+
+    loc_prior = ia.HeatmapsOnImage(sample['loc_prior'],
+                                   shape=sample['loc_prior'].shape)
+    sample['loc_prior'] = aug.augment_heatmaps(loc_prior).get_arr()
+    sample['annotations'] = annotations
+    return sample
 
 
 def make_1d_gauss(length, std, x0):
@@ -147,8 +174,11 @@ class LocPriorDataset(BaseDataset):
             [ia.Keypoint(x=l[1], y=l[0]) for l in locs],
             shape=sample['labels'].squeeze().shape)
 
-        aug = iaa.Sequential(
-            [self.__reshaper, self.__augmentations, self.__normalization])
+        aug = iaa.Sequential([
+            self._LocPriorDataset__reshaper,
+            self._LocPriorDataset__augmentations,
+            self._LocPriorDataset__normalization
+        ])
         aug_det = aug.to_deterministic()
 
         sample['labels'] = relabel(sample['labels'])
@@ -172,36 +202,45 @@ class LocPriorDataset(BaseDataset):
             ]
             sample['loc_prior'] = np.stack(loc_prior).sum(axis=0).astype(
                 np.float32)
-            pos_labels = pd.DataFrame([{
+            annotations = pd.DataFrame([{
                 'frame':
                 idx,
                 'label':
                 int(l),
                 'n_labels':
-                np.unique(sample['labels']).shape[0]
-            } for l in keypoints.labels])
+                np.unique(sample['labels']).shape[0],
+                'h':
+                sample['labels'].shape[0],
+                'w':
+                sample['labels'].shape[1],
+                'x':
+                k.x,
+                'y':
+                k.y
+            } for k, l in zip(keypoints, keypoints.labels)])
         else:
-            pos_labels = pd.DataFrame([{
+            annotations = pd.DataFrame([{
                 'frame':
                 idx,
                 'label':
                 np.nan,
                 'n_labels':
-                np.unique(sample['labels']).shape[0]
+                np.unique(sample['labels']).shape[0],
+                'h':
+                sample['labels'].shape[0],
+                'w':
+                sample['labels'].shape[1],
+                'x':
+                np.nan,
+                'y':
+                np.nan
             }])
             sample['loc_prior'] = np.ones(sample['labels'].shape,
                                           dtype=np.float32) * 0.5
 
-        sample['image'], sample['labels'], sample[
-            'label/segmentation'], keypoints, sample[
-                'loc_prior'] = loc_apply_augs(sample['image'],
-                                              sample['labels'],
-                                              sample['label/segmentation'],
-                                              keypoints, sample['loc_prior'],
-                                              aug_det)
+        sample['annotations'] = annotations
 
-        sample['loc_keypoints'] = keypoints
-        sample['pos_labels'] = pos_labels
+        sample = loc_apply_augs(sample, aug_det)
 
         return sample
 
@@ -210,8 +249,7 @@ class LocPriorDataset(BaseDataset):
 
         out = super(LocPriorDataset, LocPriorDataset).collate_fn(data)
 
-        out['loc_keypoints'] = [d['loc_keypoints'] for d in data]
-        out['pos_labels'] = pd.concat(out['pos_labels'])
+        out['annotations'] = pd.concat(out['annotations'])
         out['loc_prior'] = torch.stack([
             torch.from_numpy(np.rollaxis(d['loc_prior'], -1)).float()
             for d in data
@@ -236,27 +274,28 @@ if __name__ == "__main__":
     ])
 
     dset = LocPriorDataset(root_path=pjoin(
-        '/home/ubelix/lejeune/data/medical-labeling/Dataset10'),
+        '/home/ubelix/lejeune/data/medical-labeling/Dataset12'),
                            normalization='rescale',
                            augmentations=transf,
                            resize_shape=512)
-    dl = DataLoader(dset, collate_fn=dset.collate_fn)
+    dl = DataLoader(dset, collate_fn=dset.collate_fn, batch_size=2)
 
-    freqs = [
-        (s['label/segmentation'] >= 0.5).sum() / s['label/segmentation'].size
-        for s in dset
-    ]
+    # freqs = [
+    #     (s['label/segmentation'] >= 0.5).sum() / s['label/segmentation'].size
+    #     for s in dset
+    # ]
 
-    plt.plot(freqs)
-    plt.grid()
-    plt.show()
+    # plt.plot(freqs)
+    # plt.grid()
+    # plt.show()
 
-    # for s in dset:
+    for s in dl:
 
-    #     im = s['image']
-    #     prior = s['label/segmentation']
-    #     plt.subplot(121)
-    #     plt.imshow(im)
-    #     plt.subplot(122)
-    #     plt.imshow(prior)
-    #     plt.show()
+        print(s['annotations'])
+        # im = s['image']
+        # prior = s['label/segmentation']
+        # plt.subplot(121)
+        # plt.imshow(im)
+        # plt.subplot(122)
+        # plt.imshow(prior)
+        # plt.show()

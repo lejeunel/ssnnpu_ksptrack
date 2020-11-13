@@ -7,9 +7,6 @@ def main(cfg):
 
     train_obj_pred.main(cfg)
 
-    # if (cfg.siamese != 'none'):
-    #     train_siam.main(cfg)
-
 
 if __name__ == "__main__":
 

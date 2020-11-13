@@ -1,21 +1,38 @@
+import copy
 import logging
 import os
+from itertools import combinations
 from os.path import join as pjoin
-import yaml
+
+import networkx as nx
 import numpy as np
 import torch
-import shutil
+import yaml
 from tqdm import tqdm
-import networkx as nx
-from itertools import combinations
-from torch_geometric.data import Data
-import torch_geometric.utils as gutls
-from sklearn.neighbors import radius_neighbors_graph
-from ksptrack.pu import im_utils as iutls
-import copy
 
 
 def df_to_tgt(df):
+    target_pos = {
+        r['frame']: torch.zeros((1, r['h'], r['w']))
+        for _, r in df.iterrows()
+    }
+
+    for _, r in df.iterrows():
+        if not np.isnan(r['label']):
+            target_pos[r['frame']][0, r['y'], r['x']] = 1.
+
+    frames = [r['frame'] for _, r in df.iterrows()]
+    idx_f = np.unique(frames, return_index=True)[1]
+    frames = [frames[idx] for idx in sorted(idx_f)]
+    target_pos = torch.cat([target_pos[f] for f in frames])
+    target_neg = torch.zeros_like(target_pos)
+    target_neg[torch.logical_not(target_pos)] = 1.
+    target_aug = torch.zeros_like(target_pos)
+
+    return target_pos, target_neg, target_aug
+
+
+def df_to_tgt_aug(df):
     target_pos = {
         r['frame']: torch.zeros(r['n_labels'])
         for _, r in df.iterrows()

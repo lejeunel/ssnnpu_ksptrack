@@ -1,15 +1,17 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import torch
-from skimage import io, color, segmentation, draw
+import torch.nn as nn
+import tqdm
 from imgaug import augmenters as iaa
+from skimage import color, draw, io, segmentation
+from skimage.future.graph import show_rag
+
 from ksptrack.models.my_augmenters import rescale_augmenter
 from ksptrack.pu import utils as utls
-from skimage.future.graph import show_rag
-import tqdm
-import torch.nn as nn
-from ksptrack.pu.modeling.superpixPool.pytorch_superpixpool.suppixpool_layer import SupPixPool
-import pandas as pd
+from ksptrack.pu.modeling.superpixPool.pytorch_superpixpool.suppixpool_layer import \
+    SupPixPool
 
 
 def sp_pool(feats, labels):
@@ -76,6 +78,7 @@ def get_features(model, dataloader, device, loc_prior=False):
     outputs = []
     outputs_unpooled = []
     truths = []
+    truths_unpooled = []
     positions = []
 
     model.eval()
@@ -99,14 +102,15 @@ def get_features(model, dataloader, device, loc_prior=False):
         pos_ = pos_.detach().cpu().numpy()
         positions.append(pos_)
         pos_labels = pd.concat([
-            data['pos_labels'][data['pos_labels']['frame'] == f_] for f_ in f
+            data['annotations'][data['annotations']['frame'] == f_]['label']
+            for f_ in f
         ])
         pos_labels = pos_labels.dropna()
         unq_labels = np.unique(data['labels'][0].cpu().numpy())
         to_add = np.zeros(unq_labels.shape[0]).astype(bool)
-        if not data['pos_labels'].empty:
+        if not data['annotations'].empty:
 
-            clicked_labels = tuple(data['pos_labels']['label'])
+            clicked_labels = tuple(data['annotations']['label'])
             idx_clicked = [
                 np.argwhere(unq_labels == c) for c in clicked_labels
             ]
@@ -118,6 +122,7 @@ def get_features(model, dataloader, device, loc_prior=False):
         out_unpooled = res['output'].sigmoid()
         truth = sp_pool(data['label/segmentation'], data['labels'])
         truth = truth >= 0.5
+        truth_unpooled = data['label/segmentation'] >= 0.5
 
         upsamp = nn.UpsamplingBilinear2d(data['labels'].size()[-2:])
         coords = make_coord_map(1, data['labels'].shape[3],
@@ -128,6 +133,7 @@ def get_features(model, dataloader, device, loc_prior=False):
         f_bag = torch.cat((f_bag, coords), dim=1)
         f_bag = sp_pool(f_bag, data['labels'])
 
+        truths_unpooled.append(truth_unpooled.detach().cpu().numpy().squeeze())
         truths.append(truth.detach().cpu().numpy().squeeze())
         features.append(f.detach().cpu().numpy().squeeze())
         features_bagger.append(f_bag.detach().cpu().numpy().squeeze())
@@ -145,7 +151,8 @@ def get_features(model, dataloader, device, loc_prior=False):
         'outs_unpooled': outputs_unpooled,
         'labels_pos_mask': labels_pos_mask,
         'pos': positions,
-        'truths': truths
+        'truths': truths,
+        'truths_unpooled': truths_unpooled
     }
 
     return res

@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn.functional as F
 from pytorch_metric_learning.losses import BaseMetricLossFunction
@@ -7,8 +8,8 @@ from pytorch_metric_learning.reducers import AvgNonZeroReducer
 from pytorch_metric_learning.utils import common_functions as c_f
 from pytorch_metric_learning.utils import loss_and_miner_utils as lmu
 from torch import nn
-import pandas as pd
-from .utils import df_to_tgt
+
+from ksptrack.pu.utils import df_to_tgt, df_to_tgt_aug
 
 
 def make_coord_map(batch_size, w, h):
@@ -204,9 +205,15 @@ class PULoss(nn.Module):
     """
     https://arxiv.org/abs/2002.04672
     """
-    def __init__(self, pi=0.25, do_ascent=False, beta=0, aug_in_neg=False):
+    def __init__(self,
+                 pi=0.25,
+                 do_ascent=False,
+                 beta=0,
+                 aug_in_neg=False,
+                 pxls=False):
         super(PULoss, self).__init__()
         self.pi = pi
+        self.pxls = pxls
         self.do_ascent = do_ascent
         self.beta = beta
         self.aug_in_neg = aug_in_neg
@@ -218,11 +225,14 @@ class PULoss(nn.Module):
             pi = self.pi
 
         if not isinstance(pi, list):
-            pi = np.unique(target['frame']).shape[0] * [pi]
+            pi = np.unique(pd.concat(target)['frame']).shape[0] * [pi]
 
         loss = 0
         for in_, tgt, pi_ in zip(input, target, pi):
-            target_pos, target_neg, target_aug = df_to_tgt(tgt)
+            if self.pxls:
+                target_pos, target_neg, target_aug = df_to_tgt(tgt)
+            else:
+                target_pos, target_neg, target_aug = df_to_tgt_aug(tgt)
 
             in_p_plus = in_[(target_pos + target_aug).bool()]
             Rp_plus = cross_entropy_logits(in_p_plus, 1)
@@ -664,8 +674,44 @@ class TripletMarginMiner(BaseTupleMiner):
 
 
 if __name__ == "__main__":
-    criterion = TripletMarginMiner(margin=0.3, type_of_triplets="semihard")
-    feats = torch.randn((11, 128))
-    labels = torch.tensor([0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5])
+    from ksptrack.pu.set_explorer import SetExplorer
+    from torch.utils.data import DataLoader
+    from imgaug import augmenters as iaa
+    from ksptrack.pu.utils import df_to_tgt
+    import matplotlib.pyplot as plt
 
-    criterion(feats, labels)
+    transf = iaa.Sequential([
+        iaa.OneOf([
+            iaa.BilateralBlur(d=8,
+                              sigma_color=(100, 150),
+                              sigma_space=(100, 150)),
+            iaa.AdditiveGaussianNoise(scale=(0, 0.06 * 255)),
+            iaa.GammaContrast((1., 2.))
+        ])
+        # iaa.Flipud(p=0.5),
+        # iaa.Fliplr(p=.5),
+        # iaa.Rot90((1, 3))
+    ])
+
+    dl = SetExplorer('/home/ubelix/lejeune/data/medical-labeling/Dataset00',
+                     augmentations=transf,
+                     normalization='rescale',
+                     resize_shape=512)
+    criterion = PULoss(pxls=True)
+    dl = DataLoader(dl, collate_fn=dl.collate_fn)
+
+    inp = torch.randn((1, 1, 512, 512))
+
+    for s in dl:
+        target = [
+            s['annotations'][s['annotations']['frame'] == f]
+            for f in s['frame_idx']
+        ]
+        target_pos, target_neg, target_aug = df_to_tgt(target[0])
+        criterion(inp, target)
+
+        plt.subplot(121)
+        plt.imshow(np.moveaxis(s['image'][0].detach().numpy(), 0, -1))
+        plt.subplot(122)
+        plt.imshow(target_pos.squeeze().detach().numpy())
+        plt.show()

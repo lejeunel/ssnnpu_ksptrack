@@ -47,7 +47,6 @@ def make_link_agent(cfg):
                                  sp_labels_fname=cfg.sp_labels_fname,
                                  model_pred_path=cfg.model_path,
                                  model_trans_path=cfg.trans_path,
-                                 loc_prior=cfg.loc_prior,
                                  use_coordconv=cfg.coordconv,
                                  cuda=cfg.cuda)
     link_agent.update_trans_transform()
@@ -277,7 +276,7 @@ if __name__ == "__main__":
     p.add('--pred-path', default='')
     p.add('--trans-path', default='')
     p.add('--use-model-pred', default=False, action='store_true')
-    p.add('--loc-prior', default=False, action='store_true')
+    # p.add('--loc-prior', default=False, action='store_true')
     p.add('--coordconv', default=False, action='store_true')
     p.add('--trans', default='lfda', type=str)
 

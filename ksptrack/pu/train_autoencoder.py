@@ -123,19 +123,14 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
         for k, v in batch.items()
     }
 
-    check_cp_exist = pjoin(run_path, 'cp.pth.tar')
-    if (os.path.exists(check_cp_exist)):
-        print('found checkpoint at {}. Skipping.'.format(check_cp_exist))
-        return
-
     prev_dir = pjoin(run_path, 'prevs')
     if (not os.path.exists(prev_dir)):
         os.makedirs(prev_dir)
 
     # cfg.prev_period = 2
 
-    # criterion = torch.nn.MSELoss()
-    criterion = PriorMSELoss()
+    criterion = torch.nn.MSELoss()
+    # criterion = PriorMSELoss()
     writer = SummaryWriter(run_path)
     lr_sch = torch.optim.lr_scheduler.ExponentialLR(optimizer, cfg.lr_power)
     best_loss = float('inf')
@@ -161,9 +156,7 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
                 if (phase == 'train'):
                     # zero the parameter gradients
                     optimizer.zero_grad()
-
-                    loss = criterion(sigmoid(res['output']), data['image'],
-                                     data['loc_prior'])
+                    loss = criterion(sigmoid(res['output']), data['image'])
 
                     loss.backward()
                     optimizer.step()
@@ -219,6 +212,11 @@ def train(cfg, model, dataloaders, run_path, device, optimizer):
 
 
 def main(cfg):
+    run_path = pjoin(cfg.out_root, cfg.run_dir, 'autoenc')
+    check_cp_exist = pjoin(run_path, 'cp.pth.tar')
+    if (os.path.exists(check_cp_exist)):
+        print('found checkpoint at {}. Skipping.'.format(check_cp_exist))
+        return
 
     device = torch.device('cuda' if cfg.cuda else 'cpu')
 
@@ -227,8 +225,6 @@ def main(cfg):
                  use_coordconv=cfg.coordconv,
                  dropout=0.1)
     model.to(device)
-
-    run_path = pjoin(cfg.out_root, cfg.run_dir, 'autoenc')
 
     if (not os.path.exists(run_path)):
         os.makedirs(run_path)

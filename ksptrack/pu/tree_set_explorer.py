@@ -52,7 +52,7 @@ class TreeSetExplorer(data.Dataset):
         self.trees = {}
         self.unlabeled = None
 
-        self.positives = pd.concat([s['pos_labels'] for s in self.dl])
+        self.positives = pd.concat([s['annotations'] for s in self.dl])
         self.positives['from_aug'] = False
         self.positives['tp'] = True
         self.positives['epoch'] = 0
@@ -106,8 +106,7 @@ class TreeSetExplorer(data.Dataset):
         print('propagating values in merge trees')
         pbar = tqdm(total=len(self))
         for i, s in enumerate(self):
-            positives = np.fliplr(
-                s['loc_keypoints'].to_xy_array()).astype(int).tolist()
+            positives = [s['annotations'].y, s['annotations'].x]
 
             labels_ = s['labels']
             t = TreeExplorer(s['tree'].tree,

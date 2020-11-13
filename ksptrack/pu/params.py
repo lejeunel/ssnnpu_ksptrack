@@ -1,6 +1,7 @@
-import configargparse
 import argparse
 from os.path import join as pjoin
+
+import configargparse
 
 
 def str2bool(v):
@@ -27,6 +28,7 @@ def get_params(path='.'):
     p.add('--epochs-autoenc', type=int)
     p.add('--epochs-aug', type=int)
     p.add('--epochs-pred', type=int)
+    p.add('--epochs-pre-pred', type=int)
     p.add('--epochs-dist', type=int)
     p.add('--epochs-dec', type=int)
     p.add('--prev-period', type=int)
@@ -43,6 +45,7 @@ def get_params(path='.'):
     p.add('--nnpu-ascent', default=False, action='store_true')
     p.add('--aug-in-neg', default=False, action='store_true')
     p.add('--aug-reset', default=False, action='store_true')
+    p.add('--pxls', default=False, action='store_true')
 
     p.add('--sec-phase', default=False, action='store_true')
 
@@ -93,10 +96,15 @@ def get_params(path='.'):
     p.add('--pi-mul', type=float)
     p.add('--init-pi', type=float)
     p.add('--pi-xi', type=float)
+    p.add('--pi-overspec-ratio', type=float)
     p.add('--pi-min', type=float)
     p.add('--pi-gamma', type=float)
     p.add('--pi-alpha', type=float)
     p.add('--pi-eta', type=float)
+    p.add('--var-thr', type=float)
+    p.add('--var-epc', type=int)
+    p.add('--min-var-epc', type=int)
+
     p.add('--loc-prior', default=False, action='store_true')
     p.add('--pi-filt-size', type=int)
     p.add('--pi-filt', default=False, action='store_true')

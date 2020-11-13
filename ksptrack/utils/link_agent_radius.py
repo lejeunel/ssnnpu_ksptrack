@@ -8,6 +8,8 @@ import torch
 from ksptrack.pu.loader import Loader
 from torch.utils.data import DataLoader
 from ksptrack.pu.im_utils import get_features
+from glob import glob
+from os.path import join as pjoin
 
 
 class LinkAgentRadius(LinkAgent):
@@ -41,8 +43,11 @@ class LinkAgentRadius(LinkAgent):
         self.model_pred = UNet(in_channels=3 + (1 if loc_prior else 0),
                                out_channels=1,
                                use_coordconv=use_coordconv)
-        self.model_trans = UNet(out_channels=3, skip_mode='none')
+        # self.model_trans = UNet(out_channels=3, skip_mode='none')
 
+        if not model_pred_path.endswith('.tar'):
+            model_pred_path = sorted(
+                glob(pjoin(model_pred_path, 'cp_*.pth.tar')))[-1]
         print('loading checkpoint {}'.format(model_pred_path))
         state_dict = torch.load(model_pred_path,
                                 map_location=lambda storage, loc: storage)
@@ -50,17 +55,6 @@ class LinkAgentRadius(LinkAgent):
         self.model_pred.load_state_dict(state_dict)
         self.model_pred.to(self.device)
         self.model_pred.eval()
-
-        # if not model_trans_path:
-        #     model_trans_path = model_pred_path
-
-        # print('loading checkpoint {}'.format(model_trans_path))
-        # state_dict = torch.load(model_trans_path,
-        #                         map_location=lambda storage, loc: storage)
-
-        # self.model_trans.load_state_dict(state_dict, strict=False)
-        # self.model_trans.to(self.device)
-        # self.model_trans.eval()
 
         self.batch_to_device = lambda batch: {
             k: v.to(self.device) if (isinstance(v, torch.Tensor)) else v

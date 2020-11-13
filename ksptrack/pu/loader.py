@@ -19,33 +19,21 @@ import imgaug as ia
 import warnings
 
 
-def apply_augs(im,
-               labels,
-               truth,
-               keypoints,
-               loc_prior,
-               fx,
-               fy,
-               fnorm,
-               aug,
-               min_fx=-2,
-               max_fx=2,
-               min_fy=-2,
-               max_fy=2):
+def apply_augs(sample, aug, min_fx=-2, max_fx=2, min_fy=-2, max_fy=2):
 
     warnings.simplefilter("ignore", UserWarning)
 
     aug_norescale = iaa.Sequential(aug[:-1])
-    fnorm = ia.HeatmapsOnImage(fnorm,
-                               shape=fnorm.shape,
+    fnorm = ia.HeatmapsOnImage(sample['fnorm'],
+                               shape=sample['fnorm'].shape,
                                min_value=min_fx,
                                max_value=max_fx)
-    fx = ia.HeatmapsOnImage(fx,
-                            shape=fx.shape,
+    fx = ia.HeatmapsOnImage(sample['fx'],
+                            shape=sample['fx'].shape,
                             min_value=min_fx,
                             max_value=max_fx)
-    fy = ia.HeatmapsOnImage(fy,
-                            shape=fy.shape,
+    fy = ia.HeatmapsOnImage(sample['fy'],
+                            shape=sample['fy'].shape,
                             min_value=min_fy,
                             max_value=max_fy)
 
@@ -56,10 +44,13 @@ def apply_augs(im,
     fnorm = np.squeeze(fnorm)[..., None]
     fx = np.squeeze(fx)[..., None]
     fy = np.squeeze(fy)[..., None]
-    im, labels, truth, keypoints, loc_prior = loc_apply_augs(
-        im, labels, truth, keypoints, loc_prior, aug)
+    sample['fx'] = fx
+    sample['fy'] = fy
+    sample['fnorm'] = fnorm
 
-    return im, labels, truth, keypoints, loc_prior, fx, fy, fnorm
+    sample = loc_apply_augs(sample, aug)
+
+    return sample
 
 
 def linearize_labels(label_map, labels=None):
@@ -136,18 +127,18 @@ class Loader(LocPriorDataset):
         self.bvx = np.load(pjoin(root_path, 'precomp_desc', 'flows_bvy.npy'),
                            mmap_mode='r')
 
-        self.___augmentations = iaa.Noop()
-        self.___reshaper = iaa.Noop()
-        self.___normalization = iaa.Noop()
+        self.__augmentations = iaa.Noop()
+        self.__reshaper = iaa.Noop()
+        self.__normalization = iaa.Noop()
 
-        self.___normalization = make_normalizer(
-            normalization, map(lambda s: s['image'], self))
+        self.__normalization = make_normalizer(normalization,
+                                               map(lambda s: s['image'], self))
 
         if (augmentations is not None):
-            self.___augmentations = augmentations
+            self.__augmentations = augmentations
 
         if (resize_shape is not None):
-            self.___reshaper = iaa.size.Resize(resize_shape)
+            self.__reshaper = iaa.size.Resize(resize_shape)
 
     def __getitem__(self, idx):
         sample = super().__getitem__(idx)
@@ -156,17 +147,15 @@ class Loader(LocPriorDataset):
         fy = self.fvy[..., min(len(self) - 2, idx)]
         fnorm = np.linalg.norm(np.stack((fx, fy)), axis=0)
 
-        aug = iaa.Sequential(
-            [self.___reshaper, self.___augmentations, self.___normalization])
+        aug = iaa.Sequential([
+            self._Loader__reshaper, self._Loader__augmentations,
+            self._Loader__normalization
+        ])
         aug = aug.to_deterministic()
-        sample['image'], sample['labels'], sample[
-            'label/segmentation'], sample['loc_keypoints'], sample[
-                'loc_prior'], sample['fx'], sample['fy'], sample[
-                    'fnorm'] = apply_augs(
-                        sample['image'], sample['labels'].squeeze(),
-                        sample['label/segmentation'].squeeze(),
-                        sample['loc_keypoints'], sample['loc_prior'], fx, fy,
-                        fnorm, aug)
+        sample['fx'] = fx
+        sample['fy'] = fy
+        sample['fnorm'] = fnorm
+        sample = apply_augs(sample, aug)
 
         return sample
 
@@ -185,7 +174,7 @@ class Loader(LocPriorDataset):
         fy = torch.stack([torch.from_numpy(f) for f in fy]).float()
         out['fy'] = fy
 
-        out['pos_labels'] = pd.concat([s['pos_labels'] for s in samples])
+        out['annotations'] = pd.concat([s['annotations'] for s in samples])
 
         return out
 

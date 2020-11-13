@@ -1,9 +1,10 @@
-from imgaug import augmenters as iaa
 import numpy as np
+from imgaug import augmenters as iaa
 from imgaug.augmenters import Augmenter
 from skimage import exposure
-import matplotlib.pyplot as plt
-np.random.bit_generator = np.random._bit_generator
+
+if hasattr(np.random, "_bit_generator"):
+    np.random.bit_generator = np.random._bit_generator
 
 
 class Normalize(Augmenter):
