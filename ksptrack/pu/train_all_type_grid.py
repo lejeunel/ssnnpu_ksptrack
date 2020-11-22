@@ -22,7 +22,7 @@ if __name__ == "__main__":
         # 'unlabeled_ratio': [0.2, 0.1, 0.3],
         'unlabeled_ratio': [0.12],
         # 'pi_ovrs': [1.6, 1.4, 1.2]
-        'pi_ovrs': [1.6, 1.4, 1.8]
+        'pi_ovrs': [2.0, 1.8, 1.6, 1.4, 2.2]
         # 'pi_mul': [1.2]
     }
     param_grid = ParameterGrid(param_grid)
@@ -73,11 +73,11 @@ if __name__ == "__main__":
                                        'cp.pth.tar')
 
             cfg.true_prior = False
-            cfg.sec_phase = False
+            cfg.phase = 0
 
             print('------------------------')
-            print('nnPU + bagger prior (ph1)')
-            cfg.exp_name = 'pu_piovrs_{}_ph1'.format(cfg.pi_overspec_ratio)
+            print('nnPU (ph0)')
+            cfg.exp_name = 'pu_piovrs_{}_ph0'.format(cfg.pi_overspec_ratio)
             print('exp_name: {}'.format(cfg.exp_name))
             print('in_path: {}'.format(cfg_ksp.in_path))
             print('------------------------')
@@ -89,9 +89,40 @@ if __name__ == "__main__":
 
             train_bagging.main(cfg)
 
+            cfg.true_prior = False
+            cfg.phase = 1
             cfg.pred_init_dir = cfg.exp_name
 
-            cfg.sec_phase = True
+            print('------------------------')
+            print('nnPU (ph1)')
+            cfg.exp_name = 'pu_piovrs_{}_ph1'.format(cfg.pi_overspec_ratio)
+            print('exp_name: {}'.format(cfg.exp_name))
+            print('in_path: {}'.format(cfg_ksp.in_path))
+            print('------------------------')
+            cfg.unlabeled_ratio = 0.
+            cfg.loss_obj_pred = 'pu'
+            cfg.aug_method = 'none'
+            train_all.main(cfg)
+
+            cfg.pred_init_dir = cfg.exp_name
+
+            cfg.phase = 2
+            print('------------------------')
+            print('nnPU (ph2)')
+            cfg.exp_name = 'pu_piovrs_{}_ph2'.format(cfg.pi_overspec_ratio)
+            print('exp_name: {}'.format(cfg.exp_name))
+            print('in_path: {}'.format(cfg_ksp.in_path))
+            print('------------------------')
+            cfg.unlabeled_ratio = 0.
+            cfg.loss_obj_pred = 'pu'
+            cfg.aug_method = 'none'
+            cfg_ksp.exp_name = cfg.exp_name
+            cfg_ksp.use_model_pred = True
+            cfg_ksp.trans = 'lfda'
+            train_all.main(cfg)
+            cfg_ksp.model_path = pjoin(cfg.out_root, cfg.run_dir,
+                                       cfg_ksp.exp_name, 'cps')
+            # iterative_ksp.main(cfg_ksp)
 
             # print('------------------------')
             # print('tree aaPU + LFDA')
@@ -115,68 +146,28 @@ if __name__ == "__main__":
             #                            'cp.pth.tar')
             # iterative_ksp.main(cfg_ksp)
 
-            print('------------------------')
-            print('nnPU + bagger prior (ph2)')
-            cfg.exp_name = 'pu_piovrs_{}_ph2'.format(cfg.pi_overspec_ratio)
-            print('exp_name: {}'.format(cfg.exp_name))
-            print('in_path: {}'.format(cfg_ksp.in_path))
-            print('------------------------')
-            cfg.unlabeled_ratio = 0.
-            cfg.loss_obj_pred = 'pu'
-            cfg.aug_method = 'none'
-            cfg_ksp.exp_name = cfg.exp_name
-            cfg_ksp.use_model_pred = True
-            cfg_ksp.trans = 'lfda'
-            train_all.main(cfg)
-            cfg_ksp.model_path = pjoin(cfg.out_root, cfg.run_dir,
-                                       cfg_ksp.exp_name, 'cps')
-            iterative_ksp.main(cfg_ksp)
-
             # print('------------------------')
-            # print('aaPU + LFDA')
-            # cfg.exp_name = 'aapu_piovrs_{}_ur_{}'.format(
-            #     cfg.pi_overspec_ratio, unlabeled_ratio)
+            # print('nnPU + true prior')
+            # cfg.exp_name = 'pu_pr_true_ph2'
             # print('exp_name: {}'.format(cfg.exp_name))
             # print('in_path: {}'.format(cfg_ksp.in_path))
             # print('------------------------')
-            # cfg.unlabeled_ratio = unlabeled_ratio
+            # cfg.unlabeled_ratio = 0.
             # cfg.loss_obj_pred = 'pu'
             # cfg.aug_method = 'none'
+            # cfg.true_prior = True
+            # cfg.sec_phase = False
+            # cfg.exp_name = 'pu_pr_true_ph2'
+            # train_all.main(cfg)
+            # train_all.main(cfg)
+
             # cfg_ksp.exp_name = cfg.exp_name
             # cfg_ksp.use_model_pred = True
             # cfg_ksp.trans = 'lfda'
-            # cfg.sec_phase = True
-            # cfg.aug_reset = True
-            # train_all.main(cfg)
+
             # cfg_ksp.model_path = pjoin(cfg.out_root, cfg.run_dir,
             #                            cfg_ksp.exp_name, 'cps')
-            # cfg_ksp.trans_path = pjoin(cfg.out_root, cfg.run_dir, 'autoenc',
-            #                            'cp.pth.tar')
             # iterative_ksp.main(cfg_ksp)
-
-            # cfg.pi_mul = 1.0
-            print('------------------------')
-            print('nnPU + true prior')
-            cfg.exp_name = 'pu_pr_true_ph2'
-            print('exp_name: {}'.format(cfg.exp_name))
-            print('in_path: {}'.format(cfg_ksp.in_path))
-            print('------------------------')
-            cfg.unlabeled_ratio = 0.
-            cfg.loss_obj_pred = 'pu'
-            cfg.aug_method = 'none'
-            cfg.true_prior = True
-            cfg.sec_phase = False
-            cfg.exp_name = 'pu_pr_true_ph2'
-            train_all.main(cfg)
-            train_all.main(cfg)
-
-            cfg_ksp.exp_name = cfg.exp_name
-            cfg_ksp.use_model_pred = True
-            cfg_ksp.trans = 'lfda'
-
-            cfg_ksp.model_path = pjoin(cfg.out_root, cfg.run_dir,
-                                       cfg_ksp.exp_name, 'cps')
-            iterative_ksp.main(cfg_ksp)
 
             # print('------------------------')
             # print('BCE + LFDA')

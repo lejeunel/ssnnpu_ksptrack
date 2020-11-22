@@ -1,7 +1,7 @@
 frames: []
 
 epochs-autoenc: 150
-epochs-pred: 80
+epochs-pred: 100
 epochs-pre-pred: 20
 epochs-dec: 100
 epochs-dist: 80
@@ -24,17 +24,17 @@ aug-method: 'set'
 neg-mode: single
 loss-obj-pred: 'pu'
 
-sec-phase: False
+phase: 0
 
 # optimizer
 lr1: 1e-2
-lr2: 1e-2
+lr2: 1e-3
 lr-gamma : 0.1
 lr-autoenc: 1e-4
 lr-assign: 1e-4
 decay : 2e-4
 lr-power : 0.99
-lr-epoch-milestone-0 : 90
+lr-epoch-milestone-0 : 50
 lr-epoch-milestone-1 : 100
 momentum: 0.9
 
@@ -43,14 +43,15 @@ pi-mul: 1.0
 init-pi: 0.20
 pi-xi: 0.005
 pi-overspec-ratio: 1.5
+pi-post-ratio: 1.2
 pi-min: 0.005
 pi-gamma: 0.1
 pi-alpha: 1.0
 pi-eta: 1.
-var-thr: 0.003
-var-epc: 1
-min-var-epc: 40
-
+rho-pi-err: 999
+var-thr: 0.005
+var-epc: 5
+min-var-epc: 30
 loc-prior: False
 
 # batch
@@ -86,8 +87,14 @@ bag-t: 600
 bag-n-feats : 0.1
 bag-max-depth : 50
 
-pi-filt-size: 15
+pi-filt-size: 0.05
 pi-filt: False
 true-prior: False
 
 coordconv: False
+
+# kalman filter
+trans-fac: 0.05
+obs-fac: 10
+xi-fac-start: 0.01
+xi-fac-end: 0.03

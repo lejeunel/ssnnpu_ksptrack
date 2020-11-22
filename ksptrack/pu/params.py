@@ -47,7 +47,7 @@ def get_params(path='.'):
     p.add('--aug-reset', default=False, action='store_true')
     p.add('--pxls', default=False, action='store_true')
 
-    p.add('--sec-phase', default=False, action='store_true')
+    p.add('--phase', default=0, type=int)
 
     p.add('--n-frames-epoch', type=int)
     p.add('--momentum', type=float)
@@ -97,6 +97,7 @@ def get_params(path='.'):
     p.add('--init-pi', type=float)
     p.add('--pi-xi', type=float)
     p.add('--pi-overspec-ratio', type=float)
+    p.add('--pi-post-ratio', type=float)
     p.add('--pi-min', type=float)
     p.add('--pi-gamma', type=float)
     p.add('--pi-alpha', type=float)
@@ -104,11 +105,17 @@ def get_params(path='.'):
     p.add('--var-thr', type=float)
     p.add('--var-epc', type=int)
     p.add('--min-var-epc', type=int)
+    p.add('--rho-pi-err', type=float)
 
     p.add('--loc-prior', default=False, action='store_true')
-    p.add('--pi-filt-size', type=int)
+    p.add('--pi-filt-size', type=float)
     p.add('--pi-filt', default=False, action='store_true')
     p.add('--true-prior', default=False, action='store_true')
     p.add('--coordconv', default=False, action='store_true')
+
+    p.add('--trans-fac', type=float)
+    p.add('--obs-fac', type=float)
+    p.add('--xi-fac-start', type=float)
+    p.add('--xi-fac-end', type=float)
 
     return p

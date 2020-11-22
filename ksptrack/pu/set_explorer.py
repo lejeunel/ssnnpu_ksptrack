@@ -211,27 +211,29 @@ if __name__ == "__main__":
     from torch.utils.data import DataLoader
     import torch
     from ksptrack.pu.im_utils import get_features
+    import matplotlib.pyplot as plt
 
-    cp_path = '/home/ubelix/artorg/lejeune/runs/siamese_dec/Dataset31/checkpoints/cp_pu_pimul_1.0_pr_bag.pth.tar'
+    root_path = '/home/ubelix/artorg/lejeune'
+    cp_path = pjoin(
+        root_path,
+        'runs/siamese_dec/Dataset33/pu_piovrs_1.4_ph1/cps/cp_0035.pth.tar')
     device = torch.device('cuda')
     state_dict = torch.load(cp_path, map_location=lambda storage, loc: storage)
     model = UNet(out_channels=1).to(device)
     model.load_state_dict(state_dict)
 
-    texp = SetExplorer(
-        data_dir='/home/ubelix/artorg/lejeune/data/medical-labeling/Dataset31',
-        normalization='rescale',
-        resize_shape=512)
+    texp = SetExplorer(data_dir=pjoin(root_path,
+                                      'data/medical-labeling/Dataset33'),
+                       normalization='rescale',
+                       resize_shape=512)
     dl = DataLoader(texp, collate_fn=texp.collate_fn)
 
     res = get_features(model, dl, device)
 
-    losses = [-np.log(1 - o + 1e-8) for o in res['outs']]
+    probas = res['outs']
+    levels = np.linspace(0, 1, 100)
+    dist_pihat = np.count_nonzero(probas[50] <= np.atleast_2d(levels).T,
+                                  axis=1)
 
-    import pdb
-    pdb.set_trace()  ## DEBUG ##
-    dl.dataset.make_candidates(losses)
-    dl.dataset.reset_augs()
-    dl.dataset.augment_positives(400)
-    print(dl.dataset.ratio_purity_augs)
-    dl.dataset.augment_positives(15)
+    plt.stem(levels[:-1], dist_pihat[1:] - dist_pihat[0:-1])
+    plt.savefig(pjoin(root_path, 'hist.png'))
