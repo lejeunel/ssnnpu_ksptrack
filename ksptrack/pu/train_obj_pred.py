@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import torch
+import torch.nn.functional as F
 import torch.optim as optim
 import yaml
 from imgaug import augmenters as iaa
@@ -26,7 +27,7 @@ from ksptrack.pu.modeling.unet import UNet, init_weights_normal
 from ksptrack.pu.plots import freq_vs_epc
 from ksptrack.pu.set_explorer import SetExplorer
 from ksptrack.pu.tree_set_explorer import TreeSetExplorer
-from ksptrack.pu.pu_utils import init_kfs, update_priors_kf, update_priors
+from ksptrack.pu.pu_utils import init_kfs, update_priors_kf
 
 torch.backends.cudnn.benchmark = True
 
@@ -49,10 +50,12 @@ def do_previews(dataloaders, writer, out_paths, cfg, cfg_ksp, epoch):
                               axis=0)
     io.imsave(pjoin(out_paths['prevs'], 'ep_{:04d}.png'.format(epoch)),
               prev_ims)
-    writer.add_scalar('F1/{}'.format(cfg.exp_name), res_prevs['scores']['f1'],
-                      epoch)
-    writer.add_scalar('auc/{}'.format(cfg.exp_name),
-                      res_prevs['scores']['auc'], epoch)
+
+    if cfg.do_scores:
+        writer.add_scalar('F1/{}'.format(cfg.exp_name),
+                          res_prevs['scores']['f1'], epoch)
+        writer.add_scalar('auc/{}'.format(cfg.exp_name),
+                          res_prevs['scores']['auc'], epoch)
 
     io.imsave(pjoin(out_paths['prevs'], 'ep_{:04d}.png'.format(epoch)),
               prev_ims)
@@ -124,6 +127,7 @@ def make_loss(cfg):
 
         criterion = PULoss(do_ascent=cfg.nnpu_ascent,
                            aug_in_neg=cfg.aug_in_neg,
+                           beta=cfg.beta,
                            pxls=cfg.pxls)
 
     elif cfg.loss_obj_pred == 'bce':
@@ -140,6 +144,11 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch, lr_sch, cfg,
     model.train()
 
     running_loss = 0.0
+    running_loss_pu = 0.0
+    running_neg_risk = 0.0
+    running_pos_risk = 0.0
+    running_loss_reg = 0.0
+    running_means = 0.0
 
     pbar = tqdm(total=len(dataloader))
     for i, data in enumerate(dataloader):
@@ -168,18 +177,57 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch, lr_sch, cfg,
             else:
                 inp = res['output']
 
-            loss = criterion(inp, target, pi=pi)
+            loss_pu = criterion(inp, target, pi=pi)
+            loss = loss_pu['loss']
+            mean = torch.cat(inp).sigmoid().mean()
+
+            tgt_reg = torch.cat([
+                torch.ones(in_.shape).to(device) * cfg.init_pi for in_ in inp
+            ])
+            if cfg.phase == 1:
+                lambda_ = cfg.lambda_ / 2
+                # tgt_reg = torch.cat([
+                #     torch.ones(in_.shape).to(device) * priors[-1][f]
+                #     for f, in_ in zip(frames, inp)
+                # ])
+                # lambda_ = cfg.lambda_ * 10
+            elif cfg.phase == 2:
+                lambda_ = 0
+            else:
+                lambda_ = cfg.lambda_
+
+            loss_reg = lambda_ * F.mse_loss(torch.cat(inp).sigmoid(), tgt_reg)
+            loss += loss_reg
 
             loss.backward()
 
             optimizer.step()
 
-        running_loss += loss.cpu().detach().numpy()
-        loss_ = running_loss / ((i + 1) * cfg.batch_size)
         niter = epoch * len(dataloader) + i
-        writer.add_scalar('train/loss_{}'.format(cfg.exp_name), loss_, niter)
+
+        running_loss += loss.cpu().detach().numpy().item()
+        running_loss_pu += loss_pu['loss'].cpu().detach().numpy().item()
+        running_pos_risk += loss_pu['pos_risk'].cpu().detach().numpy().item()
+        running_neg_risk += loss_pu['neg_risk'].cpu().detach().numpy().item()
+        running_loss_reg += loss_reg.cpu().detach().numpy().item()
+        running_means += mean.cpu().detach().numpy().item()
+
+        loss_ = running_loss / ((i + 1) * cfg.batch_size)
+        loss_pu = running_loss_pu / ((i + 1) * cfg.batch_size)
+        pos_risk = running_pos_risk / ((i + 1) * cfg.batch_size)
+        neg_risk = running_neg_risk / ((i + 1) * cfg.batch_size)
+        loss_reg = running_loss_reg / ((i + 1) * cfg.batch_size)
+        means = running_means / (i + 1)
+
+        writer.add_scalar('train/loss', loss_, niter)
+        writer.add_scalar('train/loss_pu', loss_pu, niter)
+        writer.add_scalar('train/pos_risk', pos_risk, niter)
+        writer.add_scalar('train/neg_risk', neg_risk, niter)
+        writer.add_scalar('train/loss_reg', loss_reg, niter)
+        writer.add_scalar('train/means', means, niter)
         writer.add_scalar('lr/{}'.format(cfg.exp_name),
                           lr_sch.get_last_lr()[0], epoch)
+
         pbar.set_description('lss {:.6e}'.format(loss_))
         pbar.update(1)
 
@@ -254,6 +302,7 @@ def train(cfg, model, device, dataloaders, run_path):
         ep = ep[0]
         print('taking priors from epoch {}'.format(ep))
         print('pi_post_ratio {}'.format(cfg.pi_post_ratio))
+
         cps = sorted(
             glob(
                 pjoin(cfg.out_root, 'Dataset' + cfg.train_dir,
@@ -271,7 +320,7 @@ def train(cfg, model, device, dataloaders, run_path):
 
     elif cfg.phase == 1:
         check_cp_exist = pjoin(out_paths['cps'],
-                               'cp_{:04d}.pth.tar'.format(cfg.epochs_pred))
+                               'cp_{:04d}.pth.tar'.format(cfg.cp_period))
         if (os.path.exists(check_cp_exist)):
             print('found checkpoint at {}. Skipping.'.format(check_cp_exist))
             return
@@ -309,7 +358,7 @@ def train(cfg, model, device, dataloaders, run_path):
             return
 
         print('doing warm-up phase')
-        print('reinitializing weights')
+        # print('reinitializing weights')
         model.apply(init_weights_normal)
 
         res = get_features(model,
@@ -319,17 +368,20 @@ def train(cfg, model, device, dataloaders, run_path):
         truths = res['truths_unpooled'] if cfg.pxls else res['truths']
         max_freq = cfg.pi_overspec_ratio * np.max([(truth.sum()) / truth.size
                                                    for truth in truths])
-        cfg.init_pi = float(max_freq)
-        print('using constant priors: {}'.format(cfg.init_pi))
 
-        offset = -np.log((1 - cfg.init_pi) / cfg.init_pi)
-        print('setting objectness prior to {}, p={}'.format(
-            offset, cfg.init_pi))
+        p_offset = 0.01
+        offset = -np.log((1 - p_offset) / p_offset)
+        print('setting objectness prior to {}, p={}'.format(offset, p_offset))
         model.decoder.output_convolution[0].bias.data.fill_(
             torch.tensor(offset).to(device))
 
+        cfg.init_pi = float(max_freq)
+        init_prior = cfg.init_pi / 2
+        print('pi_max: {}'.format(cfg.init_pi))
+        print('using initial training priors: {}'.format(init_prior))
+
         training_priors = [
-            np.ones(len(dataloaders['init'].dataset)) * cfg.init_pi
+            np.ones(len(dataloaders['init'].dataset)) * init_prior
         ]
 
     n_pos = dataloaders['train'].dataset.n_pos
@@ -376,7 +428,8 @@ def train(cfg, model, device, dataloaders, run_path):
     cfg_ksp.precomp_desc_path = pjoin(cfg_ksp.in_path, 'precomp_desc')
     cfg_ksp.fin = dataloaders['prev']
     cfg_ksp.sp_labels_fname = 'sp_labels.npy'
-    cfg_ksp.do_scores = True
+    cfg_ksp.do_scores = True if (cfg.phase in [1, 2]) else False
+    cfg.do_scores = cfg_ksp.do_scores
     cfg_ksp.loc_prior = cfg.loc_prior
     cfg_ksp.coordconv = cfg.coordconv
     cfg_ksp.n_augs = 0
@@ -388,17 +441,24 @@ def train(cfg, model, device, dataloaders, run_path):
 
     model.to(device)
 
-    optimizer = optim.SGD(model.parameters(),
-                          lr=cfg.lr1 if
-                          ((cfg.phase == 0) or (cfg.phase == 2)) else cfg.lr2,
-                          weight_decay=1e-2)
+    if cfg.phase == 0:
+        lr = cfg.lr0
+    elif cfg.phase == 1:
+        lr = cfg.lr1
+    else:
+        lr = cfg.lr2
 
-    lr_sch = torch.optim.lr_scheduler.MultiStepLR(
-        optimizer,
-        milestones=[cfg.lr_epoch_milestone_0],
-        gamma=1. if ((cfg.phase == 0) or (cfg.phase == 1)) else cfg.lr_gamma)
+    optimizer = optim.SGD(model.parameters(), lr=lr, weight_decay=cfg.decay)
 
-    n_epochs = cfg.epochs_pre_pred if (cfg.phase == 0) else cfg.epochs_pred
+    lr_sch = torch.optim.lr_scheduler.ExponentialLR(
+        optimizer, gamma=1. if (cfg.phase in [0, 1]) else cfg.lr_gamma)
+
+    if cfg.phase == 0:
+        n_epochs = cfg.epochs_pre_pred
+    elif cfg.phase == 1:
+        n_epochs = cfg.epochs_pred
+    elif cfg.phase == 2:
+        n_epochs = cfg.epochs_post_pred
 
     for na, epoch in zip(n_augs, range(n_epochs)):
         if na > 0:
@@ -513,7 +573,7 @@ def main(cfg):
     dataloader_train = DataLoader(dl_train,
                                   collate_fn=dl_train.collate_fn,
                                   shuffle=True,
-                                  batch_size=2)
+                                  batch_size=cfg.batch_size)
     dataloader_init_noresize = DataLoader(dl_init_noresize,
                                           collate_fn=dl_train.collate_fn)
 

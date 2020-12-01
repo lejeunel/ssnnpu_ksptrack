@@ -107,16 +107,16 @@ def get_all(root_path, train_dir, exp_name, curves_dir, thr, rho_pi_err_thr,
     pbar = tqdm(total=len(files))
     for f in files:
         df = pd.read_pickle(f)
-        freqs.append(df['model'])
-        err_freq.append(np.abs(df['true'] - df['model']).mean())
-        mean_freq.append(np.mean(df['model']))
-        max_freq.append(np.max(df['model']))
+        freqs.append(df['clf'])
+        err_freq.append(np.abs(df['true'] - df['clf']).mean())
+        mean_freq.append(np.mean(df['clf']))
+        max_freq.append(np.max(df['clf']))
         p = df['priors_t']
         err_prior.append(np.abs(df['true'] - p).mean())
         priors.append(p)
-        prior_model_diff.append(np.abs((df['model'] - p).mean()))
+        prior_model_diff.append(np.abs((df['clf'] - p).mean()))
         pi_0.append(np.mean(p))
-        model_priors.append(df['model'])
+        model_priors.append(df['clf'])
         fname = os.path.splitext(os.path.split(f)[-1])[0]
         ep = int(fname.split('_')[1])
         epochs.append(ep)
@@ -173,17 +173,18 @@ def get_all(root_path, train_dir, exp_name, curves_dir, thr, rho_pi_err_thr,
     # df_stats['candidate'] = df_stats['below_var_thr'] & (
     #     df_stats['epoch'] - 1 > min_epc) & df_stats['rho_pi_err']
     df_stats['candidate'] = df_stats['below_var_thr'] & (
-        df_stats['epoch'] - 1 >
+        df_stats['epoch'] >
         min_epc) & df_stats['rho_pi_err'] & df_stats['below_pi0']
 
-    converged = np.zeros(df_stats.shape[0]).astype(bool)
+    converged = np.zeros(df_stats.epoch.max()).astype(bool)
     # find points where all frames are below pi_0
     #
     # find points in below_thr binary signal
-    for i in range(min_epc, df_stats.shape[0]):
-        if df_stats.iloc[i:min(i +
-                               n_epc, df_stats.shape[0])]['candidate'].all():
-            converged[min(i + n_epc - 1, df_stats.shape[0] - 1)] = True
+    for e in range(min_epc, df_stats.epoch.max()):
+        range_ = df_stats.epoch >= e
+        range_ &= df_stats.epoch < min(e + n_epc, df_stats.epoch.max())
+        if df_stats[range_]['candidate'].all():
+            converged[min(e - 1, df_stats.epoch.max() - 1)] = True
             break
 
     if converged.sum() < 1:
@@ -230,8 +231,12 @@ def main(cfg):
 
     fig = do_plot(dfs, cfg.thr, cfg.min_epc, hue='dset')
 
+    if cfg.title:
+        fig.suptitle(cfg.title)
     if cfg.save:
+        plt.tight_layout()
         fig.savefig(cfg.save, dpi=300)
+        plt.close()
     else:
         plt.show()
 
@@ -261,8 +266,8 @@ if __name__ == "__main__":
     p.add('--train-dirs', nargs='+', required=True)
     p.add('--exp-name', required=True)
     p.add('--curves-dir', default='curves_data')
-    p.add('--thr', default=0.005)
-    p.add('--n-epc', default=5)
+    p.add('--thr', default=0.01)
+    p.add('--n-epc', default=10)
     p.add('--rho-pi-err', default=999, type=float)
     p.add('--min-epc', default=30)
     p.add('--title', default='')

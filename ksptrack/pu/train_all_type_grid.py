@@ -22,7 +22,7 @@ if __name__ == "__main__":
         # 'unlabeled_ratio': [0.2, 0.1, 0.3],
         'unlabeled_ratio': [0.12],
         # 'pi_ovrs': [1.6, 1.4, 1.2]
-        'pi_ovrs': [2.0, 1.8, 1.6, 1.4, 2.2]
+        'pi_ovrs': [1.8, 1.6, 1.4, 1.2]
         # 'pi_mul': [1.2]
     }
     param_grid = ParameterGrid(param_grid)
@@ -74,6 +74,7 @@ if __name__ == "__main__":
 
             cfg.true_prior = False
             cfg.phase = 0
+            cfg.nnpu_ascent = True
 
             print('------------------------')
             print('nnPU (ph0)')
@@ -89,6 +90,7 @@ if __name__ == "__main__":
 
             train_bagging.main(cfg)
 
+            cfg.nnpu_ascent = True
             cfg.true_prior = False
             cfg.phase = 1
             cfg.pred_init_dir = cfg.exp_name

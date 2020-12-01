@@ -34,6 +34,8 @@ if __name__ == "__main__":
     dfs = dfs.rename(columns={'level_0': 'piovrs'})
 
     fig = do_plot(dfs, cfg.thr, cfg.min_epc, hue='piovrs', legend_hue=True)
+    if cfg.title:
+        fig.suptitle(cfg.title)
 
     if cfg.save:
         fig.savefig(cfg.save, dpi=300)

@@ -204,36 +204,56 @@ class SetExplorer(data.Dataset):
         return self.positives[self.positives['from_aug']]
 
 
+def make_distrib_rho(rho, n_bins=100, range=[0., 1.]):
+    levels = np.linspace(range[0], range[1], n_bins)
+    counts = np.array([np.sum(rho >= l) for l in levels])
+    counts = counts / counts.sum()
+
+    return counts
+
+
 if __name__ == "__main__":
 
     from ksptrack.pu.modeling.unet import UNet
     from ksptrack.pu import utils as utls
+    from ksptrack.utils.my_utils import get_pm_array
     from torch.utils.data import DataLoader
     import torch
     from ksptrack.pu.im_utils import get_features
     import matplotlib.pyplot as plt
+    from skimage.filters import threshold_otsu, try_all_threshold
+    from skimage import filters
 
     root_path = '/home/ubelix/artorg/lejeune'
     cp_path = pjoin(
         root_path,
-        'runs/siamese_dec/Dataset33/pu_piovrs_1.4_ph1/cps/cp_0035.pth.tar')
+        'runs/siamese_dec/Dataset32/pu_piovrs_1.8_ph0/cps/cp_0020.pth.tar')
     device = torch.device('cuda')
     state_dict = torch.load(cp_path, map_location=lambda storage, loc: storage)
     model = UNet(out_channels=1).to(device)
     model.load_state_dict(state_dict)
 
     texp = SetExplorer(data_dir=pjoin(root_path,
-                                      'data/medical-labeling/Dataset33'),
+                                      'data/medical-labeling/Dataset32'),
                        normalization='rescale',
                        resize_shape=512)
     dl = DataLoader(texp, collate_fn=texp.collate_fn)
 
     res = get_features(model, dl, device)
 
+    frame = 50
+    n_bins = 100
     probas = res['outs']
-    levels = np.linspace(0, 1, 100)
-    dist_pihat = np.count_nonzero(probas[50] <= np.atleast_2d(levels).T,
-                                  axis=1)
+    im = dl.dataset[frame]['image']
+    labels = dl.dataset[frame]['labels']
+    # dist_rho = make_distrib_rho(probas[frame], n_bins=n_bins)
+    # thr = dist_rho.mean()
 
-    plt.stem(levels[:-1], dist_pihat[1:] - dist_pihat[0:-1])
-    plt.savefig(pjoin(root_path, 'hist.png'))
+    probas_map = get_pm_array(labels[None, ...], [probas[frame]])[0]
+    data = {
+        'image': im,
+        'labels': labels,
+        'probas': probas,
+        'probas_map': probas_map
+    }
+    np.savez('gc_data_br.npz', **data)

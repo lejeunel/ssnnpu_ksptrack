@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from os.path import join as pjoin
+import os
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -16,6 +17,7 @@ import numpy as np
 import matplotlib.ticker as plticker
 from matplotlib.ticker import FormatStrFormatter
 from matplotlib.legend import Legend
+import pickle
 
 
 def draw_heatmap(*args, **kwargs):
@@ -33,8 +35,9 @@ if __name__ == "__main__":
     p.add('--dset', type=str, default='33')
     p.add('--fin', type=int, default=46)
 
-    p.add('--epochs', nargs='+', type=int, default=[10, 40, 90])
+    p.add('--epochs', nargs='+', type=int, default=[20, 40, 60, 80])
     p.add('--save-path', default='prevs_conv.png')
+    p.add('--pk-save-path', default='prevs_conv.p')
     cfg = p.parse_args()
 
     p_ksp = params_ksp.get_params('../../cfgs')
@@ -70,30 +73,43 @@ if __name__ == "__main__":
     pi_max = df_init['priors_t'].max()
     sns.set_style('darkgrid')
 
-    im_axes = np.array([None] * len(cfg.epochs))
-    for i, e in enumerate(cfg.epochs):
+    if not os.path.exists(cfg.pk_save_path):
+        im_axes = np.array([None] * len(cfg.epochs))
+        for i, e in enumerate(cfg.epochs):
 
-        df = pd.read_pickle(
-            pjoin(cfg.root_run_path, 'Dataset' + cfg.dset, cfg.exp_name,
-                  cfg.curves_dir, 'ep_{:04d}.p').format(e))
+            df = pd.read_pickle(
+                pjoin(cfg.root_run_path, 'Dataset' + cfg.dset, cfg.exp_name,
+                      cfg.curves_dir, 'ep_{:04d}.p').format(e))
 
-        df = df.drop(columns=['new_xi', 'priors_max', 'priors_t+1'])
-        df = df.rename(columns={'priors_t': 'priors'})
-        df['epoch'] = e
-        res_kf[e] = df
+            df = df.drop(columns=['new_xi', 'priors_max', 'priors_t+1'])
+            df = df.rename(columns={'priors_t': 'priors'})
+            df['epoch'] = e
+            res_kf[e] = df
 
-        # cfg_ksp.model_path = pjoin(cfg.root_run_path, 'Dataset' + cfg.dset,
-        #                            cfg.exp_name, 'cps',
-        #                            'cp_{:04d}.pth.tar'.format(e))
-        # cfg_ksp.trans_path = None
-        # res_pu[e] = prev_trans_costs.main(cfg_ksp)
-        res_pu[e]['image'] = np.ones((512, 512)).astype(int) * 255
-        res_pu[e]['pm'] = np.ones((512, 512)).astype(int) * 255
+            cfg_ksp.model_path = pjoin(cfg.root_run_path, 'Dataset' + cfg.dset,
+                                       cfg.exp_name, 'cps',
+                                       'cp_{:04d}.pth.tar'.format(e))
+            cfg_ksp.trans_path = None
+            res = prev_trans_costs.main(cfg_ksp)
+            res_pu[e]['pm'] = res['images'][0]['pm']
+            res_pu[e]['image'] = res['images'][0]['image']
 
-    fig = plt.figure(figsize=(8, 4), dpi=400, constrained_layout=True)
-    gs = fig.add_gridspec(ncols=4, nrows=2)
+        print('saving to ', cfg.pk_save_path)
+        pickle.dump({'pu': res_pu, 'kf': res_kf}, open(cfg.pk_save_path, "wb"))
+    else:
+        print('loading ', cfg.pk_save_path)
+        res = pickle.load(open(cfg.pk_save_path, "rb"))
+        res_pu = res['pu']
+        res_kf = res['kf']
+
+    # fig = plt.figure(figsize=(8, 4), dpi=400, constrained_layout=True)
+    fig = plt.figure(figsize=(9, 4), dpi=400)
+    gs = fig.add_gridspec(ncols=len(cfg.epochs) + 1,
+                          nrows=2,
+                          hspace=0.1,
+                          wspace=0.1)
     ax = fig.add_subplot(gs[0, 0])
-    ax.imshow(np.ones((512, 512)).astype(int) * 255)
+    ax.imshow(res_pu[cfg.epochs[0]]['image'])
     plt.axis('off')
 
     for i, e in enumerate(res_pu.keys()):
@@ -102,7 +118,7 @@ if __name__ == "__main__":
         ax = fig.add_subplot(gs[0, i + 1])
         ax.imshow(res_pu[e]['pm'])
         plt.axis('off')
-        plt.title('epoch {}/{}'.format(e, df_.shape[0]))
+        plt.title('epoch {}/100'.format(e), fontsize=7)
 
         ax = fig.add_subplot(gs[1, i + 1])
         do_legend = i == 0
@@ -122,6 +138,9 @@ if __name__ == "__main__":
         g.xaxis.set_major_formatter(FormatStrFormatter('%i'))
         plt.ylim(0, 1.1 * pi_max)
         g.yaxis.label.set_visible(False)
+        for item in ([g.title, g.xaxis.label, g.yaxis.label] +
+                     g.get_xticklabels() + g.get_yticklabels()):
+            item.set_fontsize(7)
 
         if do_legend:
             handles, labels = g.get_legend_handles_labels()
@@ -131,8 +150,10 @@ if __name__ == "__main__":
             g.set_yticklabels([])
 
     ax = fig.add_subplot(gs[1, 0])
-    ax.add_artist(Legend(ax, handles, labels))
+    ax.add_artist(
+        Legend(ax, handles, labels, prop={'size': 8}, loc='center left'))
     ax.axis('off')
 
+    plt.tight_layout()
     print('saving fig to {}'.format(cfg.save_path))
     fig.savefig(cfg.save_path, dpi=400, bbox_inches='tight')

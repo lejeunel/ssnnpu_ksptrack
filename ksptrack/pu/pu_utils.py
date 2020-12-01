@@ -11,6 +11,8 @@ from pykalman.unscented import augmented_unscented_filter_points
 from filterpy.kalman.UKF import UnscentedKalmanFilter as UKF
 from filterpy.kalman.sigma_points import MerweScaledSigmaPoints
 from scipy.signal import medfilt
+from skimage.filters import threshold_multiotsu
+import tqdm
 
 
 def trans_fn(state, noise, xi, filt_size, dt):
@@ -47,7 +49,7 @@ def init_kfs(n_frames, init_mean, init_cov, cfg):
     init_covs = np.eye(n_frames) * init_cov
 
     xi = get_curr_xi(cfg.init_pi, cfg.xi_fac_start, cfg.xi_fac_end, 0,
-                     cfg.epochs_pred - cfg.epochs_pre_pred)
+                     cfg.epochs_pred)
 
     trans_fn_ = lambda s, dt: trans_fn(s, 0, xi, cfg.pi_filt_size, dt)
     obs_fn_ = lambda s: obs_fn(s, 0, 0)
@@ -72,25 +74,43 @@ def init_kfs(n_frames, init_mean, init_cov, cfg):
                      ], [init_covs for f in range(n_frames)]
 
 
+def get_model_freqs(probas, n_classes=3):
+    freqs = []
+
+    pbar = tqdm.tqdm(total=len(probas))
+    for prob in probas:
+        thr = threshold_multiotsu(prob, classes=n_classes)[0]
+
+        freqs.append((prob >= thr).sum() / prob.size)
+
+        pbar.set_description('[obsrv]')
+        pbar.update(1)
+
+    pbar.close()
+
+    return freqs
+
+
 def update_priors_kf(model, dl, device, state_means, state_covs, filter,
                      writer, out_path_plots, out_path_data, epoch, cfg):
 
     res = get_features(model, dl, device, loc_prior=cfg.loc_prior)
     probas = res['outs_unpooled'] if cfg.pxls else res['outs']
     truths = res['truths_unpooled'] if cfg.pxls else res['truths']
-    probas = [p - p.min() for p in probas]
-    probas = [p / p.max() for p in probas]
     truths = res['truths_unpooled'] if cfg.pxls else res['truths']
 
-    freq = np.array([np.sum(p >= 0.5) / p.size for p in probas])
+    clf = np.array([(p >= 0.5).sum() / p.size for p in probas])
 
-    filter.update(np.clip(freq, a_min=0., a_max=cfg.init_pi))
+    observations = np.array([(p**cfg.gamma).mean() for p in probas])
+    # observations = get_model_freqs(probas, n_classes=2)
+    observations = np.clip(observations, a_min=0., a_max=cfg.init_pi)
+
+    filter.update(observations)
     filter.predict()
 
     # update "velocity"
-    new_xi = get_curr_xi(cfg.init_pi, cfg.xi_fac_start, cfg.xi_fac_end,
-                         epoch - cfg.epochs_pre_pred,
-                         cfg.epochs_pred - cfg.epochs_pre_pred)
+    new_xi = get_curr_xi(cfg.init_pi, cfg.xi_fac_start, cfg.xi_fac_end, epoch,
+                         cfg.epochs_pred)
 
     print('new_xi: ', new_xi)
     trans_fn_ = lambda s, dt: trans_fn(s, 0, new_xi, cfg.pi_filt_size, dt)
@@ -109,7 +129,8 @@ def update_priors_kf(model, dl, device, state_means, state_covs, filter,
         'frame': np.arange(true_pi.size),
         'true': true_pi,
         'new_xi': new_xi,
-        'model': freq,
+        'observ.': observations,
+        'clf': clf,
         'priors_max': state_means[0],
         'priors_t': state_means[-2],
         'priors_t+1': state_means[-1]
@@ -134,97 +155,6 @@ def update_priors_kf(model, dl, device, state_means, state_covs, filter,
                       vars_pseudo_negs, epoch)
 
     return filter, state_means, state_covs
-
-
-def update_priors(model,
-                  dl,
-                  device,
-                  training_priors,
-                  writer,
-                  out_path_plots,
-                  out_path_data,
-                  epoch,
-                  cfg,
-                  grad_method='clip',
-                  inval_mode='copy',
-                  scale_grad=0.05,
-                  decrease_pimax=True):
-
-    res = get_features(model, dl, device, loc_prior=cfg.loc_prior)
-    probas = res['outs_unpooled'] if cfg.pxls else res['outs']
-    probas = [p - p.min() for p in probas]
-    probas = [p / p.max() for p in probas]
-    truths = res['truths_unpooled'] if cfg.pxls else res['truths']
-
-    new_priors = np.array(
-        [np.sum(cfg.pi_mul * p >= 0.5) / p.size for p in probas])
-
-    d_priors = cfg.pi_eta * (new_priors - training_priors[-1])
-
-    if grad_method == 'clip':
-        d_priors = np.clip(d_priors, a_min=-cfg.pi_min, a_max=cfg.pi_min)
-    else:
-        d_priors = np.sign(d_priors) * np.abs(d_priors) * scale_grad
-
-    idx_invalids = new_priors > training_priors[0]
-    idx_valids = np.logical_not(idx_invalids)
-    new_priors[
-        idx_valids] = training_priors[-1][idx_valids] + d_priors[idx_valids]
-
-    if inval_mode == 'copy':
-        new_priors[
-            idx_invalids] = training_priors[-1][idx_invalids] - cfg.pi_xi
-    elif idx_invalids.sum() > 0:
-        training_priors[0][idx_invalids] = np.max(np.vstack(
-            (training_priors[0][idx_invalids] - cfg.pi_xi,
-             cfg.init_pi * np.ones(idx_invalids.sum()) * 0.5)),
-                                                  axis=0)
-        new_priors[idx_invalids] = training_priors[0][idx_invalids]
-
-    if decrease_pimax:
-        training_priors[0][idx_invalids] = np.clip(
-            training_priors[0][idx_invalids] - cfg.pi_xi,
-            a_min=cfg.pi_min,
-            a_max=None)
-
-    # frames that exceed pi_max are re-initialized or kept as before
-    # new_priors[idx_invalids] = training_priors[-1][idx_invalids] - cfg.pi_xi
-
-    freq = np.array([np.sum(p >= 0.5) / p.size for p in probas])
-    training_priors.append(new_priors)
-
-    true_pi = np.array([np.sum(p >= 0.5) / p.size for p in truths])
-
-    sns.set_style('darkgrid')
-    df = pd.DataFrame.from_dict({
-        'frame': np.arange(true_pi.size),
-        'true': true_pi,
-        'model': freq,
-        'priors_max': training_priors[0],
-        'priors_i-1': training_priors[-2],
-        'priors_i': new_priors
-    })
-    g = sns.lineplot(x='frame',
-                     y='value',
-                     hue='variable',
-                     data=pd.melt(df, ['frame']))
-    plt.ylim(0, 1.1 * cfg.init_pi)
-    plt.savefig(pjoin(out_path_plots, 'ep_{:04d}.png'.format(epoch)))
-    plt.close()
-
-    # variance of predictions on pseudo-negatives
-    vars_pseudo_negs = np.mean([np.var(p[p < 0.5]) for p in probas])
-
-    df['d_priors'] = d_priors
-    df.to_pickle(pjoin(out_path_data, 'ep_{:04d}.p'.format(epoch)))
-
-    err = np.mean(np.abs(true_pi - new_priors))
-
-    writer.add_scalar('prior_err/{}'.format(cfg.exp_name), err, epoch)
-    writer.add_scalar('var_pseudo_neg/{}'.format(cfg.exp_name),
-                      vars_pseudo_negs, epoch)
-
-    return training_priors
 
 
 from pykalman.standard import _last_dims, _determine_dimensionality, _arg_or_default

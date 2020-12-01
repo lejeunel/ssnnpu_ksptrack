@@ -209,6 +209,7 @@ class PULoss(nn.Module):
                  pi=0.25,
                  do_ascent=False,
                  beta=0,
+                 gamma=1.,
                  aug_in_neg=False,
                  pxls=False):
         super(PULoss, self).__init__()
@@ -216,6 +217,7 @@ class PULoss(nn.Module):
         self.pxls = pxls
         self.do_ascent = do_ascent
         self.beta = beta
+        self.gamma = gamma
         self.aug_in_neg = aug_in_neg
 
     def forward(self, input, target, pi=None, pi_mul=1., epoch=0):
@@ -227,18 +229,23 @@ class PULoss(nn.Module):
         if not isinstance(pi, list):
             pi = np.unique(pd.concat(target)['frame']).shape[0] * [pi]
 
-        loss = 0
+        pos_risk = 0
+        neg_risk = 0
+
         for in_, tgt, pi_ in zip(input, target, pi):
             if self.pxls:
                 target_pos, target_neg, target_aug = df_to_tgt(tgt)
             else:
                 target_pos, target_neg, target_aug = df_to_tgt_aug(tgt)
 
-            in_p_plus = in_[(target_pos + target_aug).bool()]
-            Rp_plus = cross_entropy_logits(in_p_plus, 1)
-
-            in_u_minus = in_[target_neg.bool()]
-            Ru_minus = cross_entropy_logits(in_u_minus, 0)
+            if target_pos.sum() == 0:
+                Rp_plus = torch.tensor([0.]).to(in_.device)
+                Rp_minus = torch.tensor([0.]).to(in_.device)
+            else:
+                in_p_plus = in_[(target_pos + target_aug).bool()]
+                Rp_plus = cross_entropy_logits(in_p_plus, 1)
+                in_u_minus = in_[target_neg.bool()]
+                Ru_minus = cross_entropy_logits(in_u_minus, 0)
 
             if self.aug_in_neg:
                 in_p_minus = in_[(target_pos + target_aug).bool()]
@@ -247,34 +254,25 @@ class PULoss(nn.Module):
                 in_p_minus = in_[target_pos.bool()]
                 Rp_minus = cross_entropy_logits(in_p_minus, 0)
 
-            loss_p_plus = pi_mul * pi_ * Rp_plus
+            pos_risk += pi_mul * pi_ * Rp_plus
+
             loss_u_minus = Ru_minus
             loss_p_minus = pi_mul * pi_ * Rp_minus
+            neg_risk += loss_u_minus.mean() - loss_p_minus.mean()
 
-            if target_pos.sum() == 0:
-                loss_p_plus = torch.tensor([0.]).to(in_.device)
-                loss_p_minus = torch.tensor([0.]).to(in_.device)
+        if self.do_ascent and (neg_risk < -self.beta):
+            # neg_risk = -neg_risk
+            loss = pos_risk - neg_risk
 
-            if self.do_ascent:
-                # check_neg_risk = loss_u_minus - loss_p_minus.mean()
-                do_ascent = loss_u_minus.mean() - loss_p_minus.mean(
-                ) < self.beta
+        else:
+            loss = pos_risk
+            loss += F.relu(neg_risk)
 
-                # loss += loss_p_plus.sum() / target_pos.sum()
-                loss += loss_p_plus.mean()
-                if do_ascent:
-                    l_ = loss_u_minus.mean() - loss_p_minus.mean()
-                    # l_ = torch.clamp(l_, min=self.beta)
-                    loss -= l_
-                    # loss += loss_u_minus[~idx_ascent].mean() - loss_p_minus.mean()
-                else:
-                    loss += loss_u_minus.mean() - loss_p_minus.mean()
-            else:
-                # loss += loss_p_plus.sum() / target_pos.sum()
-                loss += loss_p_plus.mean()
-                loss += F.relu(loss_u_minus.mean() - loss_p_minus.mean())
+        loss = loss / len(input)
+        neg_risk = neg_risk / len(input)
+        pos_risk = pos_risk / len(input)
 
-        return loss / len(input)
+        return {'loss': loss, 'neg_risk': neg_risk, 'pos_risk': pos_risk}
 
 
 class ClusterPULoss(nn.Module):

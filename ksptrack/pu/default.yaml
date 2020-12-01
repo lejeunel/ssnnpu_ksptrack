@@ -2,7 +2,8 @@ frames: []
 
 epochs-autoenc: 150
 epochs-pred: 100
-epochs-pre-pred: 20
+epochs-pre-pred: 40
+epochs-post-pred: 50
 epochs-dec: 100
 epochs-dist: 80
 
@@ -19,6 +20,7 @@ aug-in-neg: False
 aug-reset: False
 pred-init-dir: ''
 pxls: False
+do-scores: True
 
 aug-method: 'set'
 neg-mode: single
@@ -27,32 +29,38 @@ loss-obj-pred: 'pu'
 phase: 0
 
 # optimizer
-lr1: 1e-2
-lr2: 1e-3
-lr-gamma : 0.1
+lr0: 1e-3
+lr1: 1e-3
+lr2: 1e-2
+lr-gamma : 0.9
 lr-autoenc: 1e-4
 lr-assign: 1e-4
-decay : 2e-4
+decay : 0.01
 lr-power : 0.99
-lr-epoch-milestone-0 : 50
-lr-epoch-milestone-1 : 100
+lr-epoch-milestone-0 : 30
+lr-epoch-milestone-1 : 60
 momentum: 0.9
+beta1: 0.95
+beta2: 0.999
+lambda-: 0.
 
 # prior estimation
 pi-mul: 1.0
 init-pi: 0.20
 pi-xi: 0.005
 pi-overspec-ratio: 1.5
-pi-post-ratio: 1.2
+pi-post-ratio: 1.0
 pi-min: 0.005
-pi-gamma: 0.1
+gamma: 2
 pi-alpha: 1.0
 pi-eta: 1.
 rho-pi-err: 999
-var-thr: 0.005
-var-epc: 5
+var-thr: 0.01
+var-epc: 10
 min-var-epc: 30
 loc-prior: False
+n-classes-otsu: 2
+beta: 0
 
 # batch
 batch-size: 2
@@ -94,7 +102,7 @@ true-prior: False
 coordconv: False
 
 # kalman filter
-trans-fac: 0.05
-obs-fac: 10
-xi-fac-start: 0.01
-xi-fac-end: 0.03
+trans-fac: 0.5
+obs-fac: 50
+xi-fac-start: 2e-3
+xi-fac-end: 2e-2

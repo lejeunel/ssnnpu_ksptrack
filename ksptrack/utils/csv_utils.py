@@ -2,7 +2,7 @@ import getopt
 import csv
 import numpy as np
 import os.path
-from skimage.draw import circle
+from skimage.draw import disk
 from scipy import ndimage
 import pandas as pd
 
@@ -13,7 +13,7 @@ def draw2DPoint(locs2d, frame_num, img, radius=2, color=(0, 255, 0)):
         frame_row = np.where(locs2d[:, 0] == frame_num)[0][0]
         i, j = coord2Pixel(locs2d[frame_row, 3], locs2d[frame_row, 4], width,
                            height)
-        rr, cc = circle(i, j, radius, shape=(height, width))
+        rr, cc = disk((i, j), radius, shape=(height, width))
         img[rr, cc, 0] = color[0]
         img[rr, cc, 1] = color[1]
         img[rr, cc, 2] = color[2]
@@ -44,7 +44,7 @@ def coord2Pixel(x, y, width, height, round_to_int=True):
     j = x * (width - 1)
     i = y * (height - 1)
 
-    if(round_to_int):
+    if (round_to_int):
         j = int(np.round(j, 0))
         i = int(np.round(i, 0))
 
@@ -84,7 +84,6 @@ def readCsv(filePath, as_pandas=False):
         arr = np.loadtxt(open(filePath, "rb"), delimiter=";", skiprows=5)
 
     return arr
-
 
 
 #def writeCsv(a, path, field_names = ['']):
