@@ -66,9 +66,10 @@ def get_params(path='.'):
     p.add('--beta2', type=float)
     p.add('--beta', type=float)
 
+    p.add('--lr2-start', type=float)
+    p.add('--lr2-end', type=float)
     p.add('--lr0', type=float)
     p.add('--lr1', type=float)
-    p.add('--lr2', type=float)
     p.add('--ds-split', type=float)
     p.add('--ds-shuffle', type=bool)
     p.add('--batch-size', type=int)

@@ -256,9 +256,10 @@ class GraphTracking:
 
                 this_e = (int(self.source), int(tl.in_id))
 
-                proba = self.link_agent.get_proba_entrance(tl_loc)
+                # proba = self.link_agent.get_proba_entrance(tl_loc)
 
-                proba = np.clip(proba, a_min=self.thr, a_max=1 - self.thr)
+                # proba = np.clip(proba, a_min=self.thr, a_max=1 - self.thr)
+                proba = 0.5
                 w = -np.log(proba / (1 - proba))
                 self.g.add_edge(*this_e, weight=w, id_=-1)
                 added += 1
@@ -280,8 +281,9 @@ class GraphTracking:
 
             for linkable_tl in linkable_tracklets:
 
-                proba = self.link_agent.get_proba_inter_frame(tl, linkable_tl)
-                proba = np.clip(proba, a_min=self.thr, a_max=1 - self.thr)
+                # proba = self.link_agent.get_proba_inter_frame(tl, linkable_tl)
+                # proba = np.clip(proba, a_min=self.thr, a_max=1 - self.thr)
+                proba = 0.5
                 w = -np.log(proba / (1 - proba))
                 this_e = (tl.out_id, linkable_tl.in_id)
                 self.g.add_edge(*this_e, weight=w, id_=-1)

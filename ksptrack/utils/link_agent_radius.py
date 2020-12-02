@@ -132,10 +132,6 @@ class LinkAgentRadius(LinkAgent):
     def get_distance_(self, f1, l1, f2, l2, p=2):
         d1 = self.feats_trans[f1][l1][None, ...]
         d2 = self.feats_trans[f2][l2][None, ...]
-        # d1 = sp_desc.loc[(sp_desc['frame'] == f1) & (sp_desc['label'] == l1),
-        #                  'desc_trans'].values[0][None, ...]
-        # d2 = sp_desc.loc[(sp_desc['frame'] == f2) & (sp_desc['label'] == l2),
-        #                  'desc_trans'].values[0][None, ...]
         d1 = self.trans_transform.transform(d1)
         d2 = self.trans_transform.transform(d2)
 

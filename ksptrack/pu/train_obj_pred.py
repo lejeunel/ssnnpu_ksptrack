@@ -32,6 +32,15 @@ from ksptrack.pu.pu_utils import init_kfs, update_priors_kf
 torch.backends.cudnn.benchmark = True
 
 
+def init_last_layer(model, p, device):
+    offset = -np.log((1 - p) / p)
+    print('setting objectness prior to {}, p={}'.format(offset, p))
+    model.decoder.output_convolution[0].bias.data.fill_(
+        torch.tensor(offset).to(device))
+
+    return model
+
+
 def do_previews(dataloaders, writer, out_paths, cfg, cfg_ksp, epoch):
 
     cfg_ksp.use_model_pred = True
@@ -114,6 +123,8 @@ def make_data_aug(cfg):
         # iaa.Fliplr(p=.5),
         # iaa.Rot90((1, 3))
     ])
+    if cfg.phase == 2:
+        return iaa.Noop()
 
     return transf
 
@@ -303,20 +314,24 @@ def train(cfg, model, device, dataloaders, run_path):
         print('taking priors from epoch {}'.format(ep))
         print('pi_post_ratio {}'.format(cfg.pi_post_ratio))
 
-        cps = sorted(
-            glob(
-                pjoin(cfg.out_root, 'Dataset' + cfg.train_dir,
-                      cfg.pred_init_dir, 'cps', '*.pth.tar')))
-        cp_eps = np.array([
-            int(os.path.split(f)[-1].split('_')[-1].split('.')[0]) for f in cps
-        ])
-        cp_fname = cps[np.argmin(np.abs(cp_eps - ep))]
+        print('reinitializing weights')
+        model.apply(init_weights_normal)
 
-        path_ = pjoin(os.path.split(run_path)[0], cfg.pred_init_dir, cp_fname)
-        print('loading checkpoint {}'.format(path_))
-        state_dict = torch.load(path_,
-                                map_location=lambda storage, loc: storage)
-        model.load_state_dict(state_dict)
+        model = init_last_layer(model, 0.01, device)
+        # cps = sorted(
+        #     glob(
+        #         pjoin(cfg.out_root, 'Dataset' + cfg.train_dir,
+        #               cfg.pred_init_dir, 'cps', '*.pth.tar')))
+        # cp_eps = np.array([
+        #     int(os.path.split(f)[-1].split('_')[-1].split('.')[0]) for f in cps
+        # ])
+        # cp_fname = cps[np.argmin(np.abs(cp_eps - ep))]
+
+        # path_ = pjoin(os.path.split(run_path)[0], cfg.pred_init_dir, cp_fname)
+        # print('loading checkpoint {}'.format(path_))
+        # state_dict = torch.load(path_,
+        #                         map_location=lambda storage, loc: storage)
+        # model.load_state_dict(state_dict)
 
     elif cfg.phase == 1:
         check_cp_exist = pjoin(out_paths['cps'],
@@ -369,11 +384,7 @@ def train(cfg, model, device, dataloaders, run_path):
         max_freq = cfg.pi_overspec_ratio * np.max([(truth.sum()) / truth.size
                                                    for truth in truths])
 
-        p_offset = 0.01
-        offset = -np.log((1 - p_offset) / p_offset)
-        print('setting objectness prior to {}, p={}'.format(offset, p_offset))
-        model.decoder.output_convolution[0].bias.data.fill_(
-            torch.tensor(offset).to(device))
+        model = init_last_layer(model, 0.01, device)
 
         cfg.init_pi = float(max_freq)
         init_prior = cfg.init_pi / 2
@@ -441,24 +452,24 @@ def train(cfg, model, device, dataloaders, run_path):
 
     model.to(device)
 
+    gamma_lr = 1.
     if cfg.phase == 0:
         lr = cfg.lr0
-    elif cfg.phase == 1:
-        lr = cfg.lr1
-    else:
-        lr = cfg.lr2
-
-    optimizer = optim.SGD(model.parameters(), lr=lr, weight_decay=cfg.decay)
-
-    lr_sch = torch.optim.lr_scheduler.ExponentialLR(
-        optimizer, gamma=1. if (cfg.phase in [0, 1]) else cfg.lr_gamma)
-
-    if cfg.phase == 0:
         n_epochs = cfg.epochs_pre_pred
     elif cfg.phase == 1:
+        lr = cfg.lr1
         n_epochs = cfg.epochs_pred
-    elif cfg.phase == 2:
+    else:
+        lr = cfg.lr2_start
         n_epochs = cfg.epochs_post_pred
+        gamma_lr = np.exp(
+            (1 / cfg.epochs_post_pred) * np.log(cfg.lr2_end / cfg.lr2_start))
+
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=cfg.decay)
+
+    lr_sch = torch.optim.lr_scheduler.StepLR(optimizer,
+                                             step_size=1,
+                                             gamma=gamma_lr)
 
     for na, epoch in zip(n_augs, range(n_epochs)):
         if na > 0:

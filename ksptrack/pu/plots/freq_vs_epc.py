@@ -266,7 +266,7 @@ if __name__ == "__main__":
     p.add('--train-dirs', nargs='+', required=True)
     p.add('--exp-name', required=True)
     p.add('--curves-dir', default='curves_data')
-    p.add('--thr', default=0.01)
+    p.add('--thr', default=0.006)
     p.add('--n-epc', default=10)
     p.add('--rho-pi-err', default=999, type=float)
     p.add('--min-epc', default=30)

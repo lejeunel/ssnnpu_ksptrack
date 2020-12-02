@@ -18,13 +18,7 @@ def phase_bool_to_str(ph):
 
 if __name__ == "__main__":
 
-    param_grid = {
-        # 'unlabeled_ratio': [0.2, 0.1, 0.3],
-        'unlabeled_ratio': [0.12],
-        # 'pi_ovrs': [1.6, 1.4, 1.2]
-        'pi_ovrs': [1.8, 1.6, 1.4, 1.2]
-        # 'pi_mul': [1.2]
-    }
+    param_grid = {'unlabeled_ratio': [0.12], 'pi_ovrs': [1.4, 1.8, 1.6, 1.2]}
     param_grid = ParameterGrid(param_grid)
 
     p = params.get_params()
