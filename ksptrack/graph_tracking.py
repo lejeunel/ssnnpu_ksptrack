@@ -15,7 +15,7 @@ class GraphTracking:
     def __init__(self,
                  link_agent,
                  sps_man=None,
-                 tol=10e-12,
+                 tol=10e-7,
                  cxx_loglevel="info",
                  cxx_return_edges=True):
         self.logger = logging.getLogger('GraphTracking')

@@ -11,7 +11,7 @@ import torch
 from imgaug import augmenters as iaa
 import matplotlib.pyplot as plt
 from skimage.draw import circle
-from skimage import segmentation
+from skimage import segmentation, draw
 from scipy import ndimage as nd
 import networkx as nx
 import imgaug as ia
@@ -123,6 +123,22 @@ def coord2Pixel(x, y, width, height):
     i = int(np.round(y * (height - 1), 0))
 
     return i, j
+
+
+def draw_gt_contour(im, truth, color=(255, 0, 0)):
+    truth_ct = segmentation.find_boundaries(truth, mode='thick')
+    im_out = np.copy(im)
+    im_out[truth_ct, ...] = (255, 0, 0)
+
+    return im_out
+
+
+def draw_2d_loc(im, i, j, radius=7, color=(0, 255, 0)):
+    im_out = np.copy(im)
+    rr, cc = draw.disk((i, j), radius, shape=im_out.shape)
+    im_out[rr, cc, :] = color
+
+    return im_out
 
 
 class LocPriorDataset(BaseDataset):

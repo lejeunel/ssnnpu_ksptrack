@@ -9,10 +9,8 @@ import seaborn as sns
 from mpl_toolkits.axes_grid1 import ImageGrid
 from PIL import ImageFont
 
-from ksptrack import prev_trans_costs
 from ksptrack.cfgs import params as params_ksp
 from ksptrack.pu import params
-from ksptrack.pu.plots import freq_vs_epc
 import numpy as np
 import matplotlib.ticker as plticker
 from matplotlib.ticker import FormatStrFormatter
@@ -74,6 +72,7 @@ if __name__ == "__main__":
     sns.set_style('darkgrid')
 
     if not os.path.exists(cfg.pk_save_path):
+        from ksptrack import prev_trans_costs
         im_axes = np.array([None] * len(cfg.epochs))
         for i, e in enumerate(cfg.epochs):
 
@@ -150,8 +149,12 @@ if __name__ == "__main__":
             g.set_yticklabels([])
 
     ax = fig.add_subplot(gs[1, 0])
+
+    # rename legend labels
+    labels = ['true', 'observ.', 'clf', 'state estim.']
+
     ax.add_artist(
-        Legend(ax, handles, labels, prop={'size': 8}, loc='center left'))
+        Legend(ax, handles, labels, prop={'size': 7}, loc='center left'))
     ax.axis('off')
 
     plt.tight_layout()

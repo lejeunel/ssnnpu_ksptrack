@@ -255,7 +255,7 @@ class PULoss(nn.Module):
             loss_p_minus = pi_mul * pi_ * Rp_minus
 
             if target_pos.sum() > 0:
-                pos_risk += pi_mul * pi_ * Rp_plus
+                pos_risk += pi_mul * pi_ * Rp_plus.mean()
                 neg_risk += loss_u_minus.mean() - loss_p_minus.mean()
             else:
                 neg_risk += loss_u_minus.mean()

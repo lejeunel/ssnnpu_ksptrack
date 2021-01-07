@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 from ksptrack.pu.plots.freq_vs_epc import get_all, do_plot
 import pandas as pd
 import matplotlib.pyplot as plt

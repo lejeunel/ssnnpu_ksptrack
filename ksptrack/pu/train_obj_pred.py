@@ -158,7 +158,6 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch, lr_sch, cfg,
     running_loss_pu = 0.0
     running_neg_risk = 0.0
     running_pos_risk = 0.0
-    running_loss_reg = 0.0
     running_means = 0.0
 
     pbar = tqdm(total=len(dataloader))
@@ -192,25 +191,10 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch, lr_sch, cfg,
             loss = loss_pu['loss']
             mean = torch.cat(inp).sigmoid().mean()
 
-            tgt_reg = torch.cat([
-                torch.ones(in_.shape).to(device) * cfg.init_pi for in_ in inp
-            ])
-            if cfg.phase == 1:
-                lambda_ = cfg.lambda_ / 2
-                # tgt_reg = torch.cat([
-                #     torch.ones(in_.shape).to(device) * priors[-1][f]
-                #     for f, in_ in zip(frames, inp)
-                # ])
-                # lambda_ = cfg.lambda_ * 10
-            elif cfg.phase == 2:
-                lambda_ = 0
-            else:
-                lambda_ = cfg.lambda_
-
-            loss_reg = lambda_ * F.mse_loss(torch.cat(inp).sigmoid(), tgt_reg)
-            loss += loss_reg
-
             loss.backward()
+
+            torch.nn.utils.clip_grad_norm_(model.parameters(),
+                                           cfg.clip_grad_norm)
 
             optimizer.step()
 
@@ -220,21 +204,18 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch, lr_sch, cfg,
         running_loss_pu += loss_pu['loss'].cpu().detach().numpy().item()
         running_pos_risk += loss_pu['pos_risk'].cpu().detach().numpy().item()
         running_neg_risk += loss_pu['neg_risk'].cpu().detach().numpy().item()
-        running_loss_reg += loss_reg.cpu().detach().numpy().item()
         running_means += mean.cpu().detach().numpy().item()
 
         loss_ = running_loss / ((i + 1) * cfg.batch_size)
         loss_pu = running_loss_pu / ((i + 1) * cfg.batch_size)
         pos_risk = running_pos_risk / ((i + 1) * cfg.batch_size)
         neg_risk = running_neg_risk / ((i + 1) * cfg.batch_size)
-        loss_reg = running_loss_reg / ((i + 1) * cfg.batch_size)
         means = running_means / (i + 1)
 
         writer.add_scalar('train/loss', loss_, niter)
         writer.add_scalar('train/loss_pu', loss_pu, niter)
         writer.add_scalar('train/pos_risk', pos_risk, niter)
         writer.add_scalar('train/neg_risk', neg_risk, niter)
-        writer.add_scalar('train/loss_reg', loss_reg, niter)
         writer.add_scalar('train/means', means, niter)
         writer.add_scalar('lr/{}'.format(cfg.exp_name),
                           lr_sch.get_last_lr()[0], epoch)
@@ -278,22 +259,33 @@ def train(cfg, model, device, dataloaders, run_path):
                            loc_prior=cfg.loc_prior)
         truths = res['truths_unpooled'] if cfg.pxls else res['truths']
         priors = np.array([(t > 0).sum() / t.size for t in truths])
-        priors = [priors]
-        cps = sorted(
-            glob(
-                pjoin(cfg.out_root, 'Dataset' + cfg.train_dir,
-                      cfg.pred_init_dir, 'cps', '*.pth.tar')))
 
-        path_ = pjoin(os.path.split(run_path)[0], cfg.pred_init_dir, cps[-1])
-        print('loading checkpoint {}'.format(path_))
-        state_dict = torch.load(path_,
-                                map_location=lambda storage, loc: storage)
-        model.load_state_dict(state_dict)
+        if cfg.true_prior == 'max':
+            print('using only max of groundtruth')
+            # max_freq = cfg.pi_overspec_ratio * np.max(priors)
+            training_priors = [
+                np.ones_like(priors) * priors.max() * cfg.pi_post_ratio_truth *
+                cfg.pi_overspec_ratio
+            ]
+        elif cfg.true_prior == 'mean':
+            print('using mean of groundtruth')
+            training_priors = [
+                np.ones_like(priors) * priors.mean() *
+                cfg.pi_post_ratio_truth * cfg.pi_overspec_ratio
+            ]
+        else:
+            print('using groundtruth per-frame')
+            training_priors = [cfg.pi_post_ratio_truth * priors]
+
+        print('reinitializing weights')
+        model.apply(init_weights_normal)
+        model = init_last_layer(model, 0.01, device)
+
     elif cfg.phase == 2:
         print('using model of alternate phase')
 
         check_cp_exist = pjoin(out_paths['cps'],
-                               'cp_{:04d}.pth.tar'.format(cfg.epochs_pred))
+                               'cp_{:04d}.pth.tar'.format(cfg.cp_period))
         if (os.path.exists(check_cp_exist)):
             print('found checkpoint at {}. Skipping.'.format(check_cp_exist))
             return
@@ -314,24 +306,20 @@ def train(cfg, model, device, dataloaders, run_path):
         print('taking priors from epoch {}'.format(ep))
         print('pi_post_ratio {}'.format(cfg.pi_post_ratio))
 
-        print('reinitializing weights')
-        model.apply(init_weights_normal)
+        cps = sorted(
+            glob(
+                pjoin(cfg.out_root, 'Dataset' + cfg.train_dir,
+                      cfg.pred_init_dir, 'cps', '*.pth.tar')))
+        cp_eps = np.array([
+            int(os.path.split(f)[-1].split('_')[-1].split('.')[0]) for f in cps
+        ])
+        cp_fname = cps[np.argmin(np.abs(cp_eps - ep))]
 
-        model = init_last_layer(model, 0.01, device)
-        # cps = sorted(
-        #     glob(
-        #         pjoin(cfg.out_root, 'Dataset' + cfg.train_dir,
-        #               cfg.pred_init_dir, 'cps', '*.pth.tar')))
-        # cp_eps = np.array([
-        #     int(os.path.split(f)[-1].split('_')[-1].split('.')[0]) for f in cps
-        # ])
-        # cp_fname = cps[np.argmin(np.abs(cp_eps - ep))]
-
-        # path_ = pjoin(os.path.split(run_path)[0], cfg.pred_init_dir, cp_fname)
-        # print('loading checkpoint {}'.format(path_))
-        # state_dict = torch.load(path_,
-        #                         map_location=lambda storage, loc: storage)
-        # model.load_state_dict(state_dict)
+        path_ = pjoin(os.path.split(run_path)[0], cfg.pred_init_dir, cp_fname)
+        print('loading checkpoint {}'.format(path_))
+        state_dict = torch.load(path_,
+                                map_location=lambda storage, loc: storage)
+        model.load_state_dict(state_dict)
 
     elif cfg.phase == 1:
         check_cp_exist = pjoin(out_paths['cps'],
@@ -462,14 +450,23 @@ def train(cfg, model, device, dataloaders, run_path):
     else:
         lr = cfg.lr2_start
         n_epochs = cfg.epochs_post_pred
-        gamma_lr = np.exp(
-            (1 / cfg.epochs_post_pred) * np.log(cfg.lr2_end / cfg.lr2_start))
+        # gamma_lr = np.exp(
+        #     (1 / cfg.epochs_post_pred) * np.log(cfg.lr2_end / cfg.lr2_start))
 
-    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=cfg.decay)
+        if cfg.true_prior:
+            gamma_lr = cfg.lr_gamma
+            lr = lr * 10
 
-    lr_sch = torch.optim.lr_scheduler.StepLR(optimizer,
-                                             step_size=1,
-                                             gamma=gamma_lr)
+    optimizer = optim.Adam(model.parameters(),
+                           lr=lr,
+                           weight_decay=cfg.decay,
+                           eps=cfg.eps)
+
+    # lr_sch = torch.optim.lr_scheduler.StepLR(optimizer,
+    #                                          step_size=1,
+    #                                          gamma=gamma_lr)
+    lr_sch = torch.optim.lr_scheduler.MultiStepLR(
+        optimizer, milestones=[cfg.lr_epoch_milestone_0], gamma=gamma_lr)
 
     for na, epoch in zip(n_augs, range(n_epochs)):
         if na > 0:
@@ -503,8 +500,8 @@ def train(cfg, model, device, dataloaders, run_path):
         if (epoch % (2 * cfg.cp_period) == 0) and (epoch > 0):
             do_previews(dataloaders, writer, out_paths, cfg, cfg_ksp, epoch)
 
-        if (cfg.phase == 1) and (epoch > 0) and (not cfg.true_prior) and (
-                epoch % cfg.prior_period == 0):
+        if (cfg.phase == 1) and (epoch > 0) and (epoch %
+                                                 cfg.prior_period == 0):
             filter, state_means, state_covs = update_priors_kf(
                 model, dataloaders['init'], device, state_means, state_covs,
                 filter, writer, out_paths['curves'], out_paths['curves_data'],
@@ -584,6 +581,7 @@ def main(cfg):
     dataloader_train = DataLoader(dl_train,
                                   collate_fn=dl_train.collate_fn,
                                   shuffle=True,
+                                  drop_last=True,
                                   batch_size=cfg.batch_size)
     dataloader_init_noresize = DataLoader(dl_init_noresize,
                                           collate_fn=dl_train.collate_fn)

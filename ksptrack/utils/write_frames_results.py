@@ -9,6 +9,7 @@ import logging
 from ksptrack.utils import my_utils as utls
 from ksptrack.cfgs import params
 from ksptrack.tr import Tracklet
+import tqdm
 
 
 def main(cfg, out_path, logger=None):
@@ -26,17 +27,25 @@ def main(cfg, out_path, logger=None):
 
     scores = (res['ksp_scores_mat'].astype('uint8')) * 255
 
+    pbar = tqdm.tqdm(total=scores.shape[0])
     for i in range(scores.shape[0]):
-        logger.info('{}/{}'.format(i + 1, scores.shape[0]))
         io.imsave(os.path.join(frame_dir, 'im_{:04d}.png'.format(i)),
                   scores[i])
+        pbar.set_description('[bin frames]')
+        pbar.update(1)
+
+    pbar.close()
 
     if ('pm_scores_mat' in res.keys()):
         scores_pm = (res['pm_scores_mat'] * 255.).astype('uint8')
+        pbar = tqdm.tqdm(total=scores.shape[0])
         for i in range(scores.shape[0]):
-            logger.info('{}/{}'.format(i + 1, scores.shape[0]))
             io.imsave(os.path.join(frame_dir, 'im_pb_{}.png'.format(i)),
                       scores_pm[i])
+            pbar.set_description('[prob frames]')
+            pbar.update(1)
+
+        pbar.close()
 
 
 if __name__ == "__main__":

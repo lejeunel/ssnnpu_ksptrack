@@ -17,7 +17,6 @@ import os
 
 def do_plot(df, thr, min_epc, hue='dset', title='', legend_hue=False):
     sns.set_theme()
-    # sns.set_style('darkgrid')
     scrtmarkers = {'optima': 'o', 'stop': 'X', 'optima/stop': 'D'}
     plt.subplot(211)
     if title:
@@ -64,7 +63,7 @@ def do_plot(df, thr, min_epc, hue='dset', title='', legend_hue=False):
         g.add_artist(conv_leg)
 
     g.set(xlabel=None)
-    plt.ylabel("Mean absolute error of priors")
+    plt.ylabel("Mean absolute error \n of priors")
     plt.subplot(212)
     g = sns.lineplot(data=df,
                      x='epoch',
@@ -81,7 +80,7 @@ def do_plot(df, thr, min_epc, hue='dset', title='', legend_hue=False):
                         markers=scrtmarkers,
                         s=100,
                         style='convergence')
-    plt.ylabel(r"var. of pseudo negatives")
+    plt.ylabel("variance of\n pseudo negatives")
 
     return plt.gcf()
 
@@ -232,10 +231,11 @@ def main(cfg):
     fig = do_plot(dfs, cfg.thr, cfg.min_epc, hue='dset')
 
     if cfg.title:
-        fig.suptitle(cfg.title)
+        fig.suptitle(cfg.title, y=0.92)
     if cfg.save:
-        plt.tight_layout()
-        fig.savefig(cfg.save, dpi=300)
+        # plt.tight_layout()
+        fig.set_size_inches(8.5, 5.5)
+        fig.savefig(cfg.save, dpi=300, bbox_inches='tight')
         plt.close()
     else:
         plt.show()
@@ -266,7 +266,7 @@ if __name__ == "__main__":
     p.add('--train-dirs', nargs='+', required=True)
     p.add('--exp-name', required=True)
     p.add('--curves-dir', default='curves_data')
-    p.add('--thr', default=0.006)
+    p.add('--thr', default=0.007)
     p.add('--n-epc', default=10)
     p.add('--rho-pi-err', default=999, type=float)
     p.add('--min-epc', default=30)

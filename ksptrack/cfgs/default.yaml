@@ -19,8 +19,8 @@ slic-n-sp : 1200
 slic-rel-size : 0.1
 
 # Superpixel transitions
-# sp-trans-init-mode : 'overlap'
-sp-trans-init-mode : 'radius'
+sp-trans-init-mode : 'overlap'
+# sp-trans-init-mode : 'radius'
 sp-trans-init-radius : 0.05
 
 # Optical flow

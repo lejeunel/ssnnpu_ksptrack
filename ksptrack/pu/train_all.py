@@ -1,11 +1,17 @@
 import params
 from ksptrack.pu import train_autoencoder, train_obj_pred
+from os.path import join as pjoin
+import os
 
 
 def main(cfg):
-    train_autoencoder.main(cfg)
+    # train_autoencoder.main(cfg)
 
-    train_obj_pred.main(cfg)
+    check_dir_exist = pjoin(cfg.out_root, cfg.run_dir, cfg.exp_name)
+    if os.path.exists(check_dir_exist):
+        print('path {} already exists, skipping.'.format(check_dir_exist))
+    else:
+        train_obj_pred.main(cfg)
 
 
 if __name__ == "__main__":
@@ -19,4 +25,5 @@ if __name__ == "__main__":
     p.add('--init-cp-fname')
 
     cfg = p.parse_args()
+
     main(cfg)

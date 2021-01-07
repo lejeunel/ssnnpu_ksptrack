@@ -31,15 +31,17 @@ phase: 0
 # optimizer
 lr0: 1e-4
 lr1: 1e-5
-lr2-start: 1e-4
-lr2-end: 1e-5
-lr-gamma : 0.96
+eps: 1e-8
+clip-grad-norm: 5
+lr2-start: 1e-5
+lr2-end: 1e-6
+lr-gamma : 0.1
 lr-autoenc: 1e-4
 lr-assign: 1e-4
-decay : 0.01
+decay : 0.1
 lr-power : 0.99
-lr-epoch-milestone-0 : 30
-lr-epoch-milestone-1 : 60
+lr-epoch-milestone-0 : 50
+lr-epoch-milestone-1 : 999
 momentum: 0.9
 beta1: 0.95
 beta2: 0.999
@@ -50,14 +52,15 @@ pi-mul: 1.0
 init-pi: 0.20
 pi-xi: 0.005
 pi-overspec-ratio: 1.5
-pi-post-ratio: 1.0
+pi-post-ratio: 0.9
+pi-post-ratio-truth: 0.9
 pi-min: 0.005
 gamma: 2
 pi-alpha: 1.0
 pi-eta: 1.
 rho-pi-err: 999
 
-var-thr: 0.006
+var-thr: 0.007
 var-epc: 10
 min-var-epc: 30
 loc-prior: False

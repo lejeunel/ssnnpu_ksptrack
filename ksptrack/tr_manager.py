@@ -7,7 +7,14 @@ import logging
 class TrackletManager:
     # Makes dictionary of tracklets with in_frame and out_frame keys
 
-    def __init__(self, sps_man, direction, tls, n_frames):
+    def __init__(self,
+                 sps_man,
+                 direction,
+                 tls,
+                 n_frames,
+                 mode='radius',
+                 hoof_tau_u=-1,
+                 rel_radius=0.05):
 
         self.n_frames = 0
         self.dict_in = dict()
@@ -16,6 +23,9 @@ class TrackletManager:
         self.direction = direction
         self.make_dict(tls, n_frames)
         self.sps_man = sps_man
+        self.mode = mode
+        self.rel_radius = rel_radius
+        self.hoof_tau_u = hoof_tau_u
 
     def make_dict(self, tls, n_frames):
 

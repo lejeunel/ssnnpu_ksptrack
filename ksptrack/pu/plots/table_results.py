@@ -4,11 +4,11 @@ import pandas as pd
 import os
 import yaml
 import matplotlib.pyplot as plt
-from ksptrack.exps import results_dirs as rd
 import numpy as np
 from tf2pd import tflog2pandas
 from ksptrack.pu.plots.sp_errors import get_df as get_df_sp_errors
 from argparse import Namespace
+import configargparse
 
 
 # add bold tags
@@ -17,6 +17,9 @@ def myformat(r):
         if (r['bold'].iat[0]):
             r['F1'] = '$\\bm{' + r['F1'].apply(
                 str) + '} \pm ' + r['_F1'].apply(str) + '$'
+        else:
+            r['F1'] = '$' + r['F1'].apply(str) + ' \pm ' + r['_F1'].apply(
+                str) + '$'
     else:
         r['F1'] = '$' + r['F1'].apply(str) + ' \pm ' + r['_F1'].apply(
             str) + '$'
@@ -31,6 +34,9 @@ def myformat(r):
     return r
 
 
+type_to_ind = {'Tweezer': 0, 'Cochlea': 1, 'Slitlamp': 2, 'Brain': 3}
+
+
 def parse_ksp_exps(root_path, types, exp_names):
     records = []
 
@@ -38,7 +44,7 @@ def parse_ksp_exps(root_path, types, exp_names):
 
     for i, t in enumerate(types):
         dset_paths = sorted(
-            glob.glob(pjoin(root_path, 'Dataset' + str(i) + '*')))
+            glob.glob(pjoin(root_path, 'Dataset' + str(type_to_ind[t]) + '*')))
         for dset_path in dset_paths[:max_seqs]:
             dset_dir = os.path.split(dset_path)[-1]
             exp_paths = [pjoin(dset_path, x) for x in exp_names]
@@ -56,6 +62,8 @@ def parse_ksp_exps(root_path, types, exp_names):
                         t, dset_dir, 'ksp/' + os.path.split(exp_path)[-1],
                         df['f1_ksp'], df['pr_ksp'], df['rc_ksp']
                     ])
+                else:
+                    print(score_path, ' not found')
 
     df = pd.DataFrame.from_records(records,
                                    columns=('Types', 'dset', 'Methods', 'F1',
@@ -78,7 +86,7 @@ def parse_model_exps(root_path, types, exp_names, metrics=['F1']):
                 event_path = glob.glob(pjoin(exp_path, 'event*'))
                 if len(event_path) > 0:
                     event_path = event_path[0]
-                    print(event_path)
+                    # print(event_path)
                     if (os.path.exists(event_path)):
                         df = tflog2pandas(event_path)
                         for m in metrics:
@@ -99,37 +107,33 @@ def parse_model_exps(root_path, types, exp_names, metrics=['F1']):
 
 
 if __name__ == "__main__":
+    p = configargparse.ArgParser()
+    p.add('--types',
+          nargs='+',
+          default=['Tweezer', 'Cochlea', 'Slitlamp', 'Brain'])
+    p.add('--ksp-root-path', default='/home/ubelix/lejeune/runs/ksptrack')
+    p.add('--model-root-path', default='/home/ubelix/lejeune/runs/siamese_dec')
+    p.add('--save-path', default='table_results.tex')
+    p.add('--piovrs', default='1.4')
 
-    # get errors of superpixels
-    cfg_sps = Namespace(out_root='/home/ubelix/lejeune/runs/sp_errors',
-                        in_root='/home/ubelix/lejeune/data/medical-labeling',
-                        dset_idx=[
-                            '00', '01', '02', '03', '10', '11', '12', '13',
-                            '20', '21', '22', '23', '30', '31', '32', '33'
-                        ])
-    df_sps = get_df_sp_errors(cfg_sps)
+    cfg = p.parse_args()
 
-    types = ['Tweezer', 'Cochlea', 'Slitlamp', 'Brain']
-    ksp_root_path = pjoin('/home/ubelix/lejeune/runs/ksptrack')
-    model_root_path = pjoin('/home/ubelix/lejeune/runs/siamese_dec')
-    out_path = '/home/laurent/Documents/papers/paper_pu/tables/results_tmp.tex'
-
-    piovrs = '1.6'
-    ur = '0.12'
-
-    exp_names = {'nnpualt': 'pu_piovrs_{}_ph2'.format(piovrs)}
+    exp_names = {
+        'nnpuss': 'pu_piovrs_{}_ph2'.format(cfg.piovrs)
+        # 'nnputrue': 'pu_true'
+    }
 
     order = {
-        'Truth': 'Truth',
-        'ksp/' + exp_names['nnpualt']: 'KSPTrack/nnPU',
-        exp_names['nnpualt']: 'nnPU',
+        # 'ksp/pu_true': 'KSPTrack/nnPUtrue',
+        'ksp/' + exp_names['nnpuss']: 'KSPTrack/nnPUss',
+        exp_names['nnpuss']: 'nnPUss',
         'KSP': 'KSPTrack',
         'mic17': 'EEL',
         'gaze2': 'Gaze2Segment',
         'wtp': 'DL-prior',
     }
 
-    path_18 = pjoin(ksp_root_path, 'plots_results', 'all_self.csv')
+    path_18 = pjoin(cfg.ksp_root_path, 'plots_results', 'all_self.csv')
     df_18 = pd.read_csv(path_18)
     to_drop = np.arange(2, 14)
     df_18.drop(df_18.columns[to_drop], axis=1, inplace=True)
@@ -143,7 +147,7 @@ if __name__ == "__main__":
             'RC std': '_RC'
         })
 
-    df = parse_ksp_exps(ksp_root_path, types, exp_names.values())
+    df = parse_ksp_exps(cfg.ksp_root_path, cfg.types, exp_names.values())
     df_mean = df.groupby(['Types', 'Methods']).mean()
     df_std = df.groupby(['Types', 'Methods']).std().rename(columns={
         'F1': '_F1',
@@ -152,7 +156,7 @@ if __name__ == "__main__":
     })
     df_ksp = pd.concat((df_mean, df_std), axis=1)
 
-    df = parse_model_exps(model_root_path, types, exp_names.values())
+    df = parse_model_exps(cfg.model_root_path, cfg.types, exp_names.values())
     df_mean = df.groupby(['Types', 'Methods']).mean()
     df_std = df.groupby(['Types', 'Methods']).std().rename(columns={
         'F1': '_F1',
@@ -172,7 +176,7 @@ if __name__ == "__main__":
 
     # add bold field
     df_all['bold'] = False
-    for t in types:
+    for t in cfg.types:
         idx = df_all.loc[t]['F1'].values.argmax()
         df_all.loc[t]['bold'].iloc[idx] = True
 
@@ -181,16 +185,9 @@ if __name__ == "__main__":
     std = df_all.groupby(['Methods'])['_F1'].mean()
 
     df_all = df_all.groupby(['Types', 'Methods']).apply(myformat)
-    # df_sps['Methods'] = 'Truth'
-    # df_sps = df_sps.set_index('Methods', append=True).unstack('Methods')
-    df_sps = df_sps.groupby('Types').apply(myformat)
 
     # remove dummy columns
     df_all = df_all.drop(columns=['_F1', '_PR', '_RC', 'bold'])
-
-    df_sps = df_sps.drop(columns=['_F1'])
-    df_sps['Methods'] = 'Truth'
-    df_sps.set_index('Methods', append=True, inplace=True)
 
     df_all = df_all.drop(columns=['PR', 'RC'])
     # df_all = pd.concat((df_all, df_sps)).sort_index()
@@ -198,16 +195,16 @@ if __name__ == "__main__":
     df_all = df_all.reindex(order.values())
 
     # take only F1
-    df_all = df_all[['F1']]
-
     df_all.columns = df_all.columns.droplevel()
+    df_all = df_all[cfg.types]
+
     print(df_all)
 
     caption = """
     Quantitative results on all datasets. We report the F1 scores and standard deviations.
     """
 
-    print('writing table to {}'.format(out_path))
+    print('writing table to {}'.format(cfg.save_path))
     table = df_all.to_latex(
         escape=False,
         column_format='llp{1.8cm}p{1.8cm}p{1.8cm}p{1.8cm}p{1.8cm}',
@@ -216,7 +213,7 @@ if __name__ == "__main__":
         label='tab:results')
 
     # add horiz line below ours
-    with open(out_path, 'w') as tf:
+    with open(cfg.save_path, 'w') as tf:
         for line in table.splitlines():
             if line.startswith('Truth'):
                 line += '\n\hline\n'

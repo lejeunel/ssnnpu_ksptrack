@@ -10,6 +10,8 @@ from ksptrack.cfgs import params
 from skimage import color, io
 from ksptrack.pu.im_utils import colorize
 from PIL import Image, ImageDraw, ImageFont
+import pickle
+import os
 
 if __name__ == "__main__":
     p = params.get_params('../../cfgs')
@@ -17,9 +19,10 @@ if __name__ == "__main__":
     p.add('--root-run-path', required=True)
     p.add('--pu-run-dir', default='siamese_dec')
     p.add('--puksp-run-dir', default='ksptrack')
-    p.add('--dsets', nargs='+', type=str, default=['02', '23', '31'])
-    p.add('--fin', nargs='+', type=int, default=[0, 101, 46])
+    p.add('--dsets', nargs='+', type=str, default=['02', '10', '23', '31'])
+    p.add('--fin', nargs='+', type=int, default=[0, 49, 57, 46])
     p.add('--save-path', default='prevs.png')
+    p.add('--save-path-pk', default='prevs.p')
     cfg = p.parse_args()
 
     cfg.csv_fname = 'video1.csv'
@@ -34,32 +37,43 @@ if __name__ == "__main__":
     cfg.aug_df_path = ''
     cfg.do_all = False
 
-    res_pu = {d: None for d in cfg.dsets}
-    res_ksp = {d: None for d in cfg.dsets}
+    if os.path.exists(cfg.save_path_pk):
+        print('loading ', cfg.save_path_pk)
+        r = pickle.load(open(cfg.save_path_pk, "rb"))
+        res_pu = r['pu']
+        res_ksp = r['ksp']
+    else:
 
-    for fin, dset in zip(cfg.fin, cfg.dsets):
+        res_pu = {d: None for d in cfg.dsets}
+        res_ksp = {d: None for d in cfg.dsets}
 
-        if dset == '10':
-            exp_name = 'pu_piovrs_1.2_ph2'
-        else:
+        for fin, dset in zip(cfg.fin, cfg.dsets):
+
             exp_name = cfg.exp_name
-        in_path = pjoin(cfg.root_in_path, 'Dataset' + dset)
+            in_path = pjoin(cfg.root_in_path, 'Dataset' + dset)
 
-        ksp_im = colorize(
-            io.imread(
-                pjoin(cfg.root_run_path, cfg.puksp_run_dir, 'Dataset' + dset,
-                      exp_name, 'results', 'im_{:04d}.png'.format(fin))))
-        res_ksp[dset] = ksp_im
-        cps = sorted(
-            glob.glob(
-                pjoin(cfg.root_run_path, cfg.pu_run_dir, 'Dataset' + dset,
-                      exp_name, 'cps', '*.pth.tar')))
+            ksp_im = colorize(
+                io.imread(
+                    pjoin(cfg.root_run_path, cfg.puksp_run_dir,
+                          'Dataset' + dset, exp_name, 'results',
+                          'im_{:04d}.png'.format(fin))))
+            res_ksp[dset] = ksp_im
+            cps = sorted(
+                glob.glob(
+                    pjoin(cfg.root_run_path, cfg.pu_run_dir, 'Dataset' + dset,
+                          exp_name, 'cps', '*.pth.tar')))
 
-        cfg.in_path = in_path
-        cfg.model_path = cps[-1]
-        cfg.fin = [fin]
+            cfg.in_path = in_path
+            cfg.model_path = cps[-1]
+            cfg.fin = [fin]
 
-        res_pu[dset] = prev_trans_costs.main(cfg)
+            res_pu[dset] = prev_trans_costs.main(cfg)
+
+        print('saving to ', cfg.save_path_pk)
+        pickle.dump({
+            'pu': res_pu,
+            'ksp': res_ksp
+        }, open(cfg.save_path_pk, "wb"))
 
     n_cols = 4
     fig = plt.figure()
@@ -71,7 +85,7 @@ if __name__ == "__main__":
     # get a font
     fnt = ImageFont.truetype("DejaVuSans.ttf", 60)
 
-    strs = ['', 'nnPU', 'nnPU/thr', 'KSPTrack/nnPU']
+    strs = ['', 'nnPUss', 'nnPUss/thr', 'KSPTrack/nnPUss']
     pos = 0
     for i, d in enumerate(cfg.dsets):
         for j, arr in enumerate([
