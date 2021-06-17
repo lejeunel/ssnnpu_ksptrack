@@ -2,7 +2,7 @@
 import os
 from os.path import join as pjoin
 
-from ksptrack import iterative_ksp
+from ksptrack import ksp_segmentation
 from ksptrack.pu import params, train_obj_pred
 from ksptrack.utils.superpixel_extractor import SuperpixelExtractor
 
@@ -46,4 +46,4 @@ if __name__ == "__main__":
         train_obj_pred.main(cfg)
 
     cfg.model_path = pjoin(cfg.out_path, cfg.exp_name, 'cps')
-    iterative_ksp.main(cfg)
+    ksp_segmentation.main(cfg)
