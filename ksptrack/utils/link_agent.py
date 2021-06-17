@@ -8,8 +8,6 @@ from ksptrack.utils import csv_utils as csv
 import glob
 from skimage.draw import circle
 from skimage import io
-from ksptrack.utils.lfda import myLFDA
-from sklearn.decomposition import PCA
 import warnings
 import torch
 from abc import ABC, abstractmethod
@@ -88,42 +86,3 @@ class LinkAgent(ABC):
         i_min, j_min = csv.coord2Pixel(loc_min['x'], loc_min['y'],
                                        self.shape[1], self.shape[0])
         return self.labels[sp['frame'], i_min, j_min]
-
-    def make_trans_transform(self,
-                             sp_desc,
-                             pm,
-                             threshs,
-                             n_samps,
-                             n_dims,
-                             k,
-                             embedding_type='weighted',
-                             pca=False,
-                             n_comps_pca=3):
-
-        # descs_cat = utls.concat_arr(sp_desc['desc'])
-        descs_cat = np.vstack(sp_desc['desc'].values)
-        if (descs_cat.shape[1] == sp_desc.shape[0]):
-            descs_cat = descs_cat.T
-
-        if (not pca):
-
-            self.trans_transform = myLFDA(n_components=n_dims,
-                                          k=k,
-                                          embedding_type=embedding_type)
-            probas = pm['proba'].values
-            if ((probas < threshs[0]).sum() < n_samps):
-                sorted_probas = np.sort(probas)
-                threshs[0] = sorted_probas[n_samps]
-                warnings.warn('Not enough negatives. Setting thr to {}'.format(
-                    threshs[0]))
-            if ((probas > threshs[1]).sum() < n_samps):
-                sorted_probas = np.sort(probas)[::-1]
-                threshs[1] = sorted_probas[n_samps]
-                warnings.warn('Not enough positives. Setting thr to {}'.format(
-                    threshs[1]))
-            self.trans_transform.fit(descs_cat, pm['proba'].values, threshs,
-                                     n_samps)
-
-        else:
-            self.trans_transform = PCA(n_components=n_comps_pca, whiten=False)
-            self.trans_transform.fit(descs_cat)

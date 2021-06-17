@@ -3,11 +3,10 @@
 import os
 from os.path import join as pjoin
 
-from sklearn.model_selection import ParameterGrid
-
 from ksptrack import iterative_ksp
 from ksptrack.cfgs import params as params_ksp
-from ksptrack.pu import params, train_all, train_bagging
+from ksptrack.pu import params, train_all
+from sklearn.model_selection import ParameterGrid
 
 
 def phase_bool_to_str(ph):
@@ -37,10 +36,6 @@ if __name__ == "__main__":
     p_ksp.add('--out-path')
     p_ksp.add('--in-path')
     p_ksp.add('--model-path', default='')
-    p_ksp.add('--trans-path', default='')
-    p_ksp.add('--use-model-pred', default=False, action='store_true')
-    p_ksp.add('--siam-trans', default='lfda', type=str)
-    p_ksp.add('--coordconv', default=False, action='store_true')
     cfg_ksp = p_ksp.parse_known_args(env_vars=None)[0]
 
     cfg.nnpu_ascent = True
@@ -88,8 +83,6 @@ if __name__ == "__main__":
                 cfg.aug_method = 'none'
                 cfg.pred_init_dir = ''
                 train_all.main(cfg)
-
-                # train_bagging.main(cfg)
 
                 cfg.nnpu_ascent = True
                 cfg.true_prior = False

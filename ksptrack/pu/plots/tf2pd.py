@@ -2,7 +2,6 @@
 
 #!/usr/bin/env python3
 
-import tensorflow as tf
 import glob
 import os
 import pandas as pd

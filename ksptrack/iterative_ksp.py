@@ -14,7 +14,7 @@ from ksptrack.cfgs import params
 from ksptrack.utils import comp_scores
 from ksptrack.utils import my_utils as utls
 from ksptrack.utils import write_frames_results
-from ksptrack.utils.data_manager import DataManager
+from ksptrack.utils.superpixel_extractor import SuperpixelExtractor
 from ksptrack.utils.link_agent_radius import LinkAgentRadius
 
 
@@ -46,17 +46,12 @@ def make_link_agent(cfg):
                                  entrance_radius=cfg.norm_neighbor_in,
                                  sp_labels_fname=cfg.sp_labels_fname,
                                  model_pred_path=cfg.model_path,
-                                 model_trans_path=cfg.trans_path,
-                                 use_coordconv=cfg.coordconv,
                                  cuda=cfg.cuda)
-    link_agent.update_trans_transform()
 
     # compute features
-    path_feats = pjoin(cfg.in_path, cfg.precomp_dir, 'sp_desc_siam.p')
+    path_feats = pjoin(cfg.in_path, cfg.precomp_dir, 'sp_desc.p')
 
     print('computing features to {}'.format(path_feats))
-    # centroids = pd.read_pickle(path_centroids)
-    feats = link_agent.feats
     positions = link_agent.pos
     positive = link_agent.labels_pos
     rows = [{
@@ -65,8 +60,7 @@ def make_link_agent(cfg):
         'x': positions[f][l, 0],
         'y': positions[f][l, 1],
         'positive': positive[f][l],
-        'desc': feats[f][l]
-    } for f in range(len(feats)) for l in range(len(feats[f]))]
+    } for f in range(len(positions)) for l in range(len(positions[f]))]
     print('Saving features to {}'.format(path_feats))
     df = pd.DataFrame(rows)
     df.to_pickle(path_feats)
@@ -77,25 +71,20 @@ def make_link_agent(cfg):
 def main(cfg):
 
     data = dict()
-
-    d = datetime.datetime.now()
     cfg.run_dir = pjoin(cfg.out_path, '{}'.format(cfg.exp_name))
 
     if (os.path.exists(cfg.run_dir)):
         print('run dir {} already exists.'.format(cfg.run_dir))
-        return cfg
+        # return cfg
     else:
         os.makedirs(cfg.run_dir)
 
     # Set logger
-    utls.setup_logging(cfg.run_dir)
-    logger = logging.getLogger('ksp')
-
-    logger.info('-' * 10)
-    logger.info('starting experiment on: {}'.format(cfg.in_path))
-    logger.info('2d locs filename: {}'.format(cfg.csv_fname))
-    logger.info('Output path: {}'.format(cfg.run_dir))
-    logger.info('-' * 10)
+    print('-' * 10)
+    print('starting experiment on: {}'.format(cfg.in_path))
+    print('2d locs filename: {}'.format(cfg.csv_fname))
+    print('Output path: {}'.format(cfg.run_dir))
+    print('-' * 10)
 
     precomp_desc_path = pjoin(cfg.in_path, cfg.precomp_dir)
     if (not os.path.exists(precomp_desc_path)):
@@ -105,29 +94,18 @@ def main(cfg):
         yaml.dump(cfg.__dict__, stream=outfile, default_flow_style=False)
 
     # ---------- Descriptors/superpixel costs
-    dm = DataManager(cfg.in_path, cfg.precomp_dir, feats_mode=cfg.feats_mode)
-    dm.calc_superpix(cfg.slic_compactness, cfg.slic_n_sp)
+    spext = SuperpixelExtractor(cfg.in_path, cfg.precomp_dir,
+                                cfg.slic_compactness, cfg.slic_n_sp)
+    spext.run()
 
     link_agent, desc_df = make_link_agent(cfg)
 
-    logger.info('Building superpixel managers')
-    sps_man = spm.SuperpixelManager(cfg.in_path,
-                                    cfg.precomp_dir,
-                                    link_agent.labels,
-                                    desc_df,
-                                    init_radius=cfg.sp_trans_init_radius,
-                                    hoof_n_bins=cfg.hoof_n_bins)
-
-    if cfg.use_model_pred:
-        logger.info('Using foreground model from model')
-        pm = utls.probas_to_df(link_agent.labels, link_agent.obj_preds)
-    else:
-        logger.info('Using foreground model from bagging model')
-        pm = utls.calc_pm(desc_df, desc_df['positive'], cfg.bag_n_feats,
-                          cfg.bag_t, cfg.bag_max_depth, cfg.bag_max_samples,
-                          cfg.bag_jobs)
-
-    ksp_scores_mat = []
+    print('Building superpixel managers')
+    sps_man = spm.SuperpixelManager(cfg.in_path, cfg.precomp_dir,
+                                    link_agent.labels, desc_df,
+                                    cfg.init_radius)
+    print('Using foreground model from model')
+    pm = utls.probas_to_df(link_agent.labels, link_agent.obj_preds)
 
     g_for = gtrack.GraphTracking(link_agent, sps_man=sps_man)
 
@@ -144,124 +122,47 @@ def main(cfg):
     pos_tls_back = None
 
     dict_ksp = dict()
-    while ((find_new_forward or find_new_backward) and (i < cfg.n_iters_ksp)):
 
-        logger.info("i: " + str(i + 1))
+    # make forward and backward graphs
+    g_back.make_graph(desc_df,
+                      pm,
+                      cfg.pm_thr,
+                      cfg.norm_neighbor,
+                      direction='backward',
+                      labels=link_agent.labels)
+    g_for.make_graph(desc_df,
+                     pm,
+                     cfg.pm_thr,
+                     cfg.norm_neighbor,
+                     direction='forward',
+                     labels=link_agent.labels)
 
-        if ((i > 0) & find_new_forward):
-            g_for.merge_tracklets_temporally(pos_tls_for, pm, desc_df,
-                                             cfg.pm_thr)
+    print("Computing KSP on backward graph.")
+    sps = g_back.run()
+    dict_ksp['backward_sets'] = sps
 
-        if ((i > 0) & find_new_backward):
-            g_back.merge_tracklets_temporally(pos_tls_back, pm, desc_df,
-                                              cfg.pm_thr)
-        # Make backward graph
-        if (find_new_backward):
+    print("Computing KSP on forward graph.")
+    sps = g_for.run()
+    dict_ksp['forward_sets'] = sps
 
-            g_back.makeFullGraph(desc_df,
-                                 pm,
-                                 cfg.pm_thr,
-                                 cfg.hoof_tau_u,
-                                 cfg.norm_neighbor,
-                                 direction='backward',
-                                 labels=link_agent.labels)
-
-            logger.info("Computing KSP on backward graph. (i: {}".format(i +
-                                                                         1))
-            g_back.run()
-            dict_ksp['backward_sets'], pos_tls_back = utls.ksp2sps(
-                g_back.kspSet, g_back.tracklets)
-            dict_ksp['backward_tracklets'] = g_back.tracklets
-            dict_ksp['backward_costs'] = g_back.costs
-
-        # Make forward graph
-        if (find_new_forward):
-
-            g_for.makeFullGraph(desc_df,
-                                pm,
-                                cfg.pm_thr,
-                                cfg.hoof_tau_u,
-                                cfg.norm_neighbor,
-                                direction='forward',
-                                labels=link_agent.labels)
-
-            logger.info("Computing KSP on forward graph. (i: {})".format(i +
-                                                                         1))
-            g_for.run()
-            dict_ksp['forward_sets'], pos_tls_for = utls.ksp2sps(
-                g_for.kspSet, g_for.tracklets)
-            dict_ksp['forward_tracklets'] = g_for.tracklets
-
-        if ((find_new_forward or find_new_backward)):
-
-            ksp_scores_mat = utls.sp_tuples_to_mat(
-                dict_ksp['forward_sets'] + dict_ksp['backward_sets'],
-                link_agent.labels)
-
-            # Update marked superpixels if graph is not "finished"
-            if (find_new_forward):
-                marked_for = [
-                    m for sublist in dict_ksp['forward_sets'] for m in sublist
-                ]
-                pos_sp_for.append(len(marked_for))
-
-                logger.info("""Forward graph. Number of positive sps
-                            of ksp at iteration {}: {}""".format(
-                    i + 1, len(marked_for)))
-                if (i > 0):
-                    if (pos_sp_for[-1] <= pos_sp_for[-2]):
-                        find_new_forward = False
-
-            if (find_new_backward):
-                marked_back = [
-                    m for sublist in dict_ksp['backward_sets'] for m in sublist
-                ]
-                pos_sp_back.append(len(marked_back))
-
-                logger.info("""Backward graph. Number of positive sps of
-                                ksp at iteration {}: {} """.format(
-                    i + 1, len(marked_back)))
-                if (i > 0):
-                    if (pos_sp_back[-1] <= pos_sp_back[-2]):
-                        find_new_backward = False
-
-            list_ksp.append(dict_ksp)
-
-            n_pix_ksp = np.sum((ksp_scores_mat > 0).ravel())
-            logger.info("""Number hit pixels of ksp at iteration {}:
-                        {}""".format(i + 1, n_pix_ksp))
-
-            fileOut = pjoin(cfg.run_dir, 'pm_scores_iter_{}.npz'.format(i))
-            data = dict()
-            data['ksp_scores_mat'] = ksp_scores_mat
-            np.savez(fileOut, **data)
-
-            # Recompute PM values
-            if (i + 1 < cfg.n_iters_ksp):
-                desc_df = merge_positives(desc_df, marked_for, marked_back)
-                pm = utls.calc_pm(desc_df, desc_df['positive'],
-                                  cfg.bag_n_feats, cfg.bag_t,
-                                  cfg.bag_max_depth, cfg.bag_max_samples,
-                                  cfg.bag_jobs)
-
-            i += 1
+    all_sps = list(set(dict_ksp['forward_sets'] + dict_ksp['backward_sets']))
+    print('got ', len(all_sps), ' unique superpixels')
 
     # Saving
     fileOut = pjoin(cfg.run_dir, 'results.npz')
     data = dict()
-    data['n_iters_ksp'] = cfg.n_iters_ksp
-    data['ksp_scores_mat'] = ksp_scores_mat
+    data['ksp_scores_mat'] = utls.get_binary_array(link_agent.labels,
+                                                   np.array(all_sps))
     data['pm_scores_mat'] = utls.get_pm_array(link_agent.labels, pm)
     data['paths_back'] = dict_ksp['backward_sets']
     data['paths_for'] = dict_ksp['forward_sets']
-    logger.info("Saving results and cfg to: " + fileOut)
+    data['all_sps'] = all_sps
+    print("Saving results and cfg to: " + fileOut)
     np.savez(fileOut, **data)
 
-    logger.info("done")
+    print('Finished experiment: ' + cfg.run_dir)
 
-    logger.info('Finished experiment: ' + cfg.run_dir)
-
-    write_frames_results.main(cfg, cfg.run_dir, logger)
+    write_frames_results.main(cfg, cfg.run_dir)
     comp_scores.main(cfg)
 
     return cfg

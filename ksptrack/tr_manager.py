@@ -13,7 +13,6 @@ class TrackletManager:
                  tls,
                  n_frames,
                  mode='radius',
-                 hoof_tau_u=-1,
                  rel_radius=0.05):
 
         self.n_frames = 0
@@ -25,7 +24,6 @@ class TrackletManager:
         self.sps_man = sps_man
         self.mode = mode
         self.rel_radius = rel_radius
-        self.hoof_tau_u = hoof_tau_u
 
     def make_dict(self, tls, n_frames):
 
@@ -35,7 +33,7 @@ class TrackletManager:
 
         frames = np.arange(0, n_frames)
 
-        self.logger.info('Building input frames dictionary')
+        print('Building input frames dictionary')
 
         bar = tqdm.tqdm(total=n_frames)
         for i in frames:
@@ -47,7 +45,7 @@ class TrackletManager:
             bar.update(1)
         bar.close()
 
-        self.logger.info('Building output frames dictionary')
+        print('Building output frames dictionary')
         bar = tqdm.tqdm(total=n_frames)
         for i in frames:
             tls_o = [
@@ -61,11 +59,7 @@ class TrackletManager:
         self.dict_in = dict_in
         self.dict_out = dict_out
 
-    def get_linkables(self,
-                      t_arg,
-                      rel_radius,
-                      hoof_tau_u,
-                      direction='forward'):
+    def get_linkables(self, t_arg, rel_radius, direction='forward'):
         """
         t_arg: Tracklet for which we want linkable tracklets
         mode:
@@ -75,8 +69,8 @@ class TrackletManager:
         t_linkable = []
 
         # Get superpixels candidates
-        sps = self.sps_man.graph[(t_arg.get_out_frame(),
-                                  t_arg.get_out_label())]
+        sps = dict(self.sps_man.graph[(t_arg.get_out_frame(),
+                                       t_arg.get_out_label())])
         if (direction == 'forward'):
             keys = [k for k in sps.keys() if (k[0] > t_arg.get_out_frame())]
         else:
@@ -93,27 +87,19 @@ class TrackletManager:
                 for k, v in sps.items() if (sps[k]['dist'] < rel_radius)
             }
 
-        sps = {
-            k: v
-            for k, v in sps.items() if (sps[k][direction] > hoof_tau_u)
-        }
-
-        # check hoof / radius / overlap conditions
-        labels_filt = []
-        for s, val in sps.items():
-            if (direction in val.keys()):
-                labels_filt.append(s[1])
+        # check radius / overlap conditions
+        labels = [k[1] for k in sps.keys()]
 
         # Get tracklet
         if (direction == 'forward'):
             t_candidates = self.dict_in[t_arg.get_head_frame(self.n_frames)]
             t_linkable = [
-                t for t in t_candidates if (t.get_in_label() in labels_filt)
+                t for t in t_candidates if (t.get_in_label() in labels)
             ]
         else:
             t_candidates = self.dict_in[t_arg.get_head_frame(self.n_frames)]
             t_linkable = [
-                t for t in t_candidates if (t.get_in_label() in labels_filt)
+                t for t in t_candidates if (t.get_in_label() in labels)
             ]
 
         return t_linkable

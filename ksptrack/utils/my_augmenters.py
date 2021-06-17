@@ -2,7 +2,6 @@ from imgaug import augmenters as iaa
 import numpy as np
 from imgaug.augmenters import Augmenter
 import matplotlib.pyplot as plt
-np.random.bit_generator = np.random._bit_generator
 
 
 class Normalize(Augmenter):
@@ -12,8 +11,9 @@ class Normalize(Augmenter):
                  name=None,
                  deterministic=False,
                  random_state=None):
-        super(Normalize, self).__init__(
-            name=name, deterministic=deterministic, random_state=random_state)
+        super(Normalize, self).__init__(name=name,
+                                        deterministic=deterministic,
+                                        random_state=random_state)
         self.mean = mean
         self.std = std
         self.n_chans = len(self.mean)
@@ -25,9 +25,9 @@ class Normalize(Augmenter):
                 images[i] = [(images[i][..., c] - self.mean[c] * 255) /
                              (self.std[c] * 255) for c in range(self.n_chans)]
             else:
-                images[i] = [(images[i][..., c] - self.mean[c]) /
-                             self.std[c] for c in range(self.n_chans)]
-                
+                images[i] = [(images[i][..., c] - self.mean[c]) / self.std[c]
+                             for c in range(self.n_chans)]
+
             images[i] = np.moveaxis(np.array(images[i]), 0, -1)
             images[i] = images[i].astype(float)
         return images
@@ -54,5 +54,4 @@ def rescale_images(images, random_state, parents, hooks):
     return result
 
 
-rescale_augmenter = iaa.Lambda(
-    func_images=rescale_images)
+rescale_augmenter = iaa.Lambda(func_images=rescale_images)

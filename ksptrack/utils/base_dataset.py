@@ -30,35 +30,6 @@ def base_apply_augs(sample, aug):
     return sample
 
 
-def batch_equalize_hist_calc(image, nbins=256, mask=None):
-    """Return histogram equalization parameters for a batch of images
-    Parameters
-    ----------
-    images : list
-        List of arrays
-    nbins : int, optional
-        Number of bins for image histogram. Note: this argument is
-        ignored for integer images, for which each integer is its own
-        bin.
-    mask: ndarray of bools or 0s and 1s, optional
-        Array of same shape as `image`. Only points at which mask == True
-        are used for the equalization, which is applied to the whole image.
-    Returns
-    -------
-    out : float array
-        Image array after histogram equalization.
-    Notes
-    -----
-    This function is adapted from [1]_ with the author's permission.
-    References
-    ----------
-    .. [1] http://www.janeriksolem.net/histogram-equalization-with-python-and.html
-    .. [2] https://en.wikipedia.org/wiki/Histogram_equalization
-    """
-    cdf, bin_centers = cumulative_distribution(image, nbins)
-    return cdf, bin_centers
-
-
 def make_normalizer(arg, img_iter):
     normalizer = iaa.Noop()
 
@@ -132,11 +103,9 @@ class BaseDataset(data.Dataset):
                  augmentations=None,
                  normalization=iaa.Noop(),
                  resize_shape=None,
-                 got_labels=True,
                  sp_labels_fname='sp_labels.npy'):
 
         self.root_path = root_path
-        self.got_labels = got_labels
 
         exts = ['*.png', '*.jpg', '*.jpeg']
         img_paths = []
@@ -150,10 +119,13 @@ class BaseDataset(data.Dataset):
         self.truth_paths = truth_paths
         self.img_paths = img_paths
 
-        if (self.got_labels):
-            self.labels = np.load(pjoin(root_path, 'precomp_desc',
-                                        sp_labels_fname),
-                                  mmap_mode='r')
+        label_path = pjoin(root_path, 'precomp_desc', sp_labels_fname)
+        if not os.path.exists(label_path):
+            print('superpixels not found, setting labels to default')
+            self.labels = np.zeros(
+                (len(self.img_paths), 1, 1)).astype(np.uint16)
+        else:
+            self.labels = np.load(label_path, mmap_mode='r')
         self._normalization = make_normalizer(normalization,
                                               map(lambda s: s['image'], self))
 
@@ -192,8 +164,7 @@ class BaseDataset(data.Dataset):
         else:
             truth = np.zeros(im.shape[:2]).astype(np.uint8)
 
-        if (self.got_labels):
-            labels = self.labels[idx].astype(np.int16)
+        labels = self.labels[idx].astype(np.int16)
 
         aug = iaa.Sequential(
             [self._reshaper, self._augmentations, self._normalization])

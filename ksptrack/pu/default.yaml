@@ -9,21 +9,13 @@ epochs-dist: 80
 
 # generate previews every x epochs
 prev-period: 10
-tgt-update-period: 999
-cc-update-period: 10
 prior-period: 1
 cp-period: 5
-unlabeled-period: 10
-unlabeled-ratio: 0.15
 nnpu-ascent: False
-aug-in-neg: False
-aug-reset: False
 pred-init-dir: ''
 pxls: False
 do-scores: True
 
-aug-method: 'set'
-neg-mode: single
 loss-obj-pred: 'pu'
 
 phase: 0
@@ -63,8 +55,6 @@ rho-pi-err: 999
 var-thr: 0.007
 var-epc: 10
 min-var-epc: 30
-loc-prior: False
-n-classes-otsu: 2
 beta: 0
 
 # batch
@@ -79,6 +69,20 @@ n-ims-test: 5
 in-shape: 512
 n-frames-epoch: 100
 
+pi-filt-size: 0.05
+pi-filt: False
+true-prior: False
+
+# kalman filter
+trans-fac: 0.5
+obs-fac: 50
+xi-fac-start: 2e-3
+xi-fac-end: 4e-2
+
+# superpixels
+slic-compactness: 20.
+slic-n-sp: 1200
+
 # augmentation
 aug-noise: 0.06
 aug-blur-color-low: 100
@@ -88,26 +92,15 @@ aug-blur-space-high: 150
 aug-gamma-low: 1.0
 aug-gamma-high: 2.0
 aug-flip-proba: 0.5
-aug-some: 2
 aug-scale: 0.3
-aug-rotate: 10.
 aug-shear: 20.
 
-reduc-method: 'pca'
-ml-up-thr: 0.5
-ml-down-thr: 0.5
-bag-t: 600
-bag-n-feats : 0.1
-bag-max-depth : 50
-
-pi-filt-size: 0.05
-pi-filt: False
-true-prior: False
-
-coordconv: False
-
-# kalman filter
-trans-fac: 0.5
-obs-fac: 50
-xi-fac-start: 2e-3
-xi-fac-end: 4e-2
+# tracking
+locs-dir: gaze-measurements
+sp-labels-fname: sp_labels.npy
+precomp-dir: precomp_desc
+csv-fname: video1.csv
+norm-neighbor-in: 0.05
+init-radius: 0.05
+norm-neighbor: 0
+pm-thr: 0.5

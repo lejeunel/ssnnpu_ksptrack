@@ -12,24 +12,20 @@ import configargparse
 
 
 # add bold tags
-def myformat(r):
-    if 'bold' in r:
-        if (r['bold'].iat[0]):
-            r['F1'] = '$\\bm{' + r['F1'].apply(
-                str) + '} \pm ' + r['_F1'].apply(str) + '$'
+def myformat(r, cols=['F1', 'PR', 'RC']):
+    for c in cols:
+        str_ = ''
+        if r['bold'].any():
+            str_ += '$\\bm{' + r[c].map('{:.2f}'.format) + '}'
         else:
-            r['F1'] = '$' + r['F1'].apply(str) + ' \pm ' + r['_F1'].apply(
-                str) + '$'
-    else:
-        r['F1'] = '$' + r['F1'].apply(str) + ' \pm ' + r['_F1'].apply(
-            str) + '$'
+            str_ += '$' + r[c].map('{:.2f}'.format)
 
-    if 'PR' in r:
-        r['PR'] = '$' + r['PR'].apply(str) + ' \pm ' + r['_PR'].apply(
-            str) + '$'
-    if 'RC' in r:
-        r['RC'] = '$' + r['RC'].apply(str) + ' \pm ' + r['_RC'].apply(
-            str) + '$'
+        if not np.isnan(r['_' + c]).any():
+            str_ += '\pm ' + r['_' + c].map('{:.2f}'.format) + '$'
+        else:
+            str_ += '$'
+
+        r[c] = str_
 
     return r
 
@@ -125,12 +121,13 @@ if __name__ == "__main__":
 
     order = {
         # 'ksp/pu_true': 'KSPTrack/nnPUtrue',
-        'ksp/' + exp_names['nnpuss']: 'KSPTrack/nnPUss',
-        exp_names['nnpuss']: 'nnPUss',
+        'Max. SP': 'Max. SP',
+        'ksp/' + exp_names['nnpuss']: 'SSnnPU/KSPTrack',
+        exp_names['nnpuss']: 'SSnnPU',
         'KSP': 'KSPTrack',
         'mic17': 'EEL',
         'gaze2': 'Gaze2Segment',
-        'wtp': 'DL-prior',
+        'wtp': 'DL-prior'
     }
 
     path_18 = pjoin(cfg.ksp_root_path, 'plots_results', 'all_self.csv')
@@ -174,29 +171,62 @@ if __name__ == "__main__":
     # rename
     df_all = df_all.rename(index=order)
 
-    # add bold field
+    df_mean_all = df_all.groupby(['Methods']).mean()
+    df_mean_all = pd.concat([df_mean_all], keys=['All'], names=['Types'])
+    df_all = pd.concat((df_mean_all, df_all), axis=0, levels=1).sort_index(0)
+
+    # add superpixel errors
+    cfg.dset_idx = [str(i) + str(j) for i in range(4) for j in range(4)]
+    cfg.out_root = pjoin(os.path.split(cfg.model_root_path)[0], 'sp_errors')
+    df_sps = get_df_sp_errors(cfg)
+    idx = pd.MultiIndex.from_tuples([(t, 'Max. SP') for t in cfg.types],
+                                    names=['Types', 'Methods'])
+    df_sps.set_index(idx, inplace=True)
+    df_sps_all = pd.concat([df_sps.mean(level=['Methods'])],
+                           keys=['All'],
+                           names=['Types'])
+    df_sps = pd.concat((df_sps, df_sps_all))
+
+    df_all = pd.concat((df_sps, df_all), axis=0, levels=1).sort_index(0)
+
+    df_all.loc['All', '_F1'] = np.nan
+
+    # add bold field F1
     df_all['bold'] = False
-    for t in cfg.types:
-        idx = df_all.loc[t]['F1'].values.argmax()
+    for t in df_all.index.get_level_values('Types').unique():
+        idx = df_all.loc[t]['F1'].values.argsort()[-2]
         df_all.loc[t]['bold'].iloc[idx] = True
 
-    # compute mean over all types
-    means = df_all.groupby(['Methods'])['F1'].mean()
-    std = df_all.groupby(['Methods'])['_F1'].mean()
+    # add "delta" wrt best method
+    df_all_delta = df_all.loc['All'].copy()
+    df_all_delta['F1'] = np.nan
 
+    df_all_delta['F1'] = df_all.loc['All', 'F1'] - df_all.loc[
+        ('All', 'Max. SP'), 'F1']
+    df_all_delta = pd.concat([df_all_delta],
+                             names=['Types'],
+                             keys=['$\Delta$'])
+
+    # add bold field on Delta
+    df_all_delta['bold'] = False
+    idx = df_all_delta['F1'].values.argsort()[-2]
+    df_all_delta['bold'].iloc[idx] = True
+
+    df_all = pd.concat((df_all, df_all_delta))
+
+    df_all = df_all.round(decimals=2)
     df_all = df_all.groupby(['Types', 'Methods']).apply(myformat)
 
     # remove dummy columns
     df_all = df_all.drop(columns=['_F1', '_PR', '_RC', 'bold'])
 
     df_all = df_all.drop(columns=['PR', 'RC'])
-    # df_all = pd.concat((df_all, df_sps)).sort_index()
     df_all = df_all.reset_index().pivot('Methods', 'Types')
     df_all = df_all.reindex(order.values())
 
-    # take only F1
     df_all.columns = df_all.columns.droplevel()
-    df_all = df_all[cfg.types]
+    df_all.loc['Max. SP', '$\Delta$'] = '-'
+    df_all = df_all[cfg.types + ['All', '$\Delta$']]
 
     print(df_all)
 
@@ -215,9 +245,9 @@ if __name__ == "__main__":
     # add horiz line below ours
     with open(cfg.save_path, 'w') as tf:
         for line in table.splitlines():
-            if line.startswith('Truth'):
+            if line.startswith('Max. SP'):
                 line += '\n\hline\n'
-            if line.startswith('nnPU'):
+            if line.startswith('SSnnPU') and ('KSPTrack' not in line):
                 line += '\n\hdashline'
             elif line.startswith('\\begin{table}'):
                 line = '\\begin{table*}[t]'

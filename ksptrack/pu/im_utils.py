@@ -73,8 +73,6 @@ def get_positions_labels(labels):
 def get_features(model, dataloader, device, loc_prior=False):
     # form initial cluster centres
     labels_pos_mask = []
-    features = []
-    features_bagger = []
     outputs = []
     outputs_unpooled = []
     truths = []
@@ -101,6 +99,7 @@ def get_features(model, dataloader, device, loc_prior=False):
                          dim=1)
         pos_ = pos_.detach().cpu().numpy()
         positions.append(pos_)
+
         pos_labels = pd.concat([
             data['annotations'][data['annotations']['frame'] == f_]['label']
             for f_ in f
@@ -117,7 +116,6 @@ def get_features(model, dataloader, device, loc_prior=False):
             to_add[np.array(idx_clicked).flatten()] = True
         labels_pos_mask.append(to_add)
 
-        f = sp_pool(res['feats'], data['labels'])
         out = sp_pool(res['output'].sigmoid(), data['labels'])
         out_unpooled = res['output'].sigmoid()
         truth = sp_pool(data['label/segmentation'], data['labels'])
@@ -127,26 +125,16 @@ def get_features(model, dataloader, device, loc_prior=False):
         upsamp = nn.UpsamplingBilinear2d(data['labels'].size()[-2:])
         coords = make_coord_map(1, data['labels'].shape[3],
                                 data['labels'].shape[2]).to(device)
-        prior = upsamp(data['loc_prior'])
-        f_bag = upsamp(res['feats'])
-        # f_bag = torch.cat((f_bag, coords, prior), dim=1)
-        f_bag = torch.cat((f_bag, coords), dim=1)
-        f_bag = sp_pool(f_bag, data['labels'])
 
         truths_unpooled.append(truth_unpooled.detach().cpu().numpy().squeeze())
         truths.append(truth.detach().cpu().numpy().squeeze())
-        features.append(f.detach().cpu().numpy().squeeze())
-        features_bagger.append(f_bag.detach().cpu().numpy().squeeze())
         outputs.append(out.detach().cpu().numpy().squeeze())
         outputs_unpooled.append(out_unpooled.detach().cpu().numpy().squeeze())
         pbar.set_description('[fwd pass]')
         pbar.update(1)
     pbar.close()
 
-    res = [features, labels_pos_mask]
     res = {
-        'feats': features,
-        'feats_bag': features_bagger,
         'outs': outputs,
         'outs_unpooled': outputs_unpooled,
         'labels_pos_mask': labels_pos_mask,

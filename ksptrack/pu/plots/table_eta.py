@@ -36,7 +36,7 @@ if __name__ == "__main__":
     p = configargparse.ArgParser()
     p.add('--types',
           nargs='+',
-          default=['Tweezer', 'Slitlamp', 'Brain', 'Cochlea'])
+          default=['Tweezer', 'Cochlea', 'Slitlamp', 'Brain'])
     p.add('--root-path', default='/home/ubelix/lejeune/runs/ksptrack')
     p.add('--save-path', default='table_eta.tex')
 
@@ -49,9 +49,9 @@ if __name__ == "__main__":
     }
 
     order = {
-        'nnputrue': 'KSPTrack/nnPUtrue',
-        'nnpuss': 'KSPTrack/nnPUss',
-        'nnpuconst': 'KSPTrack/nnPUconst',
+        'nnputrue': 'nnPUtrue+KSPTrack',
+        'nnpuss': 'nnPUss+KSPTrack',
+        'nnpuconst': 'nnPUconst+KSPTrack',
     }
 
     eta = np.round(np.linspace(0.8, 1.8, 6), decimals=1)
@@ -99,21 +99,16 @@ if __name__ == "__main__":
     df_all = pd.concat((df_eta, df_true)).sort_index()
     df_all = df_all.round(decimals=2)
 
-    # add bold on ss and const
-    # df_all['bold'] = False
-    # for t in types:
-    #     df_ = df_all.loc[t].loc[slice('KSPTrack/nnPUss', 'KSPTrack/nnPUconst')]
-    #     idx = df_['F1'].values.argmax()
-    #     df_.iloc[idx]['bold'] = True
-
+    df_all['bold'] = False
     df_all = df_all.groupby(['Types', 'Methods']).apply(myformat)
-    df_all = df_all.drop(columns=['_F1', '_PR', '_RC'])
+    df_all = df_all.drop(columns=['_F1', '_PR', '_RC', 'bold'])
     names = list(df_all.index.names)
     names[-1] = '$\eta$'
     df_all.index.set_names(names, inplace=True)
+    df_all = df_all.reindex(cfg.types, level='Types')
 
     caption = """
-    Quantitative results on all datasets for different prior levels. We report the F1 score, precision (PR) and recall(RC) and standard deviations.
+    Quantitative results on all datasets for different prior levels. We report the F1 score, precision (PR), recall(RC) and standard deviations.
     """
 
     print('writing table to {}'.format(cfg.save_path))

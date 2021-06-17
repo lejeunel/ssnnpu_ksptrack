@@ -1,21 +1,16 @@
-from ksptrack.utils.base_dataset import BaseDataset, make_normalizer, base_apply_augs
-from ksptrack.utils.kps_label import KeypointsOnLabelMap
-from torch.utils.data import DataLoader, Dataset
-from os.path import join as pjoin
+import math
 import os
-import pandas as pd
-import numpy as np
+from os.path import join as pjoin
+
 import imgaug as ia
-from torch.utils import data
+import numpy as np
+import pandas as pd
 import torch
 from imgaug import augmenters as iaa
-import matplotlib.pyplot as plt
-from skimage.draw import circle
-from skimage import segmentation, draw
-from scipy import ndimage as nd
-import networkx as nx
-import imgaug as ia
-import math
+from ksptrack.utils.base_dataset import (BaseDataset, base_apply_augs,
+                                         make_normalizer)
+from skimage import draw, segmentation
+from torch.utils.data import DataLoader
 
 
 def relabel(labels):

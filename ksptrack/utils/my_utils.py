@@ -38,44 +38,6 @@ def probas_to_df(labels, probas):
     return probas
 
 
-def calc_pm(desc_df, pos_sps, n_feats, T, max_depth, max_samples, n_jobs):
-    """
-    Main function that computes transductive learning model (bagging)
-    Inputs:
-    """
-
-    print('Training bagging model with {} trees'.format(T))
-
-    feats = np.vstack(desc_df['desc'].to_numpy())
-    frame_label_arr = np.stack((desc_df['frame'], desc_df['label'])).T
-    if (pos_sps.dtype != bool):
-        pos_idxs = [
-            np.where((frame_label_arr[:, 0] == f)
-                     & (frame_label_arr[:, 1] == l))[0] for f, l in pos_sps
-        ]
-        pos_idxs = np.array(pos_idxs).flatten()
-    else:
-        pos_idxs = pos_sps
-    class_labels = np.zeros(feats.shape[0]).astype(bool)
-    class_labels[pos_idxs] = True
-
-    probas = bag.calc_bagging(feats,
-                              class_labels,
-                              T,
-                              max_depth,
-                              n_feats,
-                              bag_max_samples=max_samples,
-                              n_jobs=n_jobs)
-
-    pm_df = pd.DataFrame({
-        'frame': desc_df['frame'],
-        'label': desc_df['label'],
-        'proba': probas
-    })
-
-    return pm_df
-
-
 def get_pm_array(labels, probas):
     """ Returns array same size as labels with probabilities of bagging model
     """
@@ -108,31 +70,21 @@ def get_pm_array(labels, probas):
     return scores
 
 
-def check_thrs(threshs, y, n_samp):
-    # threshs has to be [low, high]
-    if (threshs[0] > threshs[1]):
-        threshs = threshs[::-1]
+def get_binary_array(labels, sps):
+    """ Returns boolean array same size as labels with positive superpixels set to 1
+    """
 
-    recompute_thrs = False
-    if ((y < threshs[0]).sum() < n_samp):
-        # sorted_probas = np.sort(y)
-        # threshs[0] = sorted_probas[n_samp]
-        warnings.warn('Not enough negatives! ')
-        recompute_thrs = True
-    if ((y > threshs[1]).sum() < n_samp):
-        # sorted_probas = np.sort(y)[::-1]
-        # threshs[1] = sorted_probas[n_samp]
-        warnings.warn('Not enough positives!')
-        recompute_thrs = True
+    scores = np.zeros_like(labels).astype(bool)
+    frames = np.arange(scores.shape[0])
 
-    if (recompute_thrs):
-        dthresh = threshs[1] - threshs[0]
-        sorted_probas = np.sort(y)[::-1]
-        threshs[1] = sorted_probas[n_samp]
-        threshs[0] = sorted_probas[::-1][n_samp]
-        warnings.warn('changed thresholds to {}'.format(threshs))
+    bar = tqdm.tqdm(total=len(frames))
+    for f in frames:
+        l = np.unique(sps[sps[:, 0] == f][:, 1])
+        scores[f] = np.sum([labels[f] == l_ for l_ in l], axis=0)
+        bar.update(1)
+    bar.close()
 
-    return threshs
+    return scores
 
 
 def sample_features(X, y, threshs, n_samp, check_thr=True, n_bins=None):
@@ -515,8 +467,8 @@ def get_scores_from_sps(sps_arr, labels, probas=None):
     with progressbar.ProgressBar(maxval=sps_arr.shape[0]) as bar:
         for i in range(sps_arr.shape[0]):
             bar.update(i)
-            scores[..., sps_arr[i, 0]] += (
-                labels[:, :, sps_arr[i, 0]] == sps_arr[i, 1]) * probas[i]
+            scores[..., sps_arr[i, 0]] += (labels[:, :, sps_arr[i, 0]]
+                                           == sps_arr[i, 1]) * probas[i]
 
     return scores
 
