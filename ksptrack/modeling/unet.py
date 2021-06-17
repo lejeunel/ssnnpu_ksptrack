@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from ksptrack.pu.modeling.coordconv import CoordConv2d
+from ksptrack.modeling.coordconv import CoordConv2d
 
 
 @torch.no_grad()

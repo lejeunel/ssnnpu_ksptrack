@@ -10,7 +10,8 @@ RUN apt-get update && \
     apt-get install -y build-essential curl git cmake python3-pip python3-tk graphviz sudo &&\
     rm -rf /var/lib/apt/lists/*
 
-#Install pyksp
-RUN cd /home && git clone --recurse-submodules https://github.com/lejeunel/pyksp.git \
-  && cd pyksp \
+#Install ksptrack
+RUN cd /home && git clone https://github.com/lejeunel/ksptrack.git \
+  && cd ksptrack \
+  && sudo pip install -r requirements.txt \
   && sudo pip install .

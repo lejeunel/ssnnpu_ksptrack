@@ -1,14 +1,14 @@
-import numpy as np
-from skimage.draw import disk
-from ksptrack.utils.link_agent import LinkAgent
-from ksptrack.utils import my_utils as utls
-from ksptrack.pu.modeling.unet import UNet
-import torch
-from ksptrack.utils.loc_prior_dataset import LocPriorDataset
-from torch.utils.data import DataLoader
-from ksptrack.pu.im_utils import get_features
 from glob import glob
 from os.path import join as pjoin
+
+import numpy as np
+import torch
+from ksptrack.pu.im_utils import get_features
+from ksptrack.modeling.unet import UNet
+from ksptrack.utils.link_agent import LinkAgent
+from ksptrack.utils.loc_prior_dataset import LocPriorDataset
+from skimage.draw import disk
+from torch.utils.data import DataLoader
 
 
 class LinkAgentRadius(LinkAgent):

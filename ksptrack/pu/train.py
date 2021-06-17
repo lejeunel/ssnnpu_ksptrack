@@ -2,16 +2,16 @@
 import os
 from os.path import join as pjoin
 
-from ksptrack import ksp_segmentation
-from ksptrack.pu import params, train_obj_pred
+from ksptrack.tracking import ksp_segmentation
+from ksptrack.pu import train_obj_pred
+from ksptrack import params
 from ksptrack.utils.superpixel_extractor import SuperpixelExtractor
 
 if __name__ == "__main__":
 
-    p = params.get_params()
+    p = params.get_params('..')
     p.add('--out-path', required=True)
     p.add('--in-path', required=True)
-    p.add('--exp-name', required=True)
     cfg = p.parse_args()
 
     spext = SuperpixelExtractor(cfg.in_path,

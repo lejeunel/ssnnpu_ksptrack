@@ -8,9 +8,9 @@ import pandas as pd
 import torch
 import yaml
 
-import ksptrack.graph_tracking as gtrack
+import ksptrack.tracking.graph_tracking as gtrack
 import ksptrack.utils.sp_manager as spm
-from ksptrack.cfgs import params
+from ksptrack import params
 from ksptrack.utils import comp_scores
 from ksptrack.utils import my_utils as utls
 from ksptrack.utils import write_frames_results

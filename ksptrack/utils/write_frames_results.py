@@ -1,15 +1,10 @@
-from sklearn.metrics import (f1_score, roc_curve, auc, precision_recall_curve)
-import glob
-import sys
-import os
-import numpy as np
-import matplotlib.pyplot as plt
-from skimage import (color, segmentation, io)
 import logging
-from ksptrack.utils import my_utils as utls
-from ksptrack.cfgs import params
-from ksptrack.tr import Tracklet
+import os
+
+import numpy as np
 import tqdm
+from ksptrack import params
+from skimage import io
 
 
 def main(cfg, out_path, logger=None):

@@ -1,8 +1,8 @@
 import tqdm
 import networkx as nx
 import numpy as np
-from ksptrack import tr
-from ksptrack import tr_manager as trm
+from ksptrack.tracking import tr
+from ksptrack.tracking import tr_manager as trm
 import logging
 import pickle as pk
 import pyksp

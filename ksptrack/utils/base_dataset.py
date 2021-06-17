@@ -1,15 +1,16 @@
-import os
-import numpy as np
-from skimage import io
-from skimage.exposure import cumulative_distribution
-import imgaug as ia
-from imgaug import augmenters as iaa
-from os.path import join as pjoin
 import glob
-from torch.utils import data
+import os
+from os.path import join as pjoin
+
+import imgaug as ia
+import numpy as np
 import torch
-from ksptrack.models.my_augmenters import Rescale, Normalize, HistEqualize, ContrastStretching, AdaptHistEqualize
-from ksptrack.models.my_augmenters import Normalize, rescale_augmenter
+from imgaug import augmenters as iaa
+from ksptrack.utils.my_augmenters import (AdaptHistEqualize,
+                                          ContrastStretching, Normalize,
+                                          Rescale, rescale_augmenter)
+from skimage import io
+from torch.utils import data
 
 
 def base_apply_augs(sample, aug):

@@ -1,13 +1,8 @@
 scipy
-sharedmem
-progressbar2
 pandas
-munch
-ruamel.yaml
-cvxopt
-torch-gpu
+torch
 torchvision
-networkx==1.10
+networkx
 matplotlib
 numpy
 PyYAML
@@ -16,5 +11,6 @@ scikit-learn
 pytest
 configargparse
 seaborn
-git+https://github.com/LucaMarconato/superpixPool#egg=suppixpool_CUDA&subdirectory=pytorch_superpixpool
+git+https://github.com/lejeunel/superpixPool#egg=superpixPool
+git+https://github.com/lejeunel/pyksp#egg=pyksp
 filterpy
