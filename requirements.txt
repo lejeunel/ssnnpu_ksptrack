@@ -1,16 +1,15 @@
-scipy
-pandas
-torch
-torchvision
-networkx
-matplotlib
-numpy
-PyYAML
-scikit-image
-scikit-learn
-pytest
-configargparse
-seaborn
-git+https://github.com/lejeunel/superpixPool#egg=superpixPool
-git+https://github.com/lejeunel/pyksp#egg=pyksp
-filterpy
+scipy>=1.6
+pandas>=1.2
+torch>=1.8
+torchvision>=0.9
+networkx>=2.5
+matplotlib>=3.4
+numpy>=1.20
+PyYAML>=5.4
+scikit-image>=0.18
+scikit-learn>=0.24
+configargparse>=1.4
+seaborn>=0.11
+filterpy>=1.4
+superpixPool @ git+git://github.com/lejeunel/superpixPool
+pyksp @ git+git://github.com/lejeunel/pyksp
