@@ -1,24 +1,15 @@
-import scipy
 import os
-import pandas as pd
+
 import numpy as np
-import matplotlib.pyplot as plt
-import superPixels as spix
-import pickle as pk
-import my_utils as utls
+import pandas as pd
 import progressbar
-import gazeCsv as gaze
-from skimage import (color, io, segmentation)
-from sklearn import (mixture, metrics, preprocessing, decomposition)
-from scipy import (ndimage,io)
-import glob, itertools
-import bagging as bag
-import selective_search
-import features
-import shutil as sh
+from scipy import io
+from skimage import io
+
+import my_utils as utls
 
 
-def labels_to_ml(labels,path,fname='sp_labels_ml.mat'):
+def labels_to_ml(labels, path, fname='sp_labels_ml.mat'):
     #Relabel: labels, centroids_loc, seen_feats, sp_entr
     print('Relabeling labels')
     f_out = os.path.join(path,fname)

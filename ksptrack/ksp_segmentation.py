@@ -9,7 +9,7 @@ import torch
 import yaml
 
 import ksptrack.graph_tracking as gtrack
-import ksptrack.sp_manager as spm
+import ksptrack.utils.sp_manager as spm
 from ksptrack.cfgs import params
 from ksptrack.utils import comp_scores
 from ksptrack.utils import my_utils as utls

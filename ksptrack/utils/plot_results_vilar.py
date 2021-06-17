@@ -1,17 +1,19 @@
-from sklearn.metrics import (f1_score, roc_curve, auc, precision_recall_curve)
-import progressbar
-import sys
+import logging
 import os
-import numpy as np
+import sys
+
 import gazeCsv as gaze
 import matplotlib.pyplot as plt
-from skimage import (color, segmentation)
-import my_utils as utls
-import dataset_vilar as ds
-import selective_search as ss
-import learning_dataset
-import logging
+import numpy as np
 import pandas as pd
+import progressbar
+from skimage import segmentation
+from sklearn.metrics import f1_score
+
+import dataset_vilar as ds
+import learning_dataset
+import my_utils as utls
+
 
 def main(conf, plot_fname='metrics.pdf', csv_fname='score.csv', logger=None):
 
@@ -29,7 +31,10 @@ def main(conf, plot_fname='metrics.pdf', csv_fname='score.csv', logger=None):
         l_dataset = learning_dataset.LearningDataset(conf)
 
         logger.info('[1/4] Loading predicted frames... ')
-        pred_frames = np.asarray([my_dataset.get_pred_frame(f) for f in range(len(conf.frameFileNames))]).transpose(1,2,0)
+        pred_frames = np.asarray([
+            my_dataset.get_pred_frame(f)
+            for f in range(len(conf.frameFileNames))
+        ]).transpose(1, 2, 0)
 
         logger.info('[2/4] Extracting seeds... ')
         seeds = utls.make_y_array_true(pred_frames,my_dataset.labels)

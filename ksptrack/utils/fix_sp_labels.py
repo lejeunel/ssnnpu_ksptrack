@@ -1,27 +1,21 @@
-import scipy
 import os
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import superPixels as spix
-import pickle as pk
-import my_utils as utls
-import progressbar
-import gazeCsv as gaze
-from skimage import (color, io, segmentation)
-from sklearn import (mixture, metrics, preprocessing, decomposition)
-from scipy import (ndimage,io)
-import glob, itertools
-import bagging as bag
-import selective_search
-import features
 import shutil as sh
+
+import numpy as np
+import pandas as pd
+import progressbar
+from scipy import io
+from skimage import io
+
+import my_utils as utls
+
 
 def relabel_desc_df(desc_df):
     #Relabel: labels, centroids_loc, seen_feats, sp_entr
     print('Relabeling desc_df')
 
-    with progressbar.ProgressBar(maxval=np.unique(desc_df['frame']).shape[0]) as bar:
+    with progressbar.ProgressBar(
+            maxval=np.unique(desc_df['frame']).shape[0]) as bar:
         for f in np.unique(desc_df['frame']):
         #for f in range(desc_df['frame'].shape[0]):
             bar.update(f)

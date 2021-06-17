@@ -1,35 +1,28 @@
-import os
-import yaml
-import cfg
-import numpy as np
-import graphtracking as gtrack
-import my_utils as utls
-import dataset_vilar as ds
-import learning_dataset as learning_ds
-import selective_search as ss
 import logging
-from sklearn.svm import SVC
-from sklearn.metrics import (f1_score, roc_curve, auc, precision_recall_curve)
+import os
+import pickle as pk
+import sys
 from multiprocessing import Pool
-from functools import partial
-from skimage.util import pad
-from skimage import (color, io, segmentation, morphology)
+
+import cfg
+import dataset_vilar as ds
+import my_utils as utls
+import numpy as np
+import pandas as pd
+import yaml
+from skimage import color, morphology
 from skimage.filters.rank import median
 from skimage.transform import rescale
-import datetime
-from joblib import Parallel, delayed
-import sys
-import matplotlib.pyplot as plt
-import progressbar
-import plot_results_vilar as pvilar
-import pandas as pd
-import pickle as pk
+from skimage.util import pad
+from sklearn.metrics import f1_score
+from sklearn.svm import SVC
 
 
 def df_to_mat(X):
 
-    out = X.as_matrix()[:,3]
+    out = X.as_matrix()[:, 3]
     return arr_reduce(out)
+
 
 def arr_reduce(x):
     """

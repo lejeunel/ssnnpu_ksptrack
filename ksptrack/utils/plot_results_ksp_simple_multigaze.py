@@ -1,18 +1,17 @@
-from sklearn.metrics import (f1_score, roc_curve, auc, precision_recall_curve)
+import logging
 import os
-import progressbar
-import numpy as np
+
 import gazeCsv as gaze
 import matplotlib.pyplot as plt
-from skimage import (color, segmentation)
-import my_utils as utls
-import dataset as ds
-import selective_search as ss
-import learning_dataset
-import logging
-import plot_results_ksp_simple as pksp
+import numpy as np
 import pandas as pd
+import progressbar
+from skimage import segmentation
+from sklearn.metrics import auc
 
+import learning_dataset
+import my_utils as utls
+import plot_results_ksp_simple as pksp
 """
 Computes segmentation frames, ROC curves on single sequence with multiple gaze
 for all iterations (KSP, KSP+SS, etc..)

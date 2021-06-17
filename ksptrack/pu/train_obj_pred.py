@@ -7,15 +7,14 @@ import torch
 import torch.optim as optim
 import yaml
 from imgaug import augmenters as iaa
-from ksptrack import prev_trans_costs
-from ksptrack.cfgs import params as params_ksp
 from ksptrack.pu import utils as utls
 from ksptrack.pu.im_utils import get_features, sp_pool
-from ksptrack.utils.loc_prior_dataset import LocPriorDataset
 from ksptrack.pu.losses import BalancedBCELoss, PULoss
 from ksptrack.pu.modeling.unet import UNet, init_weights_normal
 from ksptrack.pu.plots import freq_vs_epc
 from ksptrack.pu.pu_utils import init_kfs, update_priors_kf
+from ksptrack.utils import prev_trans_costs
+from ksptrack.utils.loc_prior_dataset import LocPriorDataset
 from skimage import io
 from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader

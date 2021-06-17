@@ -1,26 +1,11 @@
-from sklearn.metrics import (f1_score,roc_curve,auc,precision_recall_curve)
-import glob
-import warnings, itertools, _pickle, progressbar, sys, os, datetime, yaml, hashlib, json
-import cfg
-import pandas as pd
-import pickle as pk
-import numpy as np
-import gazeCsv as gaze
-import matplotlib.pyplot as plt
-import superPixels as spix
-import scipy.io
-from scipy import ndimage
-import skimage.segmentation
-from skimage import (color, io, segmentation)
-import graphtracking as gtrack
-import my_utils as utls
-import dataset as ds
-import selective_search as ss
-import shutil as sh
-import learning_dataset
 import logging
-from skimage import filters
-import superpixelmanager as spm
+import os
+
+import cfg
+import dataset as ds
+import yaml
+
+import my_utils as utls
 
 
 def main(arg_cfg):
@@ -33,8 +18,9 @@ def main(arg_cfg):
     conf = cfg.Bunch(cfg_dict)
 
     #Write config to result dir
-    conf.dataOutDir = utls.getDataOutDir(conf.dataOutRoot, conf.ds_dir, conf.resultDir,
-                                    conf.out_dir_prefix, conf.testing)
+    conf.dataOutDir = utls.getDataOutDir(conf.dataOutRoot, conf.ds_dir,
+                                         conf.resultDir, conf.out_dir_prefix,
+                                         conf.testing)
 
     #Set logger
     utls.setup_logging(conf.dataOutDir)
