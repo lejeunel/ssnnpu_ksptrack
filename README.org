@@ -17,17 +17,14 @@ The following instructions have been tested to work on a Ubuntu 20.04 machine.
    to build the CUDA superpixel pooling extension and the K-shortest paths
    C++ extension, respectively.
 
-    #+BEGIN_SRC sh
+    #+BEGIN_SRC shell
     pip install "torch>=1.8" "pybind11>=2.6"
     #+END_SRC
 
 3. Install the package. This will install the required run-time dependencies.
 
-    #+BEGIN_SRC sh
+    #+BEGIN_SRC shell
     pip install .
     #+END_SRC
 
-KSPTrack is a method for the segmentation of video and volumetric sequences
-with sparse point supervision.
-
-![alt text](pipeline.png "pipeline")
+* Usage
