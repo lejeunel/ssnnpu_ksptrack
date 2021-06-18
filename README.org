@@ -3,13 +3,15 @@
 This repository contains the code related to the
 method SSnnPU+KSPTrack from paper /A Positive/Unlabeled Approach for the Segmentation of Medical Sequences using Point-Wise Supervision/.
 
+[[graphical_abstract.png]]
+
 * Installation
 
 The following instructions have been tested to work on a Ubuntu 20.04 machine.
 
 1. Clone this repository and head to the root directory.
 
-2. Install PyTorch and pybind11 as a build-time dependencies. This is necessary
+2. Install PyTorch and pybind11 as build-time dependencies. This is necessary
    to build the CUDA superpixel pooling extension and the K-shortest paths
    C++ extension, respectively.
 
