@@ -16,13 +16,11 @@ The following instructions have been tested to work on a Ubuntu 20.04 machine.
 2. Install PyTorch and pybind11 as build-time dependencies. This is necessary
    to build the CUDA superpixel pooling extension and the K-shortest paths
    C++ extension, respectively.
-
     #+BEGIN_SRC shell
     pip install "torch>=1.8" "pybind11>=2.6"
     #+END_SRC
 
 3. Install the package. This will install the required run-time dependencies.
-
     #+BEGIN_SRC shell
     pip install .
     #+END_SRC
