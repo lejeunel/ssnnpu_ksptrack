@@ -146,12 +146,13 @@ class LocPriorDataset(BaseDataset):
                  normalization=iaa.Noop(),
                  resize_shape=None,
                  sp_labels_fname='sp_labels.npy',
-                 csv_fname='video1.csv',
+                 locs_dir='.',
+                 locs_fname='2dlocs.csv',
                  sig_prior=0.20):
         super().__init__(root_path=root_path, sp_labels_fname=sp_labels_fname)
         self.sig_prior = sig_prior
 
-        locs2d_path = pjoin(self.root_path, 'gaze-measurements', csv_fname)
+        locs2d_path = pjoin(self.root_path, locs_dir, locs_fname)
         if (os.path.exists(locs2d_path)):
             self.locs2d = readCsv(locs2d_path)
         else:

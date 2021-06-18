@@ -92,7 +92,7 @@ def get_model_freqs(probas, n_classes=3):
 def update_priors_kf(model, dl, device, state_means, state_covs, filter,
                      writer, out_path_plots, out_path_data, epoch, cfg):
 
-    res = get_features(model, dl, device, loc_prior=cfg.loc_prior)
+    res = get_features(model, dl, device)
     probas = res['outs_unpooled'] if cfg.pxls else res['outs']
     truths = res['truths_unpooled'] if cfg.pxls else res['truths']
     truths = res['truths_unpooled'] if cfg.pxls else res['truths']

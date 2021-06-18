@@ -41,7 +41,7 @@ def merge_positives(sp_desc_df, pos_for, pos_back):
 def make_link_agent(cfg):
 
     link_agent = LinkAgentRadius(csv_path=pjoin(cfg.in_path, cfg.locs_dir,
-                                                cfg.csv_fname),
+                                                cfg.locs_fname),
                                  data_path=cfg.in_path,
                                  entrance_radius=cfg.norm_neighbor_in,
                                  sp_labels_fname=cfg.sp_labels_fname,
@@ -82,7 +82,7 @@ def main(cfg):
     # Set logger
     print('-' * 10)
     print('starting experiment on: {}'.format(cfg.in_path))
-    print('2d locs filename: {}'.format(cfg.csv_fname))
+    print('2d locs filename: {}'.format(cfg.locs_fname))
     print('Output path: {}'.format(cfg.run_dir))
     print('-' * 10)
 

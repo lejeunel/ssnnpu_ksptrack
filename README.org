@@ -1,5 +1,7 @@
 #+TITLE: Self-supervised Non-Negative PU Learning + KSPTrack
 
+* Synopsis
+
 This repository contains the code related to the
 method SSnnPU+KSPTrack from paper /A Positive/Unlabeled Approach for the Segmentation of Medical Sequences using Point-Wise Supervision/.
 

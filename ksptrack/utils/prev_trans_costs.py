@@ -16,7 +16,7 @@ from sklearn.metrics import auc, precision_recall_curve, roc_curve
 
 def main(cfg):
     locs2d = utls.readCsv(
-        os.path.join(cfg.in_path, cfg.locs_dir, cfg.csv_fname))
+        os.path.join(cfg.in_path, cfg.locs_dir, cfg.locs_fname))
 
     # ---------- Descriptors/superpixel costs
     spext = SuperpixelExtractor(cfg.in_path,
@@ -32,7 +32,7 @@ def main(cfg):
 
     dl = LocPriorDataset(cfg.in_path,
                          normalization='rescale',
-                         csv_fname=cfg.csv_fname,
+                         locs_fname=cfg.locs_fname,
                          sp_labels_fname='sp_labels.npy')
 
     scores = dict()

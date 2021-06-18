@@ -101,7 +101,9 @@ def get_params(path='.'):
     p.add('--xi-fac-end', type=float)
 
     # tracking parameters
+    p.add('--ksp', default=False, action='store_true')
     p.add('--locs-dir', type=str)
+    p.add('--locs-fname', type=str)
     p.add('--csv-fname', type=str)
     p.add('--precomp-dir', type=str)
     p.add('--sp-labels-fname', type=str)

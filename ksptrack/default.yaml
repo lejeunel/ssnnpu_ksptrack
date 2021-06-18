@@ -96,10 +96,10 @@ aug-scale: 0.3
 aug-shear: 20.
 
 # tracking
-locs-dir: gaze-measurements
+locs-dir: .
 sp-labels-fname: sp_labels.npy
 precomp-dir: precomp_desc
-csv-fname: video1.csv
+locs-fname: 2dlocs.csv
 norm-neighbor-in: 0.05
 init-radius: 0.05
 norm-neighbor: 0

@@ -9,7 +9,7 @@ from ksptrack.utils.superpixel_extractor import SuperpixelExtractor
 
 if __name__ == "__main__":
 
-    p = params.get_params('..')
+    p = params.get_params()
     p.add('--out-path', required=True)
     p.add('--in-path', required=True)
     cfg = p.parse_args()
@@ -21,29 +21,44 @@ if __name__ == "__main__":
 
     cfg.nnpu_ascent = True
     cfg.pi_filt = True
-    cfg.true_prior = True
+    cfg.true_prior = False
 
+    # pre-train using pi_overspec_ratio as prior on all frames
     cfg.phase = 0
     print('------------------------')
-    print('nnPU (ph0)')
+    print('SSnnPU (warm-up phase)')
     cfg.exp_name = 'pu_piovrs_{}_ph0'.format(cfg.pi_overspec_ratio)
     print('exp_name: {}'.format(cfg.exp_name))
     print('in_path: {}'.format(cfg.in_path))
     print('------------------------')
-    cfg.loss_obj_pred = 'pu'
     if not os.path.exists(pjoin(cfg.out_path, cfg.exp_name)):
         train_obj_pred.main(cfg)
 
-    cfg.phase = 2
+    # train using class-prior estimation method
+    cfg.phase = 1
+    cfg.pred_init_dir = cfg.exp_name
+    cfg.exp_name = 'pu_piovrs_{}_ph1'.format(cfg.pi_overspec_ratio)
     print('------------------------')
-    print('nnPU (true prior per frame)')
-    cfg.exp_name = 'pu_true'
+    print('SSnnPU (prior estimation phase)')
     print('exp_name: {}'.format(cfg.exp_name))
     print('in_path: {}'.format(cfg.in_path))
     print('------------------------')
-    cfg.true_prior = 'true'
     if not os.path.exists(pjoin(cfg.out_path, cfg.exp_name)):
         train_obj_pred.main(cfg)
 
-    cfg.model_path = pjoin(cfg.out_path, cfg.exp_name, 'cps')
-    ksp_segmentation.main(cfg)
+    # train a couple more epochs with class-priors as estimated above
+    cfg.phase = 2
+    cfg.pred_init_dir = cfg.exp_name
+    cfg.exp_name = 'pu_piovrs_{}_ph2'.format(cfg.pi_overspec_ratio)
+    print('------------------------')
+    print('SSnnPU (prior estimation phase)')
+    print('exp_name: {}'.format(cfg.exp_name))
+    print('in_path: {}'.format(cfg.in_path))
+    print('------------------------')
+    if not os.path.exists(pjoin(cfg.out_path, cfg.exp_name)):
+        train_obj_pred.main(cfg)
+
+    # run spatio-temporal regularization step
+    if cfg.ksp:
+        cfg.model_path = pjoin(cfg.out_path, cfg.exp_name, 'cps')
+        ksp_segmentation.main(cfg)

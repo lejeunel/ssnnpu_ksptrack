@@ -9,11 +9,11 @@ import torch
 class SuperpixelDataset(LocPriorDataset):
 
     def __init__(self, root_path,
-                 csv_fname='video1.csv',
+                 locs_fname='2dlocs.csv',
                  sig_prior=0.1,
                  labels_fname='sp_labels.npz',
                  contours_fname='sp_labels_contours.npz'):
-        super().__init__(root_path, csv_fname=csv_fname,
+        super().__init__(root_path, locs_fname=locs_fname,
                          sig_prior=sig_prior)
 
         self.labels_path = pjoin(self.root_path, 'precomp_desc', labels_fname)

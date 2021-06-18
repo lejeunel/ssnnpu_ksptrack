@@ -107,14 +107,14 @@ class Loader(LocPriorDataset):
                  augmentations=None,
                  normalization=None,
                  resize_shape=None,
-                 csv_fname='video1.csv',
+                 locs_fname='2dlocs.csv',
                  sp_labels_fname='sp_labels.npy',
                  sig_prior=0.1):
         """
 
         """
         super().__init__(root_path=root_path,
-                         csv_fname=csv_fname,
+                         locs_fname=locs_fname,
                          sp_labels_fname=sp_labels_fname,
                          sig_prior=sig_prior)
 
@@ -186,14 +186,14 @@ class StackLoader(Loader):
                  augmentations=None,
                  normalization=None,
                  resize_shape=None,
-                 csv_fname='video1.csv',
+                 locs_fname='2dlocs.csv',
                  sp_labels_fname='sp_labels.npy',
                  sig_prior=0.05):
         """
 
         """
         super().__init__(root_path=root_path,
-                         csv_fname=csv_fname,
+                         locs_fname=locs_fname,
                          sig_prior=sig_prior,
                          sp_labels_fname=sp_labels_fname)
         self.depth = depth

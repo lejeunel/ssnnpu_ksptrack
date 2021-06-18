@@ -193,7 +193,7 @@ def train(cfg, model, device, dataloaders, run_path):
         return
 
     if cfg.true_prior:
-        print('using groundtruth')
+        print('using groundtruth for class-priors')
         res = get_features(model, dataloaders['init'], device)
         truths = res['truths_unpooled'] if cfg.pxls else res['truths']
         priors = np.array([(t > 0).sum() / t.size for t in truths])
@@ -227,7 +227,7 @@ def train(cfg, model, device, dataloaders, run_path):
             print('found checkpoint at {}. Skipping.'.format(check_cp_exist))
             return
         from argparse import Namespace
-        cfg_prior = Namespace(root_path=cfg.out_root,
+        cfg_prior = Namespace(root_path=cfg.out_path,
                               train_dirs=['Dataset' + cfg.train_dir],
                               exp_name=cfg.pred_init_dir,
                               thr=cfg.var_thr,
@@ -245,7 +245,7 @@ def train(cfg, model, device, dataloaders, run_path):
 
         cps = sorted(
             glob(
-                pjoin(cfg.out_root, 'Dataset' + cfg.train_dir,
+                pjoin(cfg.out_path, 'Dataset' + cfg.train_dir,
                       cfg.pred_init_dir, 'cps', '*.pth.tar')))
         cp_eps = np.array([
             int(os.path.split(f)[-1].split('_')[-1].split('.')[0]) for f in cps
@@ -265,10 +265,7 @@ def train(cfg, model, device, dataloaders, run_path):
             print('found checkpoint at {}. Skipping.'.format(check_cp_exist))
             return
         print('using model of warm-up phase')
-        res = get_features(model,
-                           dataloaders['init'],
-                           device,
-                           loc_prior=cfg.loc_prior)
+        res = get_features(model, dataloaders['init'], device)
         truths = res['truths_unpooled'] if cfg.pxls else res['truths']
         max_freq = cfg.pi_overspec_ratio * np.max([(truth.sum()) / truth.size
                                                    for truth in truths])
@@ -282,9 +279,8 @@ def train(cfg, model, device, dataloaders, run_path):
         assert cfg.pred_init_dir, 'give pred_init_dir'
 
         cp = sorted(
-            glob(
-                pjoin(cfg.out_root, 'Dataset' + cfg.train_dir,
-                      cfg.pred_init_dir, 'cps', '*.pth.tar')))[-1]
+            glob(pjoin(cfg.out_path, cfg.pred_init_dir, 'cps',
+                       '*.pth.tar')))[-1]
 
         print('loading checkpoint {}'.format(cp))
         state_dict = torch.load(cp, map_location=lambda storage, loc: storage)
@@ -301,10 +297,7 @@ def train(cfg, model, device, dataloaders, run_path):
         # print('reinitializing weights')
         model.apply(init_weights_normal)
 
-        res = get_features(model,
-                           dataloaders['init'],
-                           device,
-                           loc_prior=cfg.loc_prior)
+        res = get_features(model, dataloaders['init'], device)
         truths = res['truths_unpooled'] if cfg.pxls else res['truths']
         max_freq = cfg.pi_overspec_ratio * np.max([(truth.sum()) / truth.size
                                                    for truth in truths])
@@ -420,9 +413,13 @@ def main(cfg):
     dl_train = LocPriorDataset(cfg.in_path,
                                normalization='rescale',
                                augmentations=transf,
+                               locs_dir=cfg.locs_dir,
+                               locs_fname=cfg.locs_fname,
                                resize_shape=cfg.in_shape)
     dl_init = LocPriorDataset(cfg.in_path,
                               normalization='rescale',
+                              locs_dir=cfg.locs_dir,
+                              locs_fname=cfg.locs_fname,
                               resize_shape=cfg.in_shape)
 
     frames_tnsr_brd = np.linspace(0,
