@@ -9,14 +9,11 @@ from ksptrack.utils.base_dataset import BaseDataset
 from sklearn.metrics import auc, f1_score, precision_recall_curve, roc_curve
 
 
-def main(cfg):
+def main(cfg, path):
 
-    logger = logging.getLogger('comp_ksp')
+    print('Writing scores to: ', path)
 
-    out_path = pjoin(cfg.out_path, cfg.exp_name)
-    logger.info('Writing scores to: ' + out_path)
-
-    res = np.load(os.path.join(out_path, 'results.npz'))
+    res = np.load(os.path.join(path, 'results.npz'))
 
     dset = BaseDataset(cfg.in_path)
 
@@ -43,11 +40,11 @@ def main(cfg):
     data.update({'f1_pm': f1, 'auc_pm': auc_})
 
     df = pd.Series(data)
-    df.to_csv(pjoin(out_path, 'scores.csv'))
+    df.to_csv(pjoin(path, 'scores.csv'))
 
     data = {'pr_pm': precision, 'rc_pm': recall, 'tpr_pm': tpr, 'fpr_pm': fpr}
 
-    np.savez(pjoin(out_path, 'scores_curves.npz'), **data)
+    np.savez(pjoin(path, 'scores_curves.npz'), **data)
 
 
 if __name__ == "__main__":

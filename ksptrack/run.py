@@ -28,12 +28,12 @@ if __name__ == "__main__":
 
     # pre-train using pi_overspec_ratio as prior on all frames
     cfg.phase = 0
-    print('------------------------')
+    print('-' * 10)
     print('SSnnPU (warm-up phase)')
     cfg.exp_name = 'pu_piovrs_{}_ph0'.format(cfg.pi_overspec_ratio)
     print('exp_name: {}'.format(cfg.exp_name))
     print('in_path: {}'.format(cfg.in_path))
-    print('------------------------')
+    print('-' * 10)
     if not os.path.exists(pjoin(cfg.out_path, cfg.exp_name)):
         train_obj_pred.main(cfg)
 
@@ -41,11 +41,11 @@ if __name__ == "__main__":
     cfg.phase = 1
     cfg.pred_init_dir = cfg.exp_name
     cfg.exp_name = 'pu_piovrs_{}_ph1'.format(cfg.pi_overspec_ratio)
-    print('------------------------')
+    print('-' * 10)
     print('SSnnPU (prior estimation phase)')
     print('exp_name: {}'.format(cfg.exp_name))
     print('in_path: {}'.format(cfg.in_path))
-    print('------------------------')
+    print('-' * 10)
     if not os.path.exists(pjoin(cfg.out_path, cfg.exp_name)):
         train_obj_pred.main(cfg)
 
@@ -53,11 +53,11 @@ if __name__ == "__main__":
     cfg.phase = 2
     cfg.last_phase_path = pjoin(cfg.out_path, cfg.exp_name)
     cfg.exp_name = 'pu_piovrs_{}_ph2'.format(cfg.pi_overspec_ratio)
-    print('------------------------')
+    print('-' * 10)
     print('SSnnPU (prior estimation phase)')
     print('exp_name: {}'.format(cfg.exp_name))
     print('in_path: {}'.format(cfg.in_path))
-    print('------------------------')
+    print('-' * 10)
     if not os.path.exists(pjoin(cfg.out_path, cfg.exp_name)):
         train_obj_pred.main(cfg)
 

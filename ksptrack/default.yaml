@@ -3,7 +3,7 @@ frames: []
 epochs-autoenc: 150
 epochs-pred: 100
 epochs-pre-pred: 40
-epochs-post-pred: 100
+epochs-post-pred: 40
 epochs-dec: 100
 epochs-dist: 80
 

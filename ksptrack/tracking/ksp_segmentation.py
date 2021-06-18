@@ -71,26 +71,27 @@ def make_link_agent(cfg):
 def main(cfg):
 
     data = dict()
-    cfg.run_dir = pjoin(cfg.out_path, '{}'.format(cfg.exp_name))
+    out_path = pjoin(cfg.out_path, '{}'.format(cfg.exp_name),
+                     'ksp_segmentation')
 
-    if (os.path.exists(cfg.run_dir)):
-        print('run dir {} already exists.'.format(cfg.run_dir))
+    if (os.path.exists(out_path)):
+        print('ouput path {} already exists.'.format(out_path))
         # return cfg
     else:
-        os.makedirs(cfg.run_dir)
+        os.makedirs(out_path)
 
     # Set logger
     print('-' * 10)
-    print('starting experiment on: {}'.format(cfg.in_path))
+    print('starting segmentation on: {}'.format(cfg.in_path))
     print('2d locs filename: {}'.format(cfg.locs_fname))
-    print('Output path: {}'.format(cfg.run_dir))
+    print('Output path: {}'.format(out_path))
     print('-' * 10)
 
     precomp_desc_path = pjoin(cfg.in_path, cfg.precomp_dir)
     if (not os.path.exists(precomp_desc_path)):
         os.makedirs(precomp_desc_path)
 
-    with open(pjoin(cfg.run_dir, 'cfg.yml'), 'w') as outfile:
+    with open(pjoin(out_path, 'cfg.yml'), 'w') as outfile:
         yaml.dump(cfg.__dict__, stream=outfile, default_flow_style=False)
 
     # ---------- Descriptors/superpixel costs
@@ -149,7 +150,7 @@ def main(cfg):
     print('got ', len(all_sps), ' unique superpixels')
 
     # Saving
-    fileOut = pjoin(cfg.run_dir, 'results.npz')
+    fileOut = pjoin(out_path, 'results.npz')
     data = dict()
     data['ksp_scores_mat'] = utls.get_binary_array(link_agent.labels,
                                                    np.array(all_sps))
@@ -160,10 +161,10 @@ def main(cfg):
     print("Saving results and cfg to: " + fileOut)
     np.savez(fileOut, **data)
 
-    print('Finished experiment: ' + cfg.run_dir)
+    print('Finished experiment: ', out_path)
 
-    write_frames_results.main(cfg, cfg.run_dir)
-    comp_scores.main(cfg)
+    write_frames_results.main(cfg, out_path)
+    comp_scores.main(cfg, out_path)
 
     return cfg
 
@@ -177,7 +178,6 @@ if __name__ == "__main__":
     p.add('--pred-path', default='')
     p.add('--trans-path', default='')
     p.add('--use-model-pred', default=False, action='store_true')
-    # p.add('--loc-prior', default=False, action='store_true')
     p.add('--coordconv', default=False, action='store_true')
     p.add('--trans', default='lfda', type=str)
 
