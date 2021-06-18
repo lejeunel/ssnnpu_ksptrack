@@ -19,8 +19,11 @@ if __name__ == "__main__":
                                 n_segments=cfg.slic_n_sp)
     spext.run()
 
+    # do gradient ascent
     cfg.nnpu_ascent = True
+    # apply frame-wise filtering to priors
     cfg.pi_filt = True
+    # use ground truth to compute priors
     cfg.true_prior = False
 
     # pre-train using pi_overspec_ratio as prior on all frames
@@ -48,7 +51,7 @@ if __name__ == "__main__":
 
     # train a couple more epochs with class-priors as estimated above
     cfg.phase = 2
-    cfg.pred_init_dir = cfg.exp_name
+    cfg.last_phase_path = pjoin(cfg.out_path, cfg.exp_name)
     cfg.exp_name = 'pu_piovrs_{}_ph2'.format(cfg.pi_overspec_ratio)
     print('------------------------')
     print('SSnnPU (prior estimation phase)')

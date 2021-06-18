@@ -85,8 +85,7 @@ def do_plot(df, thr, min_epc, hue='dset', title='', legend_hue=False):
     return plt.gcf()
 
 
-def get_all(root_path, train_dir, exp_name, curves_dir, thr, rho_pi_err_thr,
-            min_epc, n_epc):
+def get_all(path, curves_dir, thr, rho_pi_err_thr, min_epc, n_epc):
     freqs = []
     err_prior = []
     err_freq = []
@@ -98,10 +97,9 @@ def get_all(root_path, train_dir, exp_name, curves_dir, thr, rho_pi_err_thr,
     model_priors = []
     epochs = []
 
-    files = sorted(
-        glob(pjoin(root_path, train_dir, exp_name, curves_dir, '*.p')))
+    files = sorted(glob(pjoin(path, curves_dir, '*.p')))
 
-    print('exp path: {}'.format(pjoin(root_path, train_dir, exp_name)))
+    print('path: {}'.format(path))
     print('loading {} files'.format(len(files)))
     pbar = tqdm(total=len(files))
     for f in files:
@@ -148,8 +146,7 @@ def get_all(root_path, train_dir, exp_name, curves_dir, thr, rho_pi_err_thr,
     # df_stats['epoch'] = df_stats['epoch'] - df_stats['epoch'].min()
 
     # read tensorboard stuff
-    df_tnsr = tflog2pandas(
-        glob(pjoin(root_path, train_dir, exp_name, 'event*'))[0])
+    df_tnsr = tflog2pandas(glob(pjoin(path, 'event*'))[0])
 
     key = [
         k for k in df_tnsr['metric'] if k.split('/')[0] == 'var_pseudo_neg'
@@ -160,7 +157,7 @@ def get_all(root_path, train_dir, exp_name, curves_dir, thr, rho_pi_err_thr,
     df_stats['below_var_thr'] = df_stats['var_pseudo_neg'] < thr
 
     print('getting initial pi')
-    with open(pjoin(root_path, train_dir, exp_name, 'cfg.yml'), 'r') as infile:
+    with open(pjoin(path, 'cfg.yml'), 'r') as infile:
         pi0 = yaml.load(infile, Loader=yaml.FullLoader)['init_pi']
 
     below_pi0 = [(freq <= pi0).all() for freq in freqs]
@@ -209,14 +206,13 @@ def get_all(root_path, train_dir, exp_name, curves_dir, thr, rho_pi_err_thr,
 
 def main(cfg):
 
-    priors = {d: [] for d in cfg.train_dirs}
+    priors = {d: [] for d in cfg.path}
 
     dfs = {}
 
-    for d in cfg.train_dirs:
+    for d in cfg.path:
 
-        df_stats, df_tnsr, priors_ = get_all(cfg.root_path, d, cfg.exp_name,
-                                             cfg.curves_dir, cfg.thr,
+        df_stats, df_tnsr, priors_ = get_all(d, cfg.curves_dir, cfg.thr,
                                              cfg.rho_pi_err, cfg.min_epc,
                                              cfg.n_epc)
         priors[d] = priors_
@@ -233,7 +229,6 @@ def main(cfg):
     if cfg.title:
         fig.suptitle(cfg.title, y=0.92)
     if cfg.save:
-        # plt.tight_layout()
         fig.set_size_inches(8.5, 5.5)
         fig.savefig(cfg.save, dpi=300, bbox_inches='tight')
         plt.close()
@@ -244,11 +239,11 @@ def main(cfg):
         dfs[(dfs['dset'] == d)
             & ((dfs['convergence'] == 'stop')
                | (dfs['convergence'] == 'optima/stop'))]['epoch'].item()
-        for d in cfg.train_dirs
+        for d in cfg.path
     ]
     ep_converged_ = []
     priors_ = []
-    for d, e in zip(cfg.train_dirs, ep_converged):
+    for d, e in zip(cfg.path, ep_converged):
         ep_start = dfs[(dfs['dset'] == d)].iloc[0]['epoch']
         ep = dfs[(dfs['dset'] == d) & (dfs['epoch'] == e)]['epoch'] - ep_start
         priors_.append(priors[d][ep.item()])
@@ -262,9 +257,7 @@ def main(cfg):
 if __name__ == "__main__":
     p = configargparse.ArgParser()
 
-    p.add('--root-path', required=True)
-    p.add('--train-dirs', nargs='+', required=True)
-    p.add('--exp-name', required=True)
+    p.add('--path', nargs='+', required=True)
     p.add('--curves-dir', default='curves_data')
     p.add('--thr', default=0.007)
     p.add('--n-epc', default=10)

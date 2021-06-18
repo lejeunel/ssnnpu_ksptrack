@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 
-import numpy as np
-from ksptrack.pu.im_utils import get_features
-import seaborn as sns
-import pandas as pd
 from os.path import join as pjoin
+
 import matplotlib.pyplot as plt
-from filterpy.kalman.UKF import UnscentedKalmanFilter as UKF
-from filterpy.kalman.sigma_points import MerweScaledSigmaPoints
-from scipy.signal import medfilt
-from skimage.filters import threshold_multiotsu
+import numpy as np
+import pandas as pd
+import seaborn as sns
 import tqdm
+from filterpy.kalman.sigma_points import MerweScaledSigmaPoints
+from filterpy.kalman.UKF import UnscentedKalmanFilter as UKF
+from ksptrack.pu.im_utils import get_features
+from skimage.filters import threshold_multiotsu
 
 
 def trans_fn(state, noise, xi, filt_size, dt):
@@ -100,7 +100,6 @@ def update_priors_kf(model, dl, device, state_means, state_covs, filter,
     clf = np.array([(p >= 0.5).sum() / p.size for p in probas])
 
     observations = np.array([(p**cfg.gamma).mean() for p in probas])
-    # observations = get_model_freqs(probas, n_classes=2)
     observations = np.clip(observations, a_min=0., a_max=cfg.init_pi)
 
     filter.update(observations)
@@ -120,7 +119,6 @@ def update_priors_kf(model, dl, device, state_means, state_covs, filter,
     true_pi = np.array([np.sum(p >= 0.5) / p.size for p in truths])
 
     print('new state_mean max: ', state_means[-1].max())
-    print('true max: ', true_pi.max())
 
     sns.set_style('darkgrid')
     df = pd.DataFrame.from_dict({

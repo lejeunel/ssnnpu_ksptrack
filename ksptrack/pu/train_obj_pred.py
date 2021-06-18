@@ -227,9 +227,7 @@ def train(cfg, model, device, dataloaders, run_path):
             print('found checkpoint at {}. Skipping.'.format(check_cp_exist))
             return
         from argparse import Namespace
-        cfg_prior = Namespace(root_path=cfg.out_path,
-                              train_dirs=['Dataset' + cfg.train_dir],
-                              exp_name=cfg.pred_init_dir,
+        cfg_prior = Namespace(path=[cfg.last_phase_path],
                               thr=cfg.var_thr,
                               rho_pi_err=cfg.rho_pi_err,
                               n_epc=cfg.var_epc,
@@ -243,16 +241,13 @@ def train(cfg, model, device, dataloaders, run_path):
         print('taking priors from epoch {}'.format(ep))
         print('pi_post_ratio {}'.format(cfg.pi_post_ratio))
 
-        cps = sorted(
-            glob(
-                pjoin(cfg.out_path, 'Dataset' + cfg.train_dir,
-                      cfg.pred_init_dir, 'cps', '*.pth.tar')))
+        cps = sorted(glob(pjoin(cfg.last_phase_path, 'cps', '*.pth.tar')))
         cp_eps = np.array([
             int(os.path.split(f)[-1].split('_')[-1].split('.')[0]) for f in cps
         ])
         cp_fname = cps[np.argmin(np.abs(cp_eps - ep))]
 
-        path_ = pjoin(os.path.split(run_path)[0], cfg.pred_init_dir, cp_fname)
+        path_ = pjoin(cfg.last_phase_path, cp_fname)
         print('loading checkpoint {}'.format(path_))
         state_dict = torch.load(path_,
                                 map_location=lambda storage, loc: storage)
