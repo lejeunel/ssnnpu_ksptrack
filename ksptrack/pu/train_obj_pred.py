@@ -12,7 +12,7 @@ from ksptrack.pu import utils as utls
 from ksptrack.pu.im_utils import get_features, sp_pool
 from ksptrack.pu.losses import BalancedBCELoss, PULoss
 from ksptrack.pu.plots import freq_vs_epc
-from ksptrack.pu.pu_utils import init_kfs, update_priors_kf
+from ksptrack.pu.pu_utils import init_kfs, update_priors_kf, update_priors_kato
 from ksptrack.utils import prev_trans_costs
 from ksptrack.utils.loc_prior_dataset import LocPriorDataset
 from skimage import io
@@ -270,6 +270,7 @@ def train(cfg, model, device, dataloaders, run_path):
                                                    init_mean=max_freq,
                                                    init_cov=0.03,
                                                    cfg=cfg)
+        delta = np.copy(state_means[0][0])
         training_priors = state_means
         assert cfg.pred_init_dir, 'give pred_init_dir'
 
@@ -365,10 +366,19 @@ def train(cfg, model, device, dataloaders, run_path):
 
         if (cfg.phase == 1) and (epoch > 0) and (epoch % cfg.prior_period
                                                  == 0):
-            filter, state_means, state_covs = update_priors_kf(
-                model, dataloaders['init'], device, state_means, state_covs,
-                filter, writer, out_paths['curves'], out_paths['curves_data'],
-                epoch, cfg)
+
+            if cfg.em_estim:
+                state_means = update_priors_kato(model, dataloaders['init'],
+                                                 device, state_means, delta,
+                                                 writer, out_paths['curves'],
+                                                 out_paths['curves_data'],
+                                                 epoch, cfg)
+            else:
+                filter, state_means, state_covs = update_priors_kf(
+                    model, dataloaders['init'], device, state_means,
+                    state_covs, filter, writer, out_paths['curves'],
+                    out_paths['curves_data'], epoch, cfg)
+
             training_priors = state_means
 
         train_one_epoch(model,

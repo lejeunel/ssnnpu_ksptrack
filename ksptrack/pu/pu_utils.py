@@ -89,6 +89,55 @@ def get_model_freqs(probas, n_classes=3):
     return freqs
 
 
+def update_priors_kato(model, dl, device, state_means, delta, writer,
+                       out_path_plots, out_path_data, epoch, cfg):
+
+    res = get_features(model, dl, device)
+    probas = res['outs_unpooled'] if cfg.pxls else res['outs']
+    truths = res['truths_unpooled'] if cfg.pxls else res['truths']
+    truths = res['truths_unpooled'] if cfg.pxls else res['truths']
+
+    clf = np.array([(p >= 0.5).sum() / p.size for p in probas])
+
+    new_priors = np.mean([np.mean(f) for f in probas]) * np.ones(len(probas))
+
+    if new_priors[0] > delta:
+        state_means[0] = state_means[0] - cfg.pi_xi
+        new_priors = state_means[0]
+
+    state_means.append(new_priors)
+    true_pi = np.array([np.sum(p >= 0.5) / p.size for p in truths])
+
+    sns.set_style('darkgrid')
+    df = pd.DataFrame.from_dict({
+        'frame': np.arange(true_pi.size),
+        'true': true_pi,
+        'clf': clf,
+        'priors_0': state_means[0],
+        'priors_t': state_means[-2],
+        'priors_t+1': state_means[-1]
+    })
+    df.to_pickle(pjoin(out_path_data, 'ep_{:04d}.p'.format(epoch)))
+    g = sns.lineplot(x='frame',
+                     y='value',
+                     hue='variable',
+                     data=pd.melt(df, ['frame']))
+    plt.ylim(0, 1.1 * cfg.init_pi)
+    plt.savefig(pjoin(out_path_plots, 'ep_{:04d}.png'.format(epoch)))
+    plt.close()
+
+    # variance of predictions on pseudo-negatives
+    vars_pseudo_negs = np.mean([np.var(p[p < 0.5]) for p in probas])
+
+    err = np.mean(np.abs(true_pi - state_means[-1]))
+
+    writer.add_scalar('prior_err/{}'.format(cfg.exp_name), err, epoch)
+    writer.add_scalar('var_pseudo_neg/{}'.format(cfg.exp_name),
+                      vars_pseudo_negs, epoch)
+
+    return state_means
+
+
 def update_priors_kf(model, dl, device, state_means, state_covs, filter,
                      writer, out_path_plots, out_path_data, epoch, cfg):
 

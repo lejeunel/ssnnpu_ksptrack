@@ -78,7 +78,6 @@ def get_params(path='.'):
 
     p.add('--pi-mul', type=float)
     p.add('--init-pi', type=float)
-    p.add('--pi-xi', type=float)
     p.add('--pi-overspec-ratio', type=float)
     p.add('--pi-post-ratio', type=float)
     p.add('--pi-post-ratio-truth', type=float)
@@ -99,6 +98,10 @@ def get_params(path='.'):
     p.add('--obs-fac', type=float)
     p.add('--xi-fac-start', type=float)
     p.add('--xi-fac-end', type=float)
+
+    # kato18 baseline
+    p.add('--pi-xi', type=float)
+    p.add('--em-estim', default=False, action='store_true')
 
     # tracking parameters
     p.add('--ksp', default=False, action='store_true')

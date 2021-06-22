@@ -43,7 +43,7 @@ lambda-: 0.
 pi-mul: 1.0
 init-pi: 0.20
 pi-xi: 0.005
-pi-overspec-ratio: 1.5
+pi-overspec-ratio: 1.4
 pi-post-ratio: 0.9
 pi-post-ratio-truth: 0.9
 pi-min: 0.005
@@ -104,3 +104,7 @@ norm-neighbor-in: 0.05
 init-radius: 0.05
 norm-neighbor: 0
 pm-thr: 0.5
+
+
+# baseline kato18
+pi-xi: 5e-3
