@@ -46,4 +46,4 @@ The paths must be modified according to your use case.
 The ~ksp~ flag argument will run the spatio-temporal regularization step.
 The ~pi-overspec-ratio~ variable denotes a multiplicative factor applied to the maximum positive-class frequency computed from
 the manual ground truth annotations.
-It ultimately sets the initial prior (see variable $\eta$ in the paper for details).
+It ultimately sets the initial prior (see variable ~eta~ in the paper for details).
