@@ -22,7 +22,6 @@ def run(cfg):
     spext = SuperpixelExtractor(cfg.in_path,
                                 compactness=cfg.slic_compactness,
                                 n_segments=cfg.slic_n_sp)
-    spext.run()
 
     # do gradient ascent
     cfg.nnpu_ascent = True
@@ -36,6 +35,7 @@ def run(cfg):
     print('exp_name: {}'.format(cfg.exp_name))
     print('in_path: {}'.format(cfg.in_path))
     print('-' * 10)
+    spext.run()
     if not os.path.exists(pjoin(cfg.out_path, cfg.exp_name)):
         train_obj_pred.main(cfg)
 

@@ -158,7 +158,7 @@ def get_all(path, curves_dir, thr, rho_pi_err_thr, min_epc, n_epc):
 
     print('getting initial pi')
     with open(pjoin(path, 'cfg.yml'), 'r') as infile:
-        pi0 = yaml.load(infile, Loader=yaml.FullLoader)['init_pi']
+        pi0 = yaml.load(infile, Loader=yaml.Loader)['init_pi']
 
     below_pi0 = [(freq <= pi0).all() for freq in freqs]
     rho_pi_err = np.array([(np.abs(rho - pi) / pi0).mean()

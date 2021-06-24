@@ -13,7 +13,7 @@ from tqdm import tqdm
 
 def df_to_tgt(df):
     target_pos = {
-        r['frame']: torch.zeros(r['n_labels'])
+        r['frame']: torch.zeros(int(r['n_labels']))
         for _, r in df.iterrows()
     }
 

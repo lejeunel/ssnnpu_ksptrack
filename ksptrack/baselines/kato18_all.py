@@ -37,6 +37,8 @@ if __name__ == "__main__":
           ])
     cfg = p.parse_args()
 
+    cfg.epochs_pred = 50
+
     root_in_path = cfg.in_path
     root_out_path = cfg.out_path
 

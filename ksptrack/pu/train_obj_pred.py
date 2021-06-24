@@ -2,6 +2,7 @@ import os
 from glob import glob
 from os.path import join as pjoin
 
+import pandas as pd
 import numpy as np
 import torch
 import torch.optim as optim
@@ -111,21 +112,24 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch, lr_sch, cfg,
         with torch.set_grad_enabled(True):
             optimizer.zero_grad()
 
-            res = model(data['image'])
+            with torch.cuda.amp.autocast():
+                res = model(data['image'])
 
-            criterion = make_loss(cfg)
-            frames = data['frame_idx']
-            pi = [priors[-1][f] for f in frames]
-            target = [
-                data['annotations'][data['annotations']['frame'] == f]
-                for f in frames
-            ]
+                criterion = make_loss(cfg)
+                frames = data['frame_idx']
+                pi = [priors[-1][f] for f in frames]
+                target = [
+                    data['annotations'][data['annotations']['frame'] == f]
+                    for f in frames
+                ]
+
             if not cfg.pxls:
                 n_labels = [
-                    data['annotations'][data['annotations']['frame'] ==
-                                        f].iloc[0]['n_labels'] for f in frames
+                    int(data['annotations'][data['annotations']['frame'] ==
+                                            f].iloc[0]['n_labels'])
+                    for f in frames
                 ]
-                inp = sp_pool(res['output'], data['labels'])
+                inp = sp_pool(res['output'].float(), data['labels'])
                 inp = torch.split(inp.squeeze(), n_labels)
             else:
                 inp = res['output']
@@ -227,15 +231,23 @@ def train(cfg, model, device, dataloaders, run_path):
             print('found checkpoint at {}. Skipping.'.format(check_cp_exist))
             return
         from argparse import Namespace
-        cfg_prior = Namespace(path=[cfg.last_phase_path],
-                              thr=cfg.var_thr,
-                              rho_pi_err=cfg.rho_pi_err,
-                              n_epc=cfg.var_epc,
-                              min_epc=cfg.min_var_epc,
-                              save=pjoin(run_path, 'priors.png'),
-                              title='',
-                              curves_dir='curves_data')
-        priors, ep = freq_vs_epc.main(cfg_prior)
+        if cfg.em_estim:
+            print('using last estimated prior')
+            prior_file = sorted(
+                glob(pjoin(cfg.last_phase_path, 'curves_data', '*.p')))[-1]
+            priors = [pd.read_pickle(prior_file)['priors_t+1']]
+            ep = [cfg.epochs_pred]
+        else:
+            print('finding prior according to stopping condition')
+            cfg_prior = Namespace(path=[cfg.last_phase_path],
+                                  thr=cfg.var_thr,
+                                  rho_pi_err=cfg.rho_pi_err,
+                                  n_epc=cfg.var_epc,
+                                  min_epc=cfg.min_var_epc,
+                                  save=pjoin(run_path, 'priors.png'),
+                                  title='',
+                                  curves_dir='curves_data')
+            priors, ep = freq_vs_epc.main(cfg_prior)
         training_priors = [priors[0] * cfg.pi_post_ratio]
         ep = ep[0]
         print('taking priors from epoch {}'.format(ep))
