@@ -35,7 +35,7 @@ Head to [[https://zenodo.org/record/5007789/files/data.zip?download=1]] to downl
 
 * Usage
 
-We provide a script to run the whole [[fig:pipeline]].
+We provide a script to run the whole pipeline.
 Head to the ~ksptrack~ directory and run:
 
 #+BEGIN_SRC shell
